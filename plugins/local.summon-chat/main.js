@@ -48,7 +48,7 @@ const DEFAULT_MAX_TOOL_ROUNDS = 3;
  * 与 manifest.json 的 version 保持一致（smoke 测试会断言两者相等，防止漂移）。
  * 暴露给界面显示：判断「到底加载的是哪个版本」时，这是最直接的证据。
  */
-const PLUGIN_VERSION = "0.15.0";
+const PLUGIN_VERSION = "0.15.1";
 /** Keep the wire prompt well inside the host's 200k combined-character cap. */
 const MAX_HISTORY_MESSAGES = 20;
 const SEARCH_RESULT_LIMIT = 5;

@@ -53,6 +53,10 @@ body { overflow: hidden; }
 .queue-strip .chip { max-width: 100%; }
 .queue-strip .chip b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
+/* 输入框抬高一半：设计里 .bare-input.comp 是 min-height:2.5rem，×1.5 = 3.75rem。
+   多行时仍由 autoGrow 撑高，上限沿用设计的 max-height。 */
+.bare-input.comp { min-height: 3.75rem; }
+
 /* 消息：用户气泡右对齐；助手区承载 Markdown */
 .msg-user { display: flex; flex-direction: column; align-items: flex-end; }
 .ai-body > .md { white-space: normal; }
@@ -763,7 +767,9 @@ __ICONS__
         // -------------------------------------------------------- 输入/发送
         function autoGrow(ta) {
           ta.style.height = "auto";
-          ta.style.height = Math.min(ta.scrollHeight, 130) + "px";
+          // min-height 由 CSS 决定（可能是 rem），读计算值才不会和样式脱节。
+          var min = parseFloat(window.getComputedStyle(ta).minHeight) || 0;
+          ta.style.height = Math.min(Math.max(ta.scrollHeight, min), 130) + "px";
         }
         function refreshSendKey() {
           // 忙时它是「停止」，必须可点；闲时按输入框是否为空决定。

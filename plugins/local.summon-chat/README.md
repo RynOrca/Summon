@@ -3,7 +3,7 @@
 用系统级快捷键呼出的**对话悬浮窗**。PI-Desktop 插件。
 
 - 插件 id：`local.summon-chat`
-- 版本：0.15.0
+- 版本：0.15.1
 - 依赖：PI-Desktop **>= 0.16.0**
 - 窗口形态：`shape: "widget"` + `alwaysOnTop: true` —— **常驻置顶、不可缩放**
 - 界面：按 **「鲸唤 Summon 原型源码包 v1.4」** 设计系统实现
