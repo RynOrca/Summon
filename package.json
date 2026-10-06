@@ -1,0 +1,24 @@
+{
+  "name": "summon-4-pi",
+  "version": "0.2.0",
+  "private": true,
+  "description": "PI-Desktop plugin: a transparent floating orb summoned by a system-wide hotkey.",
+  "license": "MIT",
+  "scripts": {
+    "test": "node tools/smoke-test.mjs && node tools/smoke-chat.mjs",
+    "test:orb": "node tools/smoke-test.mjs",
+    "test:chat": "node tools/smoke-chat.mjs",
+    "lint": "node tools/lint-html-scripts.mjs",
+    "design": "node tools/check-design-port.mjs",
+    "export:design": "node tools/export-design-base.mjs",
+    "build:renderer": "node tools/build-renderer.mjs",
+    "renderer:check": "node tools/build-renderer.mjs --check",
+    "check": "node tools/check-plugin.mjs plugins/local.summon-widget && node tools/check-plugin.mjs plugins/local.summon-chat",
+    "check:orb": "node tools/check-plugin.mjs plugins/local.summon-widget",
+    "check:chat": "node tools/check-plugin.mjs plugins/local.summon-chat",
+    "pack": "node tools/pack-plugin.mjs plugins/local.summon-widget && node tools/pack-plugin.mjs plugins/local.summon-chat",
+    "verify": "npm run test && npm run lint && npm run renderer:check && npm run design && npm run check"
+  },
+  "comment": "No \"type\": \"module\" on purpose — plugins/local.summon-widget/main.js is CommonJS, and a root-level type:module would make Node treat it as ESM. tools/*.mjs are ESM via their extension.",
+  "devDependencies": {}
+}

@@ -1,0 +1,1579 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>鲸唤 Summon — 设计系统与交互原型（源码版 v1.4）</title>
+<style>
+/* ============ Design Tokens（与 design.md §1 一致）============ */
+:root, [data-theme="light"]{
+  --bg:#FFFFFF; --surface:#F6F7F8; --surface-2:#EDEFF2;
+  --border:#D9DDE3; --border-strong:#B8BEC9;
+  --text-primary:#17191D; --text-secondary:#565D68; --text-disabled:#9AA1AC;
+  --accent:#2E6BE6; --accent-hover:#1F56C9; --accent-pressed:#17439C;
+  --accent-fill:#2E6BE6; --on-accent:#FFFFFF; --accent-subtle:#E8EFFC;
+  --success:#1E8E4E; --success-bg:#E6F6EC;
+  --warning:#A85A00; --warning-bg:#FBF1E2;
+  --error:#C62F1F; --error-bg:#FBE9E7;
+  --skeleton-a:#EDEFF2; --skeleton-b:#F8F9FA;
+  --shadow-window:0 24px 48px rgba(0,0,0,.18);
+  --shadow-pop:0 8px 24px rgba(0,0,0,.14);
+}
+[data-theme="dark"]{
+  --bg:#191B1F; --surface:#212429; --surface-2:#2A2E35;
+  --border:#383D45; --border-strong:#4A505B;
+  --text-primary:#ECEEF1; --text-secondary:#A6ADBA; --text-disabled:#646B77;
+  --accent:#6B93F0; --accent-hover:#82A4F5; --accent-pressed:#5479D6;
+  --accent-fill:#3A63D6; --on-accent:#FFFFFF; --accent-subtle:#26314A;
+  --success:#4CBF7E; --success-bg:#1B2E24;
+  --warning:#E0A03C; --warning-bg:#33280F;
+  --error:#EF6A5A; --error-bg:#3A1F1B;
+  --skeleton-a:#23262B; --skeleton-b:#2C3037;
+  --shadow-window:0 24px 48px rgba(0,0,0,.5);
+  --shadow-pop:0 8px 24px rgba(0,0,0,.45);
+}
+:root{
+  --font-ui:"Segoe UI Variable Text","Segoe UI","Microsoft YaHei UI",system-ui,-apple-system,sans-serif;
+  --font-code:"Cascadia Code",Consolas,ui-monospace,monospace;
+  /* 动效 Token（design.md §12.2）*/
+  --dur-fast:120ms; --dur-expand:160ms; --dur-drawer:240ms; --dur-view:180ms;
+  --ease-smooth:cubic-bezier(.2,0,0,1);
+}
+html{font-size:16px}
+[data-fs="125"]{font-size:20px}
+[data-fs="150"]{font-size:24px}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  font-family:var(--font-ui); background:var(--surface); color:var(--text-primary);
+  font-size:.875rem; line-height:1.55;
+  transition:background-color .2s ease, color .2s ease;
+}
+h1,h2,h3{margin:0 0 .5rem; font-weight:600}
+h2{font-size:1.25rem}
+h3{font-size:1rem}
+p{margin:.25rem 0 .75rem}
+a{color:var(--accent)}
+code{font-family:var(--font-code); background:var(--surface-2); padding:1px 5px; border-radius:4px; font-size:.75rem}
+:focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:4px}
+
+/* ============ 展示页布局 ============ */
+.layout{display:flex; min-height:100vh}
+.sidenav{
+  width:13.5rem; flex:0 0 13.5rem; background:var(--bg); border-right:1px solid var(--border);
+  padding:1.25rem .75rem; position:sticky; top:0; height:100vh; overflow-y:auto;
+}
+.brand{display:flex; align-items:center; gap:.5rem; font-weight:600; font-size:1rem; margin:.25rem 0 1rem; color:var(--text-primary); text-decoration:none}
+.brand .logo{width:1.5rem;height:1.5rem;border-radius:.375rem;background:var(--accent-fill);color:#fff;display:grid;place-items:center;font-size:.9rem}
+.sidenav a.navlink{
+  display:flex; align-items:center; gap:.5rem; padding:.375rem .5rem; border-radius:6px;
+  color:var(--text-secondary); text-decoration:none; font-size:.75rem; margin-bottom:2px;
+  transition:background-color var(--dur-fast) ease-out, color var(--dur-fast) ease-out;
+}
+.sidenav a.navlink:hover{background:var(--surface-2); color:var(--text-primary)}
+.sidenav a.navlink .n{width:1.1rem;text-align:right;color:var(--text-disabled);font-size:.6875rem}
+main{flex:1; min-width:0; padding:1.5rem 2rem 4rem; max-width:75rem}
+section{margin-bottom:3rem; scroll-margin-top:1rem}
+.sec-desc{color:var(--text-secondary); font-size:.75rem; margin:.25rem 0 1rem}
+.tbl{width:100%; border-collapse:collapse; font-size:.75rem; background:var(--bg); border:1px solid var(--border); border-radius:8px; overflow:hidden}
+.tbl th,.tbl td{padding:.4rem .6rem; border-bottom:1px solid var(--border); text-align:left; vertical-align:top}
+.tbl th{background:var(--surface); color:var(--text-secondary); font-weight:600}
+.tbl tr:last-child td{border-bottom:none}
+.grid{display:grid; gap:1rem}
+.g2{grid-template-columns:repeat(auto-fit,minmax(18rem,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(14rem,1fr))}
+.card{background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:1rem}
+.card h3{margin-bottom:.5rem}
+.callout{background:var(--accent-subtle); border:1px solid var(--accent); border-radius:8px; padding:.75rem 1rem; font-size:.75rem; margin:.75rem 0}
+.swatches{display:grid; grid-template-columns:repeat(auto-fill,minmax(7.5rem,1fr)); gap:.5rem}
+.sw{border:1px solid var(--border); border-radius:6px; overflow:hidden; font-size:.6875rem}
+.sw .c{height:2.5rem}
+.sw .m{padding:.25rem .4rem; background:var(--bg)}
+.sw .m b{display:block; font-size:.6875rem}
+kbd{
+  font-family:var(--font-code); background:var(--surface); border:1px solid var(--border);
+  border-bottom-width:2px; border-radius:4px; padding:1px 6px; font-size:.75rem;
+}
+
+/* 主题/字号 全局切换器（展示页顶栏）*/
+.pagebar{
+  display:flex; align-items:center; gap:.75rem; flex-wrap:wrap; margin-bottom:1.25rem;
+  background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:.5rem .75rem;
+  position:sticky; top:.75rem; z-index:50; box-shadow:var(--shadow-pop);
+}
+.seg{display:inline-flex; background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden}
+.seg button{
+  border:none; background:transparent; color:var(--text-secondary); font-family:inherit;
+  font-size:.75rem; padding:.3rem .6rem; cursor:pointer;
+  transition:background-color var(--dur-fast) ease-out, color var(--dur-fast) ease-out;
+}
+.seg button:hover{background:var(--surface-2)}
+.seg button.on{background:var(--accent-fill); color:var(--on-accent)}
+.pagebar .lbl{font-size:.75rem; color:var(--text-secondary)}
+</style>
+</head>
+<body>
+<svg style="display:none" aria-hidden="true">
+  <symbol id="i-new" viewBox="0 0 16 16"><path fill="currentColor" d="M8 2.5a.75.75 0 0 1 .75.75v4h4a.75.75 0 0 1 0 1.5h-4v4a.75.75 0 0 1-1.5 0v-4h-4a.75.75 0 0 1 0-1.5h4v-4A.75.75 0 0 1 8 2.5Z"/></symbol>
+  <symbol id="i-history" viewBox="0 0 16 16"><path fill="currentColor" d="M8 2.5a5.5 5.5 0 1 0 5.27 6.98.7.7 0 0 1 1.35.38A7 7 0 1 1 10.6 3.4l1.2-1.2a.7.7 0 0 0-.99-.99L8.9 3.12a.7.7 0 0 0 0 .99l1.9 1.9a.7.7 0 0 0 .99-.98l-1.2-1.2A5.5 5.5 0 0 0 8 2.5Zm-.3 2.7a.65.65 0 0 1 1.3 0V8l1.87 1.08a.65.65 0 1 1-.65 1.13L8.05 8.8a.65.65 0 0 1-.35-.57V5.2Z"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 16 16"><path fill="currentColor" d="M8 5.75a2.25 2.25 0 1 0 0 4.5 2.25 2.25 0 0 0 0-4.5ZM6.4 8a1.6 1.6 0 1 1 3.2 0 1.6 1.6 0 0 1-3.2 0Z"/><path fill="currentColor" d="M7.44 1.5c-.52 0-.96.37-1.05.88l-.15.85c-.31.13-.61.3-.88.5l-.83-.28a1.07 1.07 0 0 0-1.28.47l-.5.87c-.25.44-.16 1 .23 1.32l.66.55a4.6 4.6 0 0 0 0 1.02l-.66.55c-.39.32-.48.88-.23 1.32l.5.87c.25.44.78.63 1.28.47l.83-.28c.27.2.57.37.88.5l.15.85c.09.51.53.88 1.05.88h1.12c.52 0 .96-.37 1.05-.88l.15-.85c.31-.13.61-.3.88-.5l.83.28c.5.16 1.03-.03 1.28-.47l.5-.87c.25-.44.16-1-.23-1.32l-.66-.55a4.6 4.6 0 0 0 0-1.02l.66-.55c.39-.32.48-.88.23-1.32l-.5-.87a1.07 1.07 0 0 0-1.28-.47l-.83.28c-.27-.2-.57-.37-.88-.5l-.15-.85c-.09-.51-.53-.88-1.05-.88H7.44Z"/></symbol>
+  <symbol id="i-close" viewBox="0 0 16 16"><path fill="currentColor" d="M3.4 3.4a.7.7 0 0 1 1 0L8 7l3.6-3.6a.7.7 0 1 1 1 1L9 8l3.6 3.6a.7.7 0 1 1-1 1L8 9l-3.6 3.6a.7.7 0 1 1-1-1L7 8 3.4 4.4a.7.7 0 0 1 0-1Z"/></symbol>
+  <symbol id="i-min" viewBox="0 0 16 16"><path fill="currentColor" d="M3.5 8.25a.75.75 0 0 1 .75-.75h7.5a.75.75 0 0 1 0 1.5H4.25a.75.75 0 0 1-.75-.75Z"/></symbol>
+  <symbol id="i-send" viewBox="0 0 16 16"><path fill="currentColor" d="M1.6 7.3 13.9 2.2c.6-.25 1.2.35.98.96L9.8 14.4c-.23.62-1.1.65-1.36.05l-1.86-4.2-4.28-1.6c-.62-.24-.62-1.12 0-1.35l-.3 0Zm1.9.75 4.06 1.52c.27.1.48.32.58.6l1.35 3.06 3.24-8.7L3.5 8.05Z"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 16 16"><rect fill="currentColor" x="4" y="4" width="8" height="8" rx="1.5"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 16 16"><path fill="currentColor" d="M4 5.5C4 4.67 4.67 4 5.5 4h6c.83 0 1.5.67 1.5 1.5v6c0 .83-.67 1.5-1.5 1.5h-6A1.5 1.5 0 0 1 4 11.5v-6Zm1.5 0v6h6v-6h-6ZM2.5 5C2.5 4.17 3.17 3.5 4 3.5h6.5a.5.5 0 0 1 0 1H4.5v6a.5.5 0 0 1-1 0V5Z"/></symbol>
+  <symbol id="i-retry" viewBox="0 0 16 16"><path fill="currentColor" d="M8 2.5a5.5 5.5 0 1 0 5.27 6.98.7.7 0 0 1 1.35.38A7 7 0 1 1 10.6 3.4l1.2-1.2a.7.7 0 0 0-.99-.99L8.9 3.12a.7.7 0 0 0 0 .99l1.9 1.9a.7.7 0 0 0 .99-.98l-1.2-1.2A5.5 5.5 0 0 0 8 2.5Z"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 16 16"><path fill="currentColor" d="M4.4 6.35a.65.65 0 0 1 .92-.92L8 8.11l2.68-2.68a.65.65 0 1 1 .92.92L8.46 10.5a.65.65 0 0 1-.92 0L4.4 6.35Z"/></symbol>
+  <symbol id="i-check" viewBox="0 0 16 16"><path fill="currentColor" d="m6.73 11.06 6.55-6.55a.75.75 0 0 1 1.06 1.06l-7.6 7.6a.75.75 0 0 1-1.06 0L1.66 9.15a.75.75 0 0 1 1.06-1.06l4.01 4.97Z"/></symbol>
+  <symbol id="i-warn" viewBox="0 0 16 16"><path fill="currentColor" d="M8.6 2.16a.7.7 0 0 0-1.2 0L1.66 12.3a.7.7 0 0 0 .6 1.06h11.48a.7.7 0 0 0 .6-1.06L8.6 2.16ZM8.5 6v3.2a.5.5 0 0 1-1 0V6a.5.5 0 0 1 1 0Zm-.5 5.4a.6.6 0 1 1 0-1.2.6.6 0 0 1 0 1.2Z"/></symbol>
+  <symbol id="i-info" viewBox="0 0 16 16"><path fill="currentColor" d="M8 1.9a6.1 6.1 0 1 0 0 12.2A6.1 6.1 0 0 0 8 1.9Zm0 1.4a4.7 4.7 0 1 1 0 9.4 4.7 4.7 0 0 1 0-9.4Zm0 1.6a.65.65 0 1 0 0 1.3.65.65 0 0 0 0-1.3Zm-.05 2.2c.36 0 .65.29.65.65v2.8a.65.65 0 1 1-1.3 0V8.15c0-.36.29-.65.65-.65Z"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 16 16"><path fill="currentColor" d="M6.5 2a.75.75 0 0 0-.72.55L5.5 3.2h-2a.65.65 0 1 0 0 1.3h9a.65.65 0 1 0 0-1.3h-2l-.28-.65A.75.75 0 0 0 9.5 2h-3ZM4.7 5.9h6.6l-.43 7.02a1.3 1.3 0 0 1-1.3 1.23H6.43a1.3 1.3 0 0 1-1.3-1.23L4.7 5.9Z"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 16 16"><path fill="currentColor" d="M11.87 1.87a1.7 1.7 0 0 1 2.4 2.4l-.53.53-2.4-2.4.53-.53ZM10.4 3.35l2.4 2.4-6.9 6.9-3.02.62.62-3.02 6.9-6.9Z"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 16 16"><path fill="currentColor" d="M8 5.5c-3.04 0-5.34 2.2-6.13 3.14a.87.87 0 0 0 0 1.1C2.66 10.7 4.96 12.9 8 12.9s5.34-2.2 6.13-3.15a.87.87 0 0 0 0-1.1C13.34 7.7 11.04 5.5 8 5.5Zm0 1.6a2.15 2.15 0 1 1 0 4.3 2.15 2.15 0 0 1 0-4.3Z"/></symbol>
+  <symbol id="i-key" viewBox="0 0 16 16"><path fill="currentColor" d="M10.5 1.8a3.7 3.7 0 0 1 3.66 4.24 3.7 3.7 0 0 1-4.4 3.04l-.53.52v.9h-.9l-.1 1.4h-1.4l-.9.9H4.6v-1.9l4.34-4.34A3.7 3.7 0 0 1 10.5 1.8Zm1.2 2.2a1.1 1.1 0 1 0 0 2.2 1.1 1.1 0 0 0 0-2.2Z"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 16 16"><path fill="currentColor" d="M8 3a5 5 0 1 0 4.9 6h-1.55A3.5 3.5 0 1 1 8 4.5c.97 0 1.84.4 2.47 1.03L8.5 8H13V3.5l-1.6 1.6A5 5 0 0 0 8 3Z"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 16 16"><path fill="currentColor" d="M2.75 4h10.5a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1 0-1.5Zm0 3.25h10.5a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1 0-1.5Zm0 3.25h7a.75.75 0 0 1 0 1.5h-7a.75.75 0 0 1 0-1.5Z"/></symbol>
+  <symbol id="i-left" viewBox="0 0 16 16"><path fill="currentColor" d="M10.35 3.4a.65.65 0 0 1 .93.93L7.25 8.35l4.03 4.02a.65.65 0 1 1-.93.93L5.4 10.35a.65.65 0 0 1 0-.93l4.95-6.02Z"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 16 16"><path fill="currentColor" d="M8 1.5c.3 0 .55.22.6.51l.42 2.45a3.5 3.5 0 0 0 2.52 2.52l2.45.42A.61.61 0 0 1 14 8.6l-2.45.42a3.5 3.5 0 0 0-2.52 2.52l-.42 2.45a.61.61 0 0 1-1.2 0l-.43-2.45A3.5 3.5 0 0 0 4.46 9.02L2 8.6a.61.61 0 0 1 0-1.2l2.45-.42A3.5 3.5 0 0 0 6.98 4.46l.42-2.45c.05-.3.3-.51.6-.51Z"/></symbol>
+  <symbol id="i-search" viewBox="0 0 16 16"><path fill="currentColor" d="M6.9 1.9a5 5 0 1 0 3.16 8.86l2.6 2.59a.7.7 0 0 0 1-1l-2.6-2.6A5 5 0 0 0 6.9 1.9Zm0 1.4a3.6 3.6 0 1 1 0 7.2 3.6 3.6 0 0 1 0-7.2Z"/></symbol>
+</svg>
+<div class="layout">
+<aside class="sidenav">
+  <a class="brand" href="#overview"><span class="logo">🐳</span>鲸唤 Summon</a>
+  <a class="navlink" href="#overview"><span class="n">01</span>概览</a>
+  <a class="navlink" href="#tokens"><span class="n">02</span>Design Tokens</a>
+  <a class="navlink" href="#components"><span class="n">03</span>组件状态库</a>
+  <a class="navlink" href="#proto"><span class="n">04</span>原型 · 快捷输入</a>
+  <a class="navlink" href="#proto-chat"><span class="n">05</span>原型 · 对话</a>
+  <a class="navlink" href="#proto-settings"><span class="n">06</span>原型 · 设置</a>
+  <a class="navlink" href="#states"><span class="n">07</span>状态全景</a>
+  <a class="navlink" href="#responsive"><span class="n">08</span>响应式演示</a>
+  <a class="navlink" href="#boundary"><span class="n">09</span>边界测试</a>
+  <a class="navlink" href="#icons"><span class="n">10</span>图标与授权</a>
+  <a class="navlink" href="#delivery"><span class="n">11</span>交付与边界</a>
+</aside>
+<main>
+<div class="pagebar">
+  <span class="lbl">主题</span>
+  <div class="seg" id="themeSeg">
+    <button data-t="light" class="on">浅色</button><button data-t="dark">深色</button><button data-t="system">跟随系统</button>
+  </div>
+  <span class="lbl">字号</span>
+  <div class="seg" id="fsSeg">
+    <button data-f="100" class="on">100%</button><button data-f="125">125%</button><button data-f="150">150%</button>
+  </div>
+  <span class="lbl" style="margin-left:auto">源码版 v1.4 · <a href="design.md" target="_blank">design.md</a> · 全部内容为演示数据</span>
+</div>
+
+<style>
+/* ============ 通用组件（design.md §2 状态矩阵）============ */
+.btn{
+  display:inline-flex; align-items:center; gap:.35rem; height:2rem; padding:0 .75rem;
+  border-radius:6px; border:1px solid transparent; font-family:inherit; font-size:.75rem;
+  cursor:pointer; color:var(--text-primary); background:var(--surface); border-color:var(--border);
+  transition:background-color var(--dur-fast) ease-out, border-color var(--dur-fast) ease-out,
+             color var(--dur-fast) ease-out, transform var(--dur-fast) ease-out, opacity var(--dur-fast) ease-out;
+  white-space:nowrap;
+}
+.btn:hover{background:var(--surface-2); border-color:var(--border-strong)}
+.btn:active,.btn.pressed{transform:translateY(.5px); background:var(--border); border-color:var(--border-strong)}
+.btn:disabled,.btn.disabled{color:var(--text-disabled); background:var(--surface-2); border-color:var(--border); cursor:not-allowed; transform:none}
+.btn.primary{background:var(--accent-fill); color:var(--on-accent); border-color:var(--accent-fill)}
+.btn.primary:hover{background:var(--accent-hover)}
+.btn.primary.pressed,.btn.primary:active{background:var(--accent-pressed)}
+.btn.primary:disabled,.btn.primary.disabled{background:var(--border); color:var(--text-disabled)}
+.btn.danger{color:var(--error)}
+.btn.danger:hover{border-color:var(--error); background:var(--error-bg)}
+.btn.ghost{background:transparent; border-color:transparent; color:var(--text-secondary)}
+.btn.ghost:hover{background:var(--surface-2); color:var(--text-primary)}
+.btn.loading{pointer-events:none; position:relative}
+.btn.loading::after{
+  content:""; width:.8rem; height:.8rem; border-radius:50%;
+  border:2px solid var(--text-disabled); border-top-color:var(--accent);
+  animation:spin .8s linear infinite;
+}
+.btn .ic{width:1rem; height:1rem; flex:0 0 1rem}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.iconbtn{
+  display:inline-grid; place-items:center; width:1.75rem; height:1.75rem; border:none;
+  background:transparent; color:var(--text-secondary); border-radius:50%; cursor:pointer;
+  transition:background-color var(--dur-fast) ease-out, color var(--dur-fast) ease-out;
+}
+.iconbtn svg{width:1rem; height:1rem}
+.iconbtn:hover{background:var(--surface-2); color:var(--text-primary)}
+.iconbtn:disabled{color:var(--text-disabled); cursor:not-allowed; background:transparent}
+.iconbtn.closebtn:hover{background:var(--error-bg); color:var(--error)}
+
+.field label{display:block; font-size:.75rem; color:var(--text-secondary); margin-bottom:.25rem}
+.input{
+  width:100%; height:2rem; padding:0 .5rem; font-family:inherit; font-size:.875rem;
+  color:var(--text-primary); background:var(--surface); border:1px solid var(--border); border-radius:6px;
+  transition:border-color var(--dur-fast) ease-out, background-color var(--dur-fast) ease-out;
+}
+.input:hover{border-color:var(--border-strong)}
+.input:focus{border-color:var(--accent); outline:none}
+.input:disabled{color:var(--text-disabled); background:var(--surface-2); cursor:not-allowed}
+.input.err{border-color:var(--error)}
+.field .err-msg{color:var(--error); font-size:.75rem; margin-top:.2rem}
+textarea.input{height:auto; min-height:6rem; max-height:15rem; resize:vertical; line-height:1.55; padding:.4rem .5rem}
+.fieldrow{display:flex; align-items:center; gap:.5rem}
+.fieldrow .input{flex:1}
+
+.chip{
+  display:inline-flex; align-items:center; gap:.25rem; height:1.75rem; padding:0 .5rem;
+  background:var(--surface); border:1px solid var(--border); border-radius:6px;
+  color:var(--text-secondary); font-size:.75rem; font-family:inherit; cursor:pointer;
+  transition:background-color var(--dur-fast) ease-out, border-color var(--dur-fast) ease-out, color var(--dur-fast) ease-out;
+  max-width:100%;
+}
+.chip:hover{background:var(--surface-2); color:var(--text-primary)}
+.chip.open{background:var(--accent-subtle); border-color:var(--accent); color:var(--accent)}
+.chip:disabled{color:var(--text-disabled); cursor:not-allowed}
+.chip svg{width:.75rem; height:.75rem; flex:0 0 .75rem}
+.chip b{font-weight:500; overflow-wrap:anywhere}
+
+/* 下拉浮层：置顶、不被窗口裁剪（design.md §9.5）*/
+.popmenu{
+  position:fixed; z-index:400; min-width:10rem; max-width:18rem; max-height:15rem; overflow-y:auto;
+  background:var(--bg); border:1px solid var(--border); border-radius:8px; box-shadow:var(--shadow-pop);
+  padding:.25rem; animation:popIn 160ms ease-out;
+}
+@keyframes popIn{from{opacity:0; transform:translateY(4px) scale(.96)} to{opacity:1; transform:none}}
+.popmenu .item{
+  display:flex; align-items:flex-start; gap:.4rem; width:100%; text-align:left;
+  padding:.35rem .5rem; border:none; background:transparent; border-radius:6px;
+  font-family:inherit; font-size:.75rem; color:var(--text-primary); cursor:pointer;
+}
+.popmenu .item:hover{background:var(--surface-2)}
+.popmenu .item.sel{background:var(--accent-subtle)}
+.popmenu .item .nm{font-weight:500; overflow-wrap:anywhere}
+.popmenu .item .sub{color:var(--text-secondary); font-size:.6875rem; display:block; overflow-wrap:anywhere}
+
+/* 开关 / 复选 */
+.toggle{position:relative; width:2rem; height:1.125rem; border-radius:1rem; background:var(--surface-2); border:1px solid var(--border-strong); cursor:pointer; transition:background-color var(--dur-fast) ease-out, border-color var(--dur-fast) ease-out; flex:0 0 auto}
+.toggle::after{content:""; position:absolute; top:1px; left:1px; width:.85rem; height:.85rem; border-radius:50%; background:var(--bg); border:1px solid var(--border-strong); transition:transform var(--dur-fast) ease-out}
+.toggle.on{background:var(--accent-fill); border-color:var(--accent-fill)}
+.toggle.on::after{transform:translateX(.85rem); border-color:transparent}
+.toggle:disabled{opacity:.5; cursor:not-allowed}
+.checkrow{display:flex; align-items:flex-start; gap:.4rem; font-size:.75rem; cursor:pointer}
+.checkrow .box{width:1rem; height:1rem; flex:0 0 1rem; margin-top:1px; border:1px solid var(--border-strong); border-radius:4px; display:grid; place-items:center; color:var(--on-accent); transition:background-color var(--dur-fast) ease-out}
+.checkrow.on .box{background:var(--accent-fill); border-color:var(--accent-fill)}
+.checkrow .box svg{width:.75rem; height:.75rem; opacity:0}
+.checkrow.on .box svg{opacity:1}
+.checkrow .ct .sub{color:var(--text-secondary); font-size:.6875rem; display:block; overflow-wrap:anywhere}
+
+kbd.rec{min-width:3.2rem; text-align:center}
+kbd.conflict{border-color:var(--warning); color:var(--warning)}
+.warn-line{color:var(--warning); font-size:.75rem; display:flex; align-items:center; gap:.3rem; margin-top:.25rem}
+.warn-line svg{width:.9rem; height:.9rem; flex:0 0 .9rem}
+
+/* Toast */
+.toasts{position:fixed; left:50%; bottom:1.25rem; transform:translateX(-50%); z-index:600; display:flex; flex-direction:column; gap:.4rem; align-items:center; pointer-events:none}
+.toast{
+  display:flex; align-items:center; gap:.4rem; padding:.45rem .8rem; background:var(--bg);
+  border:1px solid var(--border); border-radius:8px; box-shadow:var(--shadow-pop); font-size:.75rem;
+  animation:toastIn 160ms ease-out;
+}
+.toast svg{width:1rem; height:1rem; flex:0 0 1rem}
+.toast.ok svg{color:var(--success)} .toast.err svg{color:var(--error)} .toast.info svg{color:var(--accent)}
+@keyframes toastIn{from{opacity:0; transform:translateY(8px)} to{opacity:1; transform:none}}
+.toast.hide{opacity:0; transform:translateY(8px); transition:opacity .3s ease-out, transform .3s ease-out}
+
+/* 确认对话框 */
+.overlay{position:fixed; inset:0; z-index:500; background:rgba(0,0,0,.32); display:grid; place-items:center; opacity:0; pointer-events:none; transition:opacity 180ms ease-out}
+.overlay.show{opacity:1; pointer-events:auto}
+.modal{
+  width:min(20rem,90vw); background:var(--bg); border:1px solid var(--border); border-radius:8px;
+  box-shadow:var(--shadow-pop); padding:1rem; transform:scale(.96); opacity:0;
+  transition:transform 160ms ease-out, opacity 160ms ease-out;
+}
+.overlay.show .modal{transform:none; opacity:1}
+.modal h3{display:flex; align-items:center; gap:.4rem; font-size:.875rem; margin-bottom:.35rem}
+.modal h3 svg{width:1.1rem; height:1.1rem; color:var(--warning)}
+.modal p{font-size:.75rem; color:var(--text-secondary)}
+.modal .acts{display:flex; justify-content:flex-end; gap:.5rem; margin-top:.9rem}
+
+/* 骨架屏 / 状态行 */
+.skel{height:.8rem; border-radius:4px; background:linear-gradient(90deg,var(--skeleton-a),var(--skeleton-b),var(--skeleton-a)); background-size:200% 100%; animation:shine 1.2s linear infinite}
+@keyframes shine{to{background-position:-200% 0}}
+.statusline{display:flex; align-items:center; gap:.4rem; font-size:.75rem; color:var(--text-secondary); padding:.35rem 0}
+.statusline .spin{width:1rem; height:1rem; flex:0 0 1rem; border-radius:50%; border:2px solid var(--border); border-top-color:var(--accent); animation:spin .8s linear infinite}
+
+/* ============ 桌面窗口原型框架 ============ */
+.win{
+  container-type:inline-size;
+  background:var(--bg); border:1px solid var(--border); border-radius:10px;
+  box-shadow:var(--shadow-window); overflow:hidden;
+  display:flex; flex-direction:column; margin:0 auto; position:relative;
+}
+.win .titlebar{
+  display:flex; align-items:center; gap:.4rem; height:2rem; flex:0 0 2rem;
+  background:var(--surface); border-bottom:1px solid var(--border);
+  padding:0 .35rem 0 .75rem; font-size:.6875rem; color:var(--text-secondary);
+}
+.win .titlebar .tb-ic{width:.65rem; height:.65rem; color:var(--accent)}
+.win .titlebar .wbtns{margin-left:auto; display:flex; gap:.15rem}
+.wview{flex:1; display:flex; flex-direction:column; min-height:0; position:relative}
+
+/* 视图切换动画（§12.2）*/
+.view{display:none; flex:1; flex-direction:column; min-height:0; opacity:0; transform:translateY(4px)}
+.view.on{display:flex; animation:viewIn 180ms ease-out forwards}
+@keyframes viewIn{to{opacity:1; transform:none}}
+
+/* 顶栏 */
+.topbar{display:flex; align-items:center; gap:.3rem; padding:.35rem .5rem; border-bottom:none; flex:0 0 auto; min-height:2.75rem}
+.topbar .grow{flex:1; min-width:0; display:flex; gap:.3rem; align-items:center; overflow:hidden}
+.topbar .iconbtn{flex:0 0 auto}
+
+/* —— 快捷输入态（design.md §3.1 / §9.8 无背景输入）—— */
+.quickwrap{flex:1; display:flex; flex-direction:column; justify-content:center; padding:0 1rem 4rem; gap:.5rem; min-height:0}
+.bare-input{
+  width:100%; border:none; background:transparent; outline:none; resize:none;
+  font-family:inherit; font-size:.875rem; line-height:1.55; color:var(--text-primary);
+  min-height:2.5rem; max-height:10rem; padding:0; caret-color:var(--accent);
+}
+.bare-input::placeholder{color:var(--text-disabled)}
+.quick-hint{font-size:.6875rem; color:var(--text-disabled)}
+.quick-chips{display:flex; justify-content:center; gap:.5rem; margin-top:.5rem; flex-wrap:wrap}
+
+/* —— 对话态 —— */
+.msg-area{flex:1; overflow-y:auto; padding:1rem; position:relative; min-height:0; scroll-behavior:smooth}
+.msg{margin-bottom:1rem; position:relative}
+.msg .role-name{font-size:.6875rem; color:var(--text-secondary); margin-bottom:.15rem; display:flex; align-items:center; gap:.3rem}
+.msg .role-name svg{width:.7rem;height:.7rem;color:var(--accent)}
+.msg-user{display:flex; flex-direction:column; align-items:flex-end}
+.bubble{
+  display:inline-block; max-width:85%; background:var(--accent-fill); color:var(--on-accent);
+  border-radius:8px; padding:.5rem .75rem; font-size:.875rem; line-height:1.55; overflow-wrap:anywhere;
+  white-space:pre-wrap; text-align:left;
+}
+.msg-user .msg-ops{display:flex; gap:.1rem; margin-top:.15rem; opacity:0; transition:opacity var(--dur-fast) ease-out}
+.msg-user:hover .msg-ops{opacity:1}
+.ai-body{font-size:.875rem; line-height:1.6; overflow-wrap:anywhere; white-space:pre-wrap}
+.ai-body .caret{display:inline-block; width:2px; height:1em; background:var(--accent); vertical-align:-.15em; animation:caretBlink 1s steps(2) infinite}
+@keyframes caretBlink{50%{opacity:0}}
+.ai-ops{display:flex; gap:.1rem; opacity:0; transition:opacity var(--dur-fast) ease-out}
+.msg:hover .ai-ops{opacity:1}
+.stopped-tag{font-size:.6875rem; color:var(--text-disabled); margin-top:.15rem}
+.err-line{display:flex; align-items:center; gap:.3rem; color:var(--error); font-size:.75rem; margin-top:.25rem}
+.err-line svg{width:.9rem;height:.9rem}
+.retry-link{color:var(--accent); font-size:.75rem; cursor:pointer; text-decoration:underline; background:none; border:none; font-family:inherit; padding:0}
+.codeblk{position:relative; margin:.4rem 0; background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:.6rem .75rem; font-family:var(--font-code); font-size:.75rem; overflow-x:auto; white-space:pre}
+.codeblk .lang{position:absolute; top:.25rem; right:.5rem; font-size:.625rem; color:var(--text-disabled)}
+
+/* 消息区中部状态块（连接失败/凭据缺失/模型不可用 §5）*/
+.center-block{
+  margin:auto; text-align:center; color:var(--text-secondary); font-size:.75rem; max-width:22rem; padding:1rem;
+}
+.center-block svg{width:2rem; height:2rem; color:var(--text-disabled); margin-bottom:.5rem}
+.center-block b{color:var(--text-primary); display:block; font-size:.875rem; margin-bottom:.2rem}
+
+/* 模糊过渡带（design.md §9.7 / §11.2：下边界贴输入区上边界）*/
+.fade-band{
+  position:absolute; left:0; right:0; bottom:0; height:4rem; pointer-events:none; z-index:2;
+  background:linear-gradient(180deg, transparent, var(--bg));
+}
+.fade-band .blurpart{
+  position:absolute; inset:0; bottom:0; height:2.5rem;
+  -webkit-backdrop-filter:blur(8px); backdrop-filter:blur(8px);
+  mask-image:linear-gradient(180deg, transparent, #000);
+  -webkit-mask-image:linear-gradient(180deg, transparent, #000);
+}
+
+/* 输入区（composer）：透明背景、无线（§9.7/§12）*/
+.composer{flex:0 0 auto; padding:.5rem .75rem .6rem; position:relative; z-index:3; background:var(--bg)}
+.composer .cinbox{display:flex; align-items:flex-end; gap:.4rem}
+.bare-input.comp{min-height:2.5rem; max-height:10rem}
+.sendkey{
+  width:1.75rem; height:1.75rem; flex:0 0 1.75rem; display:grid; place-items:center;
+  border:none; border-radius:6px; background:var(--accent-fill); color:var(--on-accent); cursor:pointer;
+  transition:background-color var(--dur-fast) ease-out, opacity var(--dur-fast) ease-out, transform 160ms ease-out;
+}
+.sendkey svg{width:1rem; height:1rem}
+.sendkey:hover{background:var(--accent-hover)}
+.sendkey:active{background:var(--accent-pressed)}
+.sendkey:disabled{background:var(--border); color:var(--text-disabled); cursor:not-allowed}
+.sendkey.stop{background:var(--surface); color:var(--text-primary); border:1px solid var(--border)}
+.sendkey.stop svg{width:.75rem; height:.75rem}
+.sendkey.stop:hover{border-color:var(--error); color:var(--error)}
+.comp-hint{font-size:.625rem; color:var(--text-disabled); margin-top:.3rem; text-align:right}
+
+/* 右缘跳转刻度条（§12.1：右对齐、当前向左凸、8px）*/
+.ticks{
+  position:absolute; right:12px; top:50%; transform:translateY(-50%); z-index:4;
+  display:flex; flex-direction:column; gap:.25rem; align-items:flex-end;
+}
+.tick{
+  height:2px; width:8px; border:none; padding:0; border-radius:4px; cursor:pointer;
+  background:var(--border-strong); position:relative;
+  transition:width 120ms ease-out, background-color 120ms ease-out;
+}
+.tick::before{content:""; position:absolute; inset:-5px -2px} /* 扩大命中区 */
+.tick:hover{background:var(--accent-hover)}
+.tick.active{width:12px; background:var(--accent)}
+
+/* 滚动条（§9.4/§12 融合 + §9.10 显隐：滚动时显示、静止1s后1s渐隐）*/
+.scroller{scrollbar-width:thin; scrollbar-color:transparent transparent; transition:scrollbar-color 1s ease-out}
+.scroller.show{scrollbar-color:var(--border-strong) transparent}
+.scroller::-webkit-scrollbar{width:4px; height:4px}
+.scroller::-webkit-scrollbar-track{background:transparent}
+.scroller::-webkit-scrollbar-thumb{background:transparent; border-radius:4px; transition:background-color 1s ease-out}
+.scroller.show::-webkit-scrollbar-thumb{background:var(--border-strong)}
+.scroller::-webkit-scrollbar-thumb:hover{background:var(--text-disabled)}
+
+/* —— 设置视图 —— */
+.settings-body{flex:1; display:flex; min-height:0}
+.set-nav{width:10rem; flex:0 0 10rem; border-right:1px solid var(--border); padding:.5rem .4rem; display:flex; flex-direction:column; gap:2px}
+.set-nav button{
+  display:flex; align-items:center; gap:.4rem; text-align:left; border:none; background:transparent;
+  padding:.4rem .5rem; border-radius:6px; font-family:inherit; font-size:.75rem; color:var(--text-secondary); cursor:pointer;
+  transition:background-color var(--dur-fast) ease-out, color var(--dur-fast) ease-out;
+}
+.set-nav button:hover{background:var(--surface-2)}
+.set-nav button.on{background:var(--accent-subtle); color:var(--accent)}
+.set-nav button svg{width:1rem; height:1rem; flex:0 0 1rem}
+.set-panel{flex:1; overflow-y:auto; padding:1rem; min-width:0}
+.set-panel h4{margin:.75rem 0 .35rem; font-size:.8125rem}
+.set-panel h4:first-child{margin-top:0}
+.set-row{display:flex; align-items:center; gap:.75rem; padding:.55rem 0; border-bottom:1px solid var(--border); flex-wrap:wrap}
+.set-row:last-child{border-bottom:none}
+.set-row .k{flex:1; min-width:8rem}
+.set-row .k .sub{display:block; color:var(--text-secondary); font-size:.6875rem}
+.savebar{flex:0 0 auto; display:flex; align-items:center; gap:.75rem; padding:.5rem 1rem; border-top:none}
+.savebar .state{font-size:.75rem}
+.savebar .state.ok{color:var(--success)} .savebar .state.fail{color:var(--error)}
+.savefail-banner{
+  display:flex; gap:.4rem; align-items:center; margin-bottom:.75rem; padding:.5rem .75rem;
+  background:var(--error-bg); color:var(--error); border-radius:6px; font-size:.75rem;
+}
+.savefail-banner svg{width:1rem;height:1rem;flex:0 0 1rem}
+.model-list{display:flex; flex-direction:column; gap:.35rem; margin:.5rem 0}
+.role-item{display:flex; align-items:flex-start; gap:.5rem; padding:.5rem; border:1px solid var(--border); border-radius:6px; margin-bottom:.4rem}
+.role-item .rt{flex:1; min-width:0}
+.role-item .rt b{font-size:.75rem; display:block}
+.role-item .rt .sub{font-size:.6875rem; color:var(--text-secondary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.field-label-row{display:flex; justify-content:space-between; align-items:center; margin-bottom:.25rem}
+.field-label-row label{font-size:.75rem; color:var(--text-secondary)}
+
+/* —— 历史侧栏抽屉（§9.6/§12.2）—— */
+.hist-overlay{position:absolute; inset:0; z-index:450; background:rgba(0,0,0,.32); opacity:0; pointer-events:none; transition:opacity 180ms ease-out}
+.hist-overlay.show{opacity:1; pointer-events:auto}
+.hist-drawer{
+  position:absolute; top:0; bottom:0; left:0; width:min(17.5rem,80cqw); z-index:460;
+  background:var(--bg); border-right:1px solid var(--border); display:flex; flex-direction:column;
+  transform:translateX(-100%); transition:transform 240ms cubic-bezier(.2,0,0,1);
+}
+.hist-drawer.show{transform:none}
+.hist-drawer .hd-head{display:flex; align-items:center; gap:.4rem; padding:.6rem .75rem; border-bottom:1px solid var(--border)}
+.hist-drawer .hd-head .search{flex:1; min-width:0}
+.hist-list{flex:1; overflow-y:auto; padding:.4rem}
+.hist-item{
+  display:block; width:100%; text-align:left; background:transparent; border:none; border-radius:6px;
+  padding:.5rem; font-family:inherit; cursor:pointer; margin-bottom:2px;
+  opacity:0; transform:translateY(4px);
+  transition:background-color var(--dur-fast) ease-out, opacity 120ms ease-out, transform 120ms ease-out;
+}
+.hist-drawer.show .hist-item{animation:histIn 240ms ease-out forwards}
+@keyframes histIn{to{opacity:1; transform:none}}
+.hist-item:hover{background:var(--surface-2)}
+.hist-item .hi-t{font-size:.75rem; color:var(--text-primary); display:flex; align-items:center; gap:.35rem}
+.hist-item .hi-t .cur{width:.4rem; height:.4rem; border-radius:50%; background:var(--accent); flex:0 0 .4rem}
+.hist-item .hi-sub{font-size:.6875rem; color:var(--text-secondary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.hist-item .hi-time{font-size:.625rem; color:var(--text-disabled)}
+.hist-item .hi-row{display:flex; align-items:center; gap:.4rem}
+.hist-item .hi-row .grow{flex:1; min-width:0}
+.hist-item .iconbtn{width:1.4rem; height:1.4rem; opacity:0}
+.hist-item:hover .iconbtn{opacity:1}
+.hist-empty{text-align:center; color:var(--text-disabled); font-size:.75rem; padding:2rem .5rem}
+
+/* ============ 容器查询响应式（§4：320–900px 自适应）============ */
+@container (max-width: 400px){
+  .topbar .chip .chip-txt{display:none}
+  .set-nav{width:auto; flex:0 0 auto; flex-direction:row; overflow-x:auto; border-right:none; border-bottom:1px solid var(--border)}
+  .settings-body{flex-direction:column}
+  .quickwrap{padding:0 .75rem 3rem}
+  .ticks{right:9px}
+}
+@container (max-width: 480px){
+  .topbar{gap:.15rem}
+  .btn{padding:0 .5rem; gap:.2rem}
+  .bubble{max-width:92%}
+}
+@container (min-width: 720px){
+  .msg-area .msg-inner{max-width:40rem; margin:0 auto}
+  .quickwrap{padding:0 3rem 5rem}
+}
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:1ms !important; transition-duration:1ms !important}
+  .view.on,.hist-drawer.show .hist-item{animation:none; opacity:1; transform:none}
+}
+
+/* ============ 展示：状态全景小窗 ============ */
+.mini-win{width:17.5rem; height:19rem; flex:0 0 auto; margin:0}
+.mini-win .titlebar{height:1.5rem; flex:0 0 1.5rem; font-size:.625rem}
+.mini-win .msg-area{padding:.6rem}
+.state-cards{display:flex; gap:1rem; flex-wrap:wrap; align-items:flex-start}
+.state-card{width:17.5rem; flex:0 0 17.5rem}
+.state-card .cap{font-size:.75rem; margin-bottom:.4rem; color:var(--text-secondary)}
+.state-card .cap b{color:var(--text-primary); display:block}
+
+/* 响应式演示区 */
+.rsp-stage{display:flex; flex-direction:column; gap:.75rem; align-items:center}
+.rsp-bar{display:flex; gap:.75rem; flex-wrap:wrap; align-items:center; justify-content:center}
+.rsp-bar .lbl{font-size:.75rem; color:var(--text-secondary)}
+.drag-note{font-size:.6875rem; color:var(--text-disabled); text-align:center}
+</style>
+
+<section id="overview">
+  <h2>概览</h2>
+  <p class="sec-desc">Windows 桌面端轻量 AI 快捷对话工具：全局快捷键呼出、输入、流式回复、离开。本页为<b>源码版</b>（v1.4），单文件 HTML，可直接本地打开；完整参数见 <a href="design.md" target="_blank">design.md</a>。</p>
+  <div class="callout">设计关键词 → 参数映射：轻量/克制 → 单一鲸蓝强调色、无渐变无玻璃拟态、阴影仅浮层 ｜ 原生桌面感 → Segoe UI、紧凑控件、细边框 ｜ 低干扰 → 动效 ≤240ms、无装饰元素 ｜ 清晰层级 → 明度与字重表达层级。</div>
+  <table class="tbl">
+    <tr><th>修订</th><th>要点</th></tr>
+    <tr><td>v1.1</td><td>气泡仅包裹文字、复制键移出气泡；System Prompt 多行输入；提供商与模型合并＋获取模型＋自定义 Provider；融合滚动条、名称不截断；弹层置顶不裁剪；去重＋历史侧栏；渐变模糊过渡带；初始态去输入框背景；右缘跳转刻度</td></tr>
+    <tr><td>v1.2</td><td>修复浅色主题白字：全站文字只引用主题变量，浅字永远绑深底</td></tr>
+    <tr><td>v1.3</td><td>刻度条避开滚动条；模糊带下边界贴输入框上沿、越界裁剪</td></tr>
+    <tr><td>v1.4</td><td>刻度条右对齐、当前刻度向左凸出、长度减半（8/12px）；全局动效体系（抽屉 240ms、视图 180ms、浮层 160ms）</td></tr>
+  </table>
+</section>
+
+
+<section id="tokens">
+  <h2>Design Tokens</h2>
+  <p class="sec-desc">全部数值与 design.md §1 一致；以下色板随顶部主题切换实时变化（浅色文字=深底绑定原则）。</p>
+  <div class="grid g2">
+    <div class="card">
+      <h3>语义色（浅色主题）</h3>
+      <div class="swatches">
+        <div class="sw"><div class="c" style="background:#FFFFFF"></div><div class="m"><b>--bg #FFFFFF</b>窗口背景</div></div>
+        <div class="sw"><div class="c" style="background:#F6F7F8"></div><div class="m"><b>--surface</b>#F6F7F8 次级面板</div></div>
+        <div class="sw"><div class="c" style="background:#EDEFF2"></div><div class="m"><b>--surface-2</b>#EDEFF2 悬停底</div></div>
+        <div class="sw"><div class="c" style="background:#17191D"></div><div class="m"><b>--text-primary</b>#17191D</div></div>
+        <div class="sw"><div class="c" style="background:#565D68"></div><div class="m"><b>--text-secondary</b>#565D68</div></div>
+        <div class="sw"><div class="c" style="background:#2E6BE6"></div><div class="m"><b>--accent-fill</b>#2E6BE6 鲸蓝</div></div>
+        <div class="sw"><div class="c" style="background:#E8EFFC"></div><div class="m"><b>--accent-subtle</b>#E8EFFC</div></div>
+        <div class="sw"><div class="c" style="background:#1E8E4E"></div><div class="m"><b>--success</b>#1E8E4E</div></div>
+        <div class="sw"><div class="c" style="background:#A85A00"></div><div class="m"><b>--warning</b>#A85A00</div></div>
+        <div class="sw"><div class="c" style="background:#C62F1F"></div><div class="m"><b>--error</b>#C62F1F</div></div>
+      </div>
+    </div>
+    <div class="card">
+      <h3>语义色（深色主题）</h3>
+      <div class="swatches">
+        <div class="sw"><div class="c" style="background:#191B1F"></div><div class="m"><b>--bg</b>#191B1F</div></div>
+        <div class="sw"><div class="c" style="background:#212429"></div><div class="m"><b>--surface</b>#212429</div></div>
+        <div class="sw"><div class="c" style="background:#2A2E35"></div><div class="m"><b>--surface-2</b>#2A2E35</div></div>
+        <div class="sw"><div class="c" style="background:#ECEEF1"></div><div class="m"><b>--text-primary</b>#ECEEF1</div></div>
+        <div class="sw"><div class="c" style="background:#A6ADBA"></div><div class="m"><b>--text-secondary</b>#A6ADBA</div></div>
+        <div class="sw"><div class="c" style="background:#3A63D6"></div><div class="m"><b>--accent-fill</b>#3A63D6</div></div>
+        <div class="sw"><div class="c" style="background:#26314A"></div><div class="m"><b>--accent-subtle</b>#26314A</div></div>
+        <div class="sw"><div class="c" style="background:#4CBF7E"></div><div class="m"><b>--success</b>#4CBF7E</div></div>
+        <div class="sw"><div class="c" style="background:#E0A03C"></div><div class="m"><b>--warning</b>#E0A03C</div></div>
+        <div class="sw"><div class="c" style="background:#EF6A5A"></div><div class="m"><b>--error</b>#EF6A5A</div></div>
+      </div>
+    </div>
+  </div>
+  <table class="tbl" style="margin-top:1rem">
+    <tr><th>类别</th><th>Token</th><th>值</th><th>用途</th></tr>
+    <tr><td rowspan="5">字体</td><td>--fs-display</td><td>1.25rem / 600</td><td>仅本页标题，产品界面禁用巨大标题</td></tr>
+    <tr><td>--fs-title</td><td>1.0625rem / 600</td><td>空态/设置分区标题</td></tr>
+    <tr><td>--fs-body</td><td>0.875rem / 400，行高 1.55</td><td>正文、消息、输入框</td></tr>
+    <tr><td>--fs-secondary</td><td>0.75rem</td><td>chip、工具栏、提示</td></tr>
+    <tr><td>--fs-caption</td><td>0.6875rem</td><td>时间戳、辅助说明</td></tr>
+    <tr><td>间距</td><td>--sp-1…8</td><td>4/8/12/16/20/24/32px（4px 栅格）</td><td>全部内边距与间隔</td></tr>
+    <tr><td>圆角</td><td>--r-control/--r-card/--r-window/--r-badge</td><td>6 / 8 / 10 / 4px</td><td>克制圆角，避免过度圆润</td></tr>
+    <tr><td>阴影</td><td>--shadow-window / --shadow-pop</td><td>0 24px 48px .18 / 0 8px 24px .14</td><td>仅浮层；卡片一律 1px 边框无阴影</td></tr>
+    <tr><td>动效</td><td>--dur-fast/expand/view/drawer</td><td>120 / 160 / 180 / 240ms</td><td>hover / 展开 / 视图切换 / 抽屉（§12.2）</td></tr>
+    <tr><td>字号缩放</td><td>根 font-size</td><td>16 / 20 / 24px（100/125/150%）</td><td>全站 rem 化，三档即时生效</td></tr>
+  </table>
+</section>
+
+<section id="components">
+  <h2>组件状态库</h2>
+  <p class="sec-desc">§2 状态矩阵逐项陈列；每行从左到右依次为 default / hover(示意) / pressed / disabled / loading / error。</p>
+  <div class="grid g2">
+    <div class="card">
+      <h3>按钮 Button（primary / secondary / ghost / danger）</h3>
+      <div style="display:flex; gap:.5rem; flex-wrap:wrap; margin-bottom:.5rem">
+        <button class="btn primary">发送</button>
+        <button class="btn primary pressed">按下</button>
+        <button class="btn primary" disabled>禁用</button>
+        <button class="btn primary loading">加载中</button>
+      </div>
+      <div style="display:flex; gap:.5rem; flex-wrap:wrap; margin-bottom:.5rem">
+        <button class="btn">次按钮</button>
+        <button class="btn pressed">按下</button>
+        <button class="btn" disabled>禁用</button>
+        <button class="btn loading">获取中</button>
+      </div>
+      <div style="display:flex; gap:.5rem; flex-wrap:wrap">
+        <button class="btn ghost">幽灵按钮</button>
+        <button class="btn danger">删除角色</button>
+        <button class="btn"><svg class="ic"><use href="#i-new"/></svg>带图标</button>
+      </div>
+    </div>
+    <div class="card">
+      <h3>图标按钮 IconButton（顶栏）</h3>
+      <div style="display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; padding:.25rem .5rem; background:var(--surface); border-radius:6px">
+        <button class="iconbtn" title="新对话"><svg><use href="#i-new"/></svg></button>
+        <button class="iconbtn" title="历史"><svg><use href="#i-history"/></svg></button>
+        <button class="iconbtn" title="设置"><svg><use href="#i-settings"/></svg></button>
+        <button class="iconbtn" title="禁用" disabled><svg><use href="#i-copy"/></svg></button>
+        <button class="iconbtn closebtn" title="关闭（hover 变红=桌面惯例）"><svg><use href="#i-close"/></svg></button>
+      </div>
+      <h3 style="margin-top:1rem">Chip / 下拉触发器</h3>
+      <div style="display:flex; gap:.5rem; flex-wrap:wrap">
+        <button class="chip"><svg><use href="#i-spark"/></svg><b>GPT-4o</b><svg><use href="#i-chev"/></svg></button>
+        <button class="chip open"><svg><use href="#i-spark"/></svg><b>GPT-4o</b><svg><use href="#i-chev"/></svg></button>
+        <button class="chip" disabled><svg><use href="#i-spark"/></svg><b>禁用</b></button>
+      </div>
+    </div>
+    <div class="card">
+      <h3>输入框 Input（含 error 态）</h3>
+      <div class="field" style="margin-bottom:.6rem"><label>API Key</label><input class="input" placeholder="sk-..."></div>
+      <div class="field" style="margin-bottom:.6rem"><label>禁用态</label><input class="input" value="不可编辑" disabled></div>
+      <div class="field"><label>Base URL（校验失败示例）</label><input class="input err" value="htp:/oops">
+        <div class="err-msg">必须以 http:// 或 https:// 开头</div></div>
+    </div>
+    <div class="card">
+      <h3>开关 Toggle / 复选 Checkbox / 快捷键录制</h3>
+      <div class="set-row"><div class="k">开机启动</div><button class="toggle on" role="switch" aria-checked="true" aria-label="开机启动"></button></div>
+      <div class="set-row"><div class="k">跟随系统</div><button class="toggle" role="switch" aria-checked="false" aria-label="跟随系统"></button></div>
+      <div class="set-row"><div class="k">禁用态</div><button class="toggle on" disabled></button></div>
+      <div class="checkrow on" style="margin:.4rem 0"><span class="box"><svg><use href="#i-check"/></svg></span><span class="ct"><span class="nm">GPT-4o</span><span class="sub">128K 上下文 · 默认模型</span></span></div>
+      <div class="field" style="margin-top:.6rem"><label>呼出窗口</label>
+        <div class="fieldrow"><kbd class="rec">Alt + Q</kbd><button class="btn ghost" style="height:1.75rem">修改</button></div>
+        <div class="warn-line"><svg><use href="#i-warn"/></svg>与系统快捷键冲突，请更换组合</div>
+      </div>
+    </div>
+    <div class="card">
+      <h3>消息 Message（气泡仅包裹文字 §9.1）</h3>
+      <div class="msg msg-user"><div class="bubble">鲸唤的用户消息</div>
+        <div class="msg-ops"><button class="iconbtn" style="width:1.4rem;height:1.4rem"><svg style="width:.8rem;height:.8rem"><use href="#i-copy"/></svg></button></div></div>
+      <div class="msg"><div class="role-name"><svg><use href="#i-spark"/></svg>翻译官</div><div class="ai-body">AI 回复正文，无气泡底、贴近阅读体验。<span class="caret"></span></div>
+        <div class="ai-ops"><button class="iconbtn" style="width:1.4rem;height:1.4rem"><svg style="width:.8rem;height:.8rem"><use href="#i-copy"/></svg></button><button class="iconbtn" style="width:1.4rem;height:1.4rem"><svg style="width:.8rem;height:.8rem"><use href="#i-retry"/></svg></button></div></div>
+      <div class="msg"><div class="role-name"><svg><use href="#i-spark"/></svg>翻译官</div><div class="ai-body">被停止的回复内容……</div><div class="stopped-tag">已停止</div></div>
+      <div class="msg"><div class="role-name"><svg><use href="#i-spark"/></svg>翻译官</div><div class="ai-body">生成失败的回复</div>
+        <div class="err-line"><svg><use href="#i-warn"/></svg>模型响应超时</div><button class="retry-link">重试</button></div></div>
+    </div>
+    <div class="card">
+      <h3>Toast / 确认框 / 骨架屏</h3>
+      <div style="display:flex; gap:.5rem; flex-wrap:wrap; margin-bottom:.6rem">
+        <button class="btn" onclick="toast('设置已保存','ok')">成功 Toast</button>
+        <button class="btn" onclick="toast('保存失败：密钥格式错误','err')">失败 Toast</button>
+        <button class="btn" onclick="toast('已加密保存密钥','info')">凭据 Toast</button>
+      </div>
+      <button class="btn danger" onclick="confirmDelete('删除角色「翻译官」？',()=>toast('角色已删除','ok'))">打开删除确认框</button>
+      <div style="margin-top:.8rem"><div class="statusline"><span class="spin"></span>Agent 启动中 · 连接模型…</div>
+      <div style="display:flex; flex-direction:column; gap:.4rem; margin-top:.4rem"><div class="skel" style="width:60%"></div><div class="skel" style="width:85%"></div><div class="skel" style="width:40%"></div></div></div>
+    </div>
+  </div>
+</section>
+
+
+<section id="proto">
+  <h2>原型 · 三大界面（可交互）</h2>
+  <p class="sec-desc">单个桌面窗口内切换三种状态：快捷输入 → Enter 发送 → 对话；顶栏「设置」进入设置页。键盘可用：Enter 发送、Shift+Enter 换行、Esc 收起。</p>
+  <div style="display:flex; gap:.5rem; margin-bottom:.75rem; flex-wrap:wrap">
+    <button class="btn" id="goQuick">快捷输入态</button>
+    <button class="btn" id="goChat">对话态</button>
+    <button class="btn" id="goSet">设置态</button>
+    <button class="btn ghost" id="demoChat">载入示例对话</button>
+  </div>
+  <div class="win" id="mainWin" style="width:30rem; height:32.5rem">
+    <div class="titlebar"><svg class="tb-ic"><use href="#i-spark"/></svg>鲸唤 Summon<span class="wbtns"><span class="iconbtn" style="width:1.25rem;height:1.25rem"><svg style="width:.7rem;height:.7rem"><use href="#i-min"/></svg></span><span class="iconbtn closebtn" style="width:1.25rem;height:1.25rem" onclick="collapseWin()"><svg style="width:.7rem;height:.7rem"><use href="#i-close"/></svg></span></span></div>
+    <div class="wview">
+
+      <!-- 快捷输入态 -->
+      <div class="view on" id="view-quick">
+        <div class="quickwrap">
+          <textarea class="bare-input" id="quickInput" rows="1" placeholder="问点什么…" aria-label="提问输入框"></textarea>
+          <div class="quick-hint">Enter 发送 · Shift+Enter 换行</div>
+          <div class="quick-chips">
+            <button class="chip" id="qModel"><svg><use href="#i-spark"/></svg><b>GPT-4o</b><svg><use href="#i-chev"/></svg></button>
+            <button class="chip" id="qRole"><svg><use href="#i-spark"/></svg><b>翻译官</b><svg><use href="#i-chev"/></svg></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 对话态 -->
+      <div class="view" id="view-chat">
+        <div class="topbar">
+          <div class="grow">
+            <button class="iconbtn" title="新对话" id="btnNewChat"><svg><use href="#i-new"/></svg></button>
+            <button class="iconbtn" title="对话历史" id="btnHist"><svg><use href="#i-history"/></svg></button>
+            <button class="chip" id="cModel"><svg><use href="#i-spark"/></svg><b class="chip-txt">GPT-4o</b><svg><use href="#i-chev"/></svg></button>
+            <button class="chip" id="cRole"><svg><use href="#i-spark"/></svg><b class="chip-txt">翻译官</b><svg><use href="#i-chev"/></svg></button>
+          </div>
+          <button class="iconbtn" title="更多" id="btnMore"><svg><use href="#i-menu"/></svg></button>
+          <button class="iconbtn" title="设置" id="btnSettings"><svg><use href="#i-settings"/></svg></button>
+          <button class="iconbtn closebtn" title="关闭" onclick="collapseWin()"><svg><use href="#i-close"/></svg></button>
+        </div>
+        <div style="flex:1; display:flex; min-height:0; position:relative">
+          <div class="msg-area scroller" id="msgArea">
+            <div class="center-block" id="chatEmpty"><svg><use href="#i-spark"/></svg><b>开始对话</b>输入问题，Enter 发送</div>
+          </div>
+          <div class="ticks" id="ticks"></div>
+          <div class="fade-band"><div class="blurpart"></div></div>
+        </div>
+        <div class="composer">
+          <div class="cinbox">
+            <textarea class="bare-input comp" id="chatInput" rows="1" placeholder="问点什么…" aria-label="提问输入框"></textarea>
+            <button class="sendkey" id="sendKey" title="发送" disabled><svg><use href="#i-send"/></svg></button>
+          </div>
+          <div class="comp-hint">Enter 发送 · Shift+Enter 换行</div>
+        </div>
+      </div>
+
+      <!-- 设置态 -->
+      <div class="view" id="view-set">
+        <div class="topbar">
+          <button class="iconbtn" title="返回" id="btnBack"><svg><use href="#i-left"/></svg></button>
+          <span style="font-size:.875rem; font-weight:600">设置</span>
+        </div>
+        <div class="settings-body">
+          <nav class="set-nav" id="setNav">
+            <button class="on" data-p="pm"><svg><use href="#i-key"/></svg>提供商与模型</button>
+            <button data-p="roles"><svg><use href="#i-spark"/></svg>角色预设</button>
+            <button data-p="hotkey"><svg><use href="#i-settings"/></svg>快捷键</button>
+            <button data-p="look"><svg><use href="#i-eye"/></svg>外观</button>
+            <button data-p="gen"><svg><use href="#i-refresh"/></svg>通用</button>
+          </nav>
+          <div style="flex:1; display:flex; flex-direction:column; min-width:0">
+            <div class="set-panel scroller" id="setPanel">
+              <div id="sfBanner" class="savefail-banner" style="display:none"><svg><use href="#i-warn"/></svg><span id="sfBannerTxt"></span></div>
+
+              <!-- 提供商与模型（§9.3 合并）-->
+              <div data-panel="pm">
+                <h4>提供商与模型</h4>
+                <div class="set-row"><div class="k">Provider<span class="sub">选择模型服务商</span></div>
+                  <button class="chip" id="provChip"><b>OpenAI</b><svg><use href="#i-chev"/></svg></button></div>
+                <div class="set-row"><div class="k">API Key<span class="sub" id="keyState">已加密保存</span></div>
+                  <div class="fieldrow">
+                    <input class="input" id="apiKey" type="password" style="width:9rem" value="sk-demo-1234567890">
+                    <button class="iconbtn" title="显示/隐藏" id="keyEye"><svg><use href="#i-eye"/></svg></button>
+                    <button class="btn ghost" id="keyClear" style="height:1.75rem">清除</button>
+                  </div></div>
+                <div class="set-row"><div class="k">获取模型<span class="sub">拉取该 Provider 可用模型及上下文配置</span></div>
+                  <button class="btn primary" id="btnFetch"><svg class="ic"><use href="#i-refresh"/></svg>获取模型</button></div>
+                <div class="model-list" id="modelList" style="display:none"></div>
+                <div id="customProv" style="display:none">
+                  <h4>自定义 Provider</h4>
+                  <div class="set-row"><div class="k">Base URL<span class="sub">必填，如 https://api.example.com/v1</span></div>
+                    <input class="input" id="baseUrl" style="width:11rem" placeholder="https://…"></div>
+                  <div class="set-row"><div class="k">Model ID<span class="sub">必填</span></div>
+                    <input class="input" id="modelId" style="width:11rem" placeholder="my-model-v1"></div>
+                  <div class="set-row"><div class="k">上下文窗口（可选）</div><input class="input" style="width:6rem" placeholder="128000"></div>
+                </div>
+              </div>
+
+              <!-- 角色预设（§9.2 System Prompt）-->
+              <div data-panel="roles" style="display:none">
+                <h4>角色预设</h4>
+                <div id="roleList"></div>
+                <button class="btn" id="btnNewRole" style="margin-top:.5rem"><svg class="ic"><use href="#i-new"/></svg>新建角色</button>
+                <div id="roleEditor" style="display:none; margin-top:.75rem; border:1px solid var(--border); border-radius:8px; padding:.75rem">
+                  <div class="field-label-row"><label>角色名称</label></div>
+                  <input class="input" id="roleName" placeholder="如：翻译官" style="margin-bottom:.5rem">
+                  <div class="field-label-row"><label>System Prompt<span style="color:var(--text-disabled)">（可直接粘贴完整文本，作为 system prompt 使用）</span></label></div>
+                  <textarea class="input" id="rolePrompt" placeholder="输入 System Prompt——定义角色的回复规则、语气与定位，可直接粘贴完整文本"></textarea>
+                  <div style="display:flex; gap:.5rem; justify-content:flex-end; margin-top:.5rem">
+                    <button class="btn" id="roleCancel">取消</button>
+                    <button class="btn primary" id="roleSave">保存角色</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 快捷键 -->
+              <div data-panel="hotkey" style="display:none">
+                <h4>快捷键</h4>
+                <div class="set-row"><div class="k">呼出窗口<span class="sub">全局热键，任意应用内可用</span></div>
+                  <div class="fieldrow"><kbd class="rec" id="hkMain">Alt + Q</kbd><button class="btn" id="hkEdit" style="height:1.75rem">修改</button></div>
+                  <div class="warn-line" id="hkWarn" style="display:none"><svg><use href="#i-warn"/></svg><span id="hkWarnTxt"></span></div>
+                </div>
+                <div class="set-row"><div class="k">新对话</div><kbd>Ctrl + N</kbd></div>
+                <div class="set-row"><div class="k">打开设置</div><kbd>Ctrl + ,</kbd></div>
+                <div class="set-row"><div class="k">关闭窗口</div><kbd>Esc</kbd></div>
+              </div>
+
+              <!-- 外观 -->
+              <div data-panel="look" style="display:none">
+                <h4>外观</h4>
+                <div class="set-row"><div class="k">字体大小<span class="sub">即时生效（演示为全局缩放）</span></div>
+                  <div class="seg" id="fsSeg2"><button data-f="100" class="on">100%</button><button data-f="125">125%</button><button data-f="150">150%</button></div></div>
+                <div class="set-row"><div class="k">主题</div>
+                  <div class="seg" id="themeSeg2"><button data-t="light" class="on">浅色</button><button data-t="dark">深色</button><button data-t="system">跟随系统</button></div></div>
+              </div>
+
+              <!-- 通用 -->
+              <div data-panel="gen" style="display:none">
+                <h4>通用</h4>
+                <div class="set-row"><div class="k">开机启动<span class="sub">登录 Windows 后自动驻留后台</span></div>
+                  <button class="toggle" id="tgStartup" role="switch" aria-checked="false" aria-label="开机启动"></button></div>
+                <div class="set-row"><div class="k">检查更新</div><button class="btn" id="btnUpdate">检查</button><span class="state" id="updState" style="font-size:.75rem;color:var(--text-secondary)"></span></div>
+              </div>
+            </div>
+            <div class="savebar">
+              <button class="btn primary" id="btnSave">保存</button>
+              <span class="state" id="saveState"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 历史侧栏（§9.6）-->
+      <div class="hist-overlay" id="histOverlay"></div>
+      <div class="hist-drawer" id="histDrawer" role="dialog" aria-label="对话历史">
+        <div class="hd-head">
+          <input class="input search" id="histSearch" placeholder="搜索对话…" aria-label="搜索对话">
+          <button class="iconbtn" title="关闭" id="histClose"><svg><use href="#i-close"/></svg></button>
+        </div>
+        <div class="hist-list scroller" id="histList"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="proto-chat">
+  <h2>原型 · 对话状态说明</h2>
+  <p class="sec-desc">发送后窗口展开为完整对话：顶栏（新对话 / 历史 / 模型 / 角色 / 设置 / 关闭）、可滚动消息区、透明 composer；流式生成期间发送键变为停止键；底部为渐变高斯模糊过渡带（下边界贴住输入区上沿）。</p>
+  <button class="btn" onclick="document.getElementById('demoChat').click()">载入示例对话并查看</button>
+</section>
+
+<section id="proto-settings">
+  <h2>原型 · 设置页说明</h2>
+  <p class="sec-desc">提供商与模型合并为一页（获取模型 → 可用模型 + 上下文配置；自定义 Provider 需填 Base URL / Model ID）；角色描述为多行 System Prompt 输入；含快捷键录制（含冲突演示）、字号、主题、开机启动；保存有成功 Toast 与失败横幅两种反馈。</p>
+  <button class="btn" onclick="goSet()">打开设置</button>
+</section>
+
+
+<section id="states">
+  <h2>状态全景（17 项）</h2>
+  <p class="sec-desc">必须覆盖的状态逐项陈列；深浅主题、字号缩放对每个小窗同样生效。</p>
+  <div class="state-cards" id="stateCards"></div>
+</section>
+
+<section id="responsive">
+  <h2>响应式演示</h2>
+  <p class="sec-desc">宽度档位 × 字号档位（顶部全局）× 主题三轴实时切换；窗口内容以容器查询重排，验证最窄 360px、常规 480px、宽 720/900px。窄窗 + 大字体组合可在此直接复现。</p>
+  <div class="rsp-stage">
+    <div class="rsp-bar">
+      <span class="lbl">窗口宽度</span>
+      <div class="seg" id="wSeg">
+        <button data-w="360">360px</button><button data-w="480" class="on">480px</button><button data-w="720">720px</button><button data-w="900">900px</button>
+      </div>
+    </div>
+    <div class="win" id="rspWin" style="width:30rem; height:32.5rem">
+      <div class="titlebar"><svg class="tb-ic"><use href="#i-spark"/></svg>鲸唤 Summon</div>
+      <div class="wview">
+        <div class="view on">
+          <div class="topbar">
+            <div class="grow">
+              <button class="iconbtn" title="新对话"><svg><use href="#i-new"/></svg></button>
+              <button class="iconbtn" title="历史"><svg><use href="#i-history"/></svg></button>
+              <button class="chip"><svg><use href="#i-spark"/></svg><b class="chip-txt">GPT-4o</b><svg><use href="#i-chev"/></svg></button>
+              <button class="chip"><svg><use href="#i-spark"/></svg><b class="chip-txt">翻译官</b><svg><use href="#i-chev"/></svg></button>
+            </div>
+            <button class="iconbtn" title="设置"><svg><use href="#i-settings"/></svg></button>
+            <button class="iconbtn closebtn" title="关闭"><svg><use href="#i-close"/></svg></button>
+          </div>
+          <div style="flex:1; display:flex; min-height:0; position:relative">
+            <div class="msg-area scroller" id="rspMsgArea"></div>
+            <div class="fade-band"><div class="blurpart"></div></div>
+          </div>
+          <div class="composer"><div class="cinbox">
+            <textarea class="bare-input comp" rows="1" placeholder="问点什么…"></textarea>
+            <button class="sendkey" title="发送"><svg><use href="#i-send"/></svg></button>
+          </div><div class="comp-hint">Enter 发送 · Shift+Enter 换行</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="drag-note">宽窗时消息阅读列限宽 640px 居中；360px 下顶栏 chip 收缩为图标、发送键保持可点。</div>
+  </div>
+</section>
+
+<section id="boundary">
+  <h2>边界测试</h2>
+  <p class="sec-desc">超长消息 / 超长模型名 / 超长角色名 / 多行代码块——名称一律完整换行显示、不截断（§9.4）。</p>
+  <div class="grid g2">
+    <div class="card">
+      <h3>超长消息</h3>
+      <div class="msg msg-user"><div class="bubble" style="max-width:100%">这是一条非常长的用户消息测试文本，用于验证气泡在极端长度下的换行行为：鲸唤是一个 Windows 桌面端的轻量 AI 快捷对话工具，用户通过全局快捷键呼出窗口，输入问题、选择模型和角色，并获得流式回复，它不是浏览器网页、聊天网站或大型 AI 工作台，而是随时呼出、快速使用、低干扰的桌面工具，长文本应当在气泡内正常换行而不是横向撑破布局。</div></div>
+      <div class="ai-body">AI 回复同样需要处理超长内容：本条回复验证正文的 overflow-wrap 行为以及阅读列限宽规则，在宽窗下正文不超过 40rem，避免行长失控影响可读性，这行文字比较长，用于触发多行渲染效果以检查行高与间距是否稳定。</div>
+    </div>
+    <div class="card">
+      <h3>超长模型名 / 角色名</h3>
+      <div style="display:flex; gap:.5rem; flex-wrap:wrap; margin-bottom:.75rem">
+        <button class="chip"><svg><use href="#i-spark"/></svg><b>OpenAI-GPT-4o-2026-03-LongContext-128K-Preview</b><svg><use href="#i-chev"/></svg></button>
+      </div>
+      <div style="display:flex; gap:.5rem; flex-wrap:wrap; margin-bottom:.75rem">
+        <button class="chip"><svg><use href="#i-spark"/></svg><b>超详细严谨的中文技术文档审校与术语一致性检查专家</b><svg><use href="#i-chev"/></svg></button>
+      </div>
+      <div class="role-item"><div class="rt"><b>超详细严谨的中文技术文档审校与术语一致性检查专家</b><span class="sub">你是一名资深技术文档审校专家……（摘要单行省略，编辑态完整展示）</span></div></div>
+      <h3 style="margin-top:1rem">多行代码块</h3>
+      <div class="codeblk"><span class="lang">python</span>def summon():
+    """全局快捷键呼出窗口"""
+    while True:
+        hotkey("alt+q", toggle_window)
+        await stream_reply(model, role, prompt)</div>
+    </div>
+  </div>
+</section>
+
+<section id="icons">
+  <h2>图标来源与授权</h2>
+  <p class="sec-desc">全部图标为 Fluent UI System Icons 风格的内联 SVG（本源码内为风格一致的重新绘制），无装饰性图标，每个图标对应一个操作或状态。</p>
+  <table class="tbl">
+    <tr><th>图标</th><th>名称</th><th>用途</th></tr>
+    <tr><td><svg width="16" height="16"><use href="#i-new"/></svg></td><td>add / new-chat</td><td>新对话</td></tr>
+    <tr><td><svg width="16" height="16"><use href="#i-history"/></svg></td><td>history (clock)</td><td>打开对话历史</td></tr>
+    <tr><td><svg width="16" height="16"><use href="#i-settings"/></svg></td><td>settings</td><td>设置</td></tr>
+    <tr><td><svg width="16" height="16"><use href="#i-close"/></svg></td><td>dismiss</td><td>关闭窗口（hover 变红）</td></tr>
+    <tr><td><svg width="16" height="16"><use href="#i-send"/></svg></td><td>send</td><td>发送</td></tr>
+    <tr><td><svg width="16" height="16"><use href="#i-stop"/></svg></td><td>record-stop</td><td>停止生成（发送键变体）</td></tr>
+    <tr><td><svg width="16" height="16"><use href="#i-copy"/></svg></td><td>copy</td><td>复制消息（气泡外操作键）</td></tr>
+    <tr><td><svg width="16" height="16"><use href="#i-retry"/></svg></td><td>arrow-clockwise</td><td>重试 / 获取模型</td></tr>
+    <tr><td><svg width="16" height="16"><use href="#i-chev"/></svg></td><td>chevron-down</td><td>下拉展开</td></tr>
+    <tr><td><svg width="16" height="16"><use href="#i-check"/></svg></td><td>checkmark</td><td>已选择</td></tr>
+    <tr><td><svg width="16" height="16"><use href="#i-warn"/></svg></td><td>warning</td><td>冲突/失败提示</td></tr>
+    <tr><td><svg width="16" height="16"><use href="#i-info"/></svg></td><td>info</td><td>信息提示</td></tr>
+    <tr><td><svg width="16" height="16"><use href="#i-trash"/></svg></td><td>delete</td><td>删除对话/角色</td></tr>
+    <tr><td><svg width="16" height="16"><use href="#i-edit"/></svg></td><td>edit</td><td>编辑角色</td></tr>
+    <tr><td><svg width="16" height="16"><use href="#i-eye"/></svg></td><td>eye-show</td><td>显示密钥</td></tr>
+    <tr><td><svg width="16" height="16"><use href="#i-key"/></svg></td><td>key</td><td>提供商与密钥</td></tr>
+    <tr><td><svg width="16" height="16"><use href="#i-refresh"/></svg></td><td>arrow-sync</td><td>检查更新</td></tr>
+    <tr><td><svg width="16" height="16"><use href="#i-menu"/></svg></td><td>more-horizontal</td><td>溢出菜单（无重复项 §9.6）</td></tr>
+    <tr><td><svg width="16" height="16"><use href="#i-left"/></svg></td><td>arrow-left</td><td>返回</td></tr>
+    <tr><td><svg width="16" height="16"><use href="#i-spark"/></svg></td><td>sparkle</td><td>模型/角色标识</td></tr>
+    <tr><td><svg width="16" height="16"><use href="#i-search"/></svg></td><td>search</td><td>历史搜索</td></tr>
+    <tr><td><svg width="16" height="16"><use href="#i-min"/></svg></td><td>subtract / min</td><td>最小化（窗口装饰）</td></tr>
+  </table>
+  <div class="callout" style="margin-top:.75rem"><b>授权说明</b>：Fluent UI System Icons 由 Microsoft 以 MIT License 发布，允许商用与修改，需随产品附 LICENSE 文本，来源 https://github.com/microsoft/fluentui-system-icons 。本源码内的 SVG 为按该风格重新绘制的原始图形；备选方案 Lucide（ISC License）。跳转刻度条为纯几何刻度，不涉及图标授权。</div>
+</section>
+
+<section id="delivery">
+  <h2>交付与边界</h2>
+  <p class="sec-desc">Token → Figma Variables 映射；演示数据声明与待确认项。</p>
+  <div class="grid g2">
+    <div class="card">
+      <h3>Figma 复刻指引</h3>
+      <table class="tbl">
+        <tr><th>design.md Token</th><th>Figma 落点</th></tr>
+        <tr><td>--bg/--surface/--accent 等语义色</td><td>Color Variables（建议集合：Light / Dark 两模式）</td></tr>
+        <tr><td>--fs-* 字号阶梯</td><td>Number Variables + Text Styles 引用</td></tr>
+        <tr><td>--sp-* 间距 / --r-* 圆角</td><td>Number Variables（Spacing / Radius 组）</td></tr>
+        <tr><td>--shadow-pop / window</td><td>Effect Styles</td></tr>
+        <tr><td>动效时长 120/160/180/240ms</td><td>Prototype 交互过渡时长</td></tr>
+      </table>
+    </div>
+    <div class="card">
+      <h3>边界与待确认</h3>
+      <p style="font-size:.75rem; color:var(--text-secondary)">· 本页为<b>源码重建版</b>：与云端在线版基于同一份 design.md（v1.4），功能与状态覆盖一致，但代码为独立实现，非在线部署应用的同一份文件。<br>
+      · Figma 源文件（.fig）无法在本环境产出，可按左侧映射表在 Figma 中复原变量与样式。<br>
+      · 全部对话内容、模型清单（含上下文配置）、角色、API Key 均为<b>演示数据</b>；不实现 Agent、模型调用、凭据加密与会话逻辑。<br>
+      · 真实产品中窗口阴影由 OS 窗口管理器提供；网页演示中的窗口框阴影仅为展示模拟。<br>
+      · 待确认项：呼出快捷键最终键位（现为 Alt+Q）、真实 Provider/模型清单、历史删除是否需要找回。</p>
+    </div>
+  </div>
+</section>
+</main>
+</div>
+<div class="toasts" id="toasts"></div>
+<div class="overlay" id="confirmOverlay">
+  <div class="modal" role="alertdialog" aria-modal="true">
+    <h3><svg><use href="#i-warn"/></svg><span id="confirmTitle">确认操作</span></h3>
+    <p id="confirmText"></p>
+    <div class="acts"><button class="btn" id="confirmCancel">取消</button><button class="btn danger" id="confirmOk">删除</button></div>
+  </div>
+</div>
+
+
+<script>
+/* ============ 工具 ============ */
+const $ = (s, r=document) => r.querySelector(s);
+const $$ = (s, r=document) => [...r.querySelectorAll(s)];
+const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+/* ============ Toast / 确认框 ============ */
+function toast(msg, type='info'){
+  const box = $('#toasts');
+  const icons = {ok:'i-check', err:'i-warn', info:'i-info'};
+  const el = document.createElement('div');
+  el.className = 'toast ' + type;
+  el.innerHTML = `<svg><use href="#${icons[type]||'i-info'}"/></svg><span>${esc(msg)}</span>`;
+  box.appendChild(el);
+  setTimeout(()=>{ el.classList.add('hide'); setTimeout(()=>el.remove(), 350); }, 2400);
+}
+let confirmCb = null;
+function confirmDelete(title, cb, okText='删除'){
+  $('#confirmTitle').textContent = title;
+  $('#confirmOk').textContent = okText;
+  confirmCb = cb;
+  $('#confirmOverlay').classList.add('show');
+}
+$('#confirmCancel').onclick = () => { $('#confirmOverlay').classList.remove('show'); confirmCb = null; };
+$('#confirmOk').onclick = () => { $('#confirmOverlay').classList.remove('show'); if (confirmCb) confirmCb(); confirmCb = null; };
+
+/* ============ 主题 / 字号切换 ============ */
+function applyTheme(t){
+  const dark = t==='dark' || (t==='system' && matchMedia('(prefers-color-scheme: dark)').matches);
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+}
+function applyFs(f){ document.documentElement.dataset.fs = f; }
+function segBind(el, attr, fn){
+  if (!el) return;
+  el.addEventListener('click', e => {
+    const b = e.target.closest('button[data-'+attr+']'); if (!b) return;
+    $$('button', el).forEach(x=>x.classList.remove('on'));
+    b.classList.add('on');
+    fn(b.dataset[attr]);
+  });
+}
+segBind($('#themeSeg'), 't', applyTheme);
+segBind($('#themeSeg2'), 't', applyTheme);
+segBind($('#fsSeg'), 'f', applyFs);
+segBind($('#fsSeg2'), 'f', applyFs);
+
+/* ============ 滚动条显隐（§9.10：滚动显示、静止 1s 后渐隐）============ */
+$$('.scroller').forEach(sc => {
+  let timer = null;
+  sc.addEventListener('scroll', () => {
+    sc.classList.add('show');
+    clearTimeout(timer);
+    timer = setTimeout(()=>sc.classList.remove('show'), 1000);
+  }, {passive:true});
+});
+
+/* ============ 视图切换 ============ */
+function showView(id){
+  $$('#mainWin .view').forEach(v => v.classList.toggle('on', v.id === id));
+}
+function goQuick(){ showView('view-quick'); $('#quickInput').focus(); }
+function goChat(){ showView('view-chat'); setTimeout(()=>$('#chatInput').focus(), 50); }
+function goSet(){ showView('view-set'); }
+$('#goQuick').onclick = goQuick;
+$('#goChat').onclick = goChat;
+$('#goSet').onclick = goSet;
+$('#btnSettings').onclick = goSet;
+$('#btnBack').onclick = goChat;
+
+/* 窗口收起（Esc / 关闭钮）：缩下去再弹回，模拟驻留后台 */
+let winCollapsed = false;
+function collapseWin(){
+  if (winCollapsed) return;
+  winCollapsed = true;
+  const w = $('#mainWin');
+  w.style.transition = 'transform 200ms ease-out, opacity 200ms ease-out';
+  w.style.transform = 'scale(.92)'; w.style.opacity = '0';
+  toast('窗口已收起 · 按 Alt + Q 再次呼出（演示）', 'info');
+  setTimeout(()=>{ w.style.transform='none'; w.style.opacity='1'; winCollapsed = false; }, 900);
+}
+
+/* ============ 输入框自适应高度 + Enter 发送 ============ */
+function autoGrow(ta){
+  ta.style.height = 'auto';
+  ta.style.height = Math.min(ta.scrollHeight, 160) + 'px';
+}
+$$('#quickInput, #chatInput').forEach(ta => {
+  ta.addEventListener('input', ()=>autoGrow(ta));
+  ta.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); trySend(ta); }
+  });
+});
+
+/* ============ 演示回复数据 ============ */
+const REPLIES = [
+"鲸唤是一个 Windows 桌面端的轻量 AI 快捷对话工具——全局快捷键呼出、输入、获得流式回复、离开。设计目标是「随时呼出、快速使用、低干扰」。\n\n它不是浏览器网页，也不是大型 AI 工作台：没有营销页的渐变和卡片堆叠，界面只在需要时出现需要的东西。",
+"下面是一个多行代码块示例，验证代码在消息区的渲染：\n\n```python\ndef summon():\n    \"\"\"全局快捷键呼出窗口\"\"\"\n    while True:\n        hotkey(\"alt+q\", toggle_window)\n        await stream_reply(model, role, prompt)\n```\n\n代码块水平滚动，不会被换行压扁；正文字号与普通消息一致。",
+"当前为演示数据：真实的流式回复需要接入模型的流式接口。原型用定时器逐字输出模拟，视觉参数（光标闪烁、气泡宽度、复制 / 停止 / 重试时机）与真实流式一致，可直接用于视觉走查。"
+];
+let replyIdx = 0;
+
+/* ============ 消息渲染（代码块解析）============ */
+function parseBody(text){
+  const parts = String(text).split(/```(\w*)\n?/);
+  let html = '';
+  for (let i = 0; i < parts.length; i++){
+    if (i % 2 === 0){ html += esc(parts[i]); }
+    else { const code = parts[i+1] || ''; html += `<div class="codeblk"><span class="lang">${esc(parts[i])}</span>${esc(code.replace(/\n$/,''))}</div>`; i++; }
+  }
+  return html;
+}
+
+/* ============ 右缘跳转刻度（§12.1）============ */
+function syncTicks(){
+  const area = $('#msgArea'), ticks = $('#ticks');
+  const users = $$('.msg-user', area);
+  if (!users.length){ ticks.innerHTML=''; return; }
+  if (!ticks.childElementCount){
+    users.forEach((m,i)=>{
+      const b = document.createElement('button');
+      b.className = 'tick'; b.title = '跳转到提问 ' + (i+1);
+      b.onclick = () => m.scrollIntoView({behavior:'smooth', block:'center'});
+      ticks.appendChild(b);
+    });
+  }
+}
+function updateActiveTick(){
+  const area = $('#msgArea');
+  const users = $$('.msg-user', area);
+  const mid = area.scrollTop + area.clientHeight/2;
+  let active = 0;
+  users.forEach((m,i)=>{ if (m.offsetTop <= mid) active = i; });
+  $$('#ticks .tick').forEach((t,i)=>t.classList.toggle('active', i===active));
+}
+$('#msgArea').addEventListener('scroll', updateActiveTick, {passive:true});
+
+/* ============ 消息构造 ============ */
+function addUserMsg(text){
+  $('#chatEmpty')?.remove();
+  const m = document.createElement('div');
+  m.className = 'msg msg-user';
+  m.innerHTML = `<div class="bubble">${esc(text)}</div>
+    <div class="msg-ops"><button class="iconbtn" style="width:1.4rem;height:1.4rem" title="复制"><svg style="width:.8rem;height:.8rem"><use href="#i-copy"/></svg></button></div>`;
+  m.querySelector('.msg-ops .iconbtn').onclick = () => toast('已复制到剪贴板（演示）','ok');
+  $('#msgArea').appendChild(m);
+  $('#msgArea').scrollTop = $('#msgArea').scrollHeight;
+}
+function addAiShell(role='翻译官'){
+  const m = document.createElement('div');
+  m.className = 'msg';
+  m.innerHTML = `<div class="role-name"><svg><use href="#i-spark"/></svg>${esc(role)}</div>
+    <div class="ai-body"></div>
+    <div class="ai-ops">
+      <button class="iconbtn" style="width:1.4rem;height:1.4rem" title="复制"><svg style="width:.8rem;height:.8rem"><use href="#i-copy"/></svg></button>
+      <button class="iconbtn" style="width:1.4rem;height:1.4rem" title="重试"><svg style="width:.8rem;height:.8rem"><use href="#i-retry"/></svg></button>
+    </div>`;
+  m.querySelector('.ai-ops .iconbtn').onclick = () => toast('已复制到剪贴板（演示）','ok');
+  m.querySelector('.ai-ops .iconbtn:last-child').onclick = () => { toast('已重新生成（演示）','info'); };
+  $('#msgArea').appendChild(m);
+  return m;
+}
+
+/* ============ 流式模拟 ============ */
+let streamTimer = null;
+function setSendKey(mode){
+  const k = $('#sendKey');
+  if (mode === 'stop'){
+    k.classList.add('stop'); k.disabled = false; k.title = '停止生成';
+    k.innerHTML = '<svg><use href="#i-stop"/></svg>';
+  } else {
+    const has = $('#chatInput').value.trim().length > 0;
+    k.classList.remove('stop'); k.disabled = !has; k.title = '发送';
+    k.innerHTML = '<svg><use href="#i-send"/></svg>';
+  }
+}
+$('#chatInput').addEventListener('input', ()=>{ if (!streamTimer) setSendKey('send'); });
+$('#sendKey').onclick = () => { if (streamTimer) stopStream(); else sendFromChat(); };
+
+function streamTo(msgEl, text, done){
+  const body = msgEl.querySelector('.ai-body');
+  let i = 0;
+  setSendKey('stop');
+  streamTimer = setInterval(()=>{
+    i = Math.min(i + 3, text.length);
+    body.innerHTML = parseBody(text.slice(0, i)) + '<span class="caret"></span>';
+    $('#msgArea').scrollTop = $('#msgArea').scrollHeight;
+    if (i >= text.length){
+      clearInterval(streamTimer); streamTimer = null;
+      body.innerHTML = parseBody(text);
+      setSendKey('send');
+      if (done) done();
+    }
+  }, 24);
+}
+function stopStream(){
+  if (!streamTimer) return;
+  clearInterval(streamTimer); streamTimer = null;
+  const body = $('#msgArea').lastElementChild.querySelector('.ai-body');
+  if (body.querySelector('.caret')) body.querySelector('.caret').remove();
+  const tag = document.createElement('div');
+  tag.className = 'stopped-tag'; tag.textContent = '已停止';
+  $('#msgArea').lastElementChild.appendChild(tag);
+  setSendKey('send');
+  toast('已停止生成', 'info');
+}
+function sendFromChat(){
+  const ta = $('#chatInput');
+  const text = ta.value.trim(); if (!text) return;
+  addUserMsg(text);
+  ta.value = ''; autoGrow(ta); setSendKey('send');
+  syncTicks(); updateActiveTick();
+  /* Agent 启动态：骨架屏短暂出现 */
+  const shell = addAiShell('翻译官');
+  shell.querySelector('.ai-body').innerHTML =
+    '<div class="statusline"><span class="spin"></span>Agent 启动中 · 连接模型…</div>';
+  setTimeout(()=>{
+    if (!streamTimer && !$('#msgArea').contains(shell)) return;
+    streamTo(shell, REPLIES[replyIdx++ % REPLIES.length], ()=>{ syncTicks(); updateActiveTick(); });
+  }, 600);
+}
+function trySend(ta){
+  const text = ta.value.trim(); if (!text) return;
+  goChat();
+  ta = $('#chatInput');
+  $('#chatInput').value = text;
+  sendFromChat();
+}
+
+/* ============ 示例对话 ============ */
+const DEMO = [
+  ['鲸唤是个什么产品？', 0],
+  ['给我一个代码块的示例。', 1],
+  ['流式回复是怎么模拟的？', 2]
+];
+$('#demoChat').onclick = ()=>{
+  goChat();
+  $('#msgArea').innerHTML = '<div class="center-block" id="chatEmpty"><svg><use href="#i-spark"/></svg><b>开始对话</b>输入问题，Enter 发送</div>';
+  DEMO.forEach(([q, ri], idx)=>{
+    addUserMsg(q);
+    const m = addAiShell('翻译官');
+    m.querySelector('.ai-body').innerHTML = parseBody(REPLIES[ri]);
+  });
+  syncTicks(); updateActiveTick();
+  $('#msgArea').scrollTop = $('#msgArea').scrollHeight;
+  toast('已载入 3 组示例对话', 'ok');
+};
+
+/* ============ 下拉浮层 popMenu（fixed 置顶不裁剪 §9.5）============ */
+let popEl = null;
+function closePop(){ if (popEl){ popEl.remove(); popEl = null; $$('.chip.open').forEach(c=>c.classList.remove('open')); } }
+function popMenu(anchor, items, onPick){
+  closePop();
+  const menu = document.createElement('div');
+  menu.className = 'popmenu';
+  menu.innerHTML = items.map((it,i)=>
+    `<button class="item ${it.sel?'sel':''}" data-i="${i}">
+      <span class="nm">${esc(it.nm)}${it.sub?`<span class="sub">${esc(it.sub)}</span>`:''}</span>
+    </button>`).join('');
+  document.body.appendChild(menu);
+  const r = anchor.getBoundingClientRect();
+  const mw = Math.min(Math.max(r.width, 160), 288);
+  menu.style.minWidth = mw + 'px';
+  let x = Math.min(r.left, innerWidth - mw - 8);
+  let y = r.bottom + 4;
+  if (y + Math.min(menu.offsetHeight, 240) > innerHeight - 8) y = r.top - menu.offsetHeight - 4;
+  menu.style.left = Math.max(8, x) + 'px';
+  menu.style.top = Math.max(8, y) + 'px';
+  anchor.classList.add('open');
+  popEl = menu;
+  menu.addEventListener('click', e=>{
+    const b = e.target.closest('.item'); if (!b) return;
+    closePop();
+    onPick(items[+b.dataset.i]);
+  });
+  setTimeout(()=>document.addEventListener('pointerdown', function h(e){
+    if (popEl && !popEl.contains(e.target)){ closePop(); document.removeEventListener('pointerdown', h); }
+  }), 0);
+}
+
+/* ============ 模型 / 角色数据与 chip 绑定 ============ */
+const MODELS = [
+  {nm:'GPT-4o', sub:'128K 上下文 · 默认模型', sel:true},
+  {nm:'GPT-4o-mini', sub:'128K 上下文'},
+  {nm:'OpenAI-GPT-4o-2026-03-LongContext-128K-Preview', sub:'128K 上下文 · 超长名称完整换行验证'},
+  {nm:'o3-mini', sub:'200K 上下文'}
+];
+const ROLES = [
+  {nm:'翻译官', sub:'中英互译 · 简洁准确', sel:true},
+  {nm:'代码助手', sub:'解释 / 重构 / 写测试'},
+  {nm:'写作教练', sub:'润色与结构建议'},
+  {nm:'超详细严谨的中文技术文档审校与术语一致性检查专家', sub:'长名称完整显示验证'}
+];
+function setChip(chip, txt){
+  const b = chip.querySelector('b'); if (b) b.textContent = txt;
+}
+function bindModelChip(chip){
+  chip.onclick = ()=>popMenu(chip, MODELS, it=>{
+    MODELS.forEach(m=>m.sel = (m===it));
+    setChip($('#qModel'), it.nm); setChip($('#cModel'), it.nm);
+    toast('已切换模型：' + it.nm, 'ok');
+  });
+}
+function bindRoleChip(chip){
+  chip.onclick = ()=>popMenu(chip, ROLES, it=>{
+    ROLES.forEach(r=>r.sel = (r===it));
+    setChip($('#qRole'), it.nm); setChip($('#cRole'), it.nm);
+    toast('已切换角色：' + it.nm, 'ok');
+  });
+}
+bindModelChip($('#qModel')); bindModelChip($('#cModel'));
+bindRoleChip($('#qRole')); bindRoleChip($('#cRole'));
+
+/* 更多菜单（§9.6：无重复项）*/
+$('#btnMore').onclick = ()=>popMenu($('#btnMore'), [
+  {nm:'清空当前对话', sub:'仅清空窗口内消息，不删除历史记录'},
+  {nm:'导出对话', sub:'复制为 Markdown'},
+  {nm:'关于鲸唤', sub:'v1.4 · 设计演示版'}
+], it=>{
+  if (it.nm === '清空当前对话'){
+    $('#msgArea').innerHTML = '<div class="center-block" id="chatEmpty"><svg><use href="#i-spark"/></svg><b>开始对话</b>输入问题，Enter 发送</div>';
+    $('#ticks').innerHTML = '';
+    toast('已清空当前对话', 'ok');
+  } else if (it.nm === '导出对话'){ toast('对话已复制为 Markdown（演示）','ok'); }
+  else { toast('鲸唤 Summon · 设计演示 v1.4','info'); }
+});
+$('#btnNewChat').onclick = ()=>{
+  $('#msgArea').innerHTML = '<div class="center-block" id="chatEmpty"><svg><use href="#i-spark"/></svg><b>开始对话</b>输入问题，Enter 发送</div>';
+  $('#ticks').innerHTML = '';
+  toast('已开始新对话', 'ok');
+};
+
+/* ============ 历史侧栏抽屉（§9.6 / §12.2 240ms 滑出）============ */
+const HIST = [
+  {t:'鲸唤是个什么产品？', sub:'3 条消息 · GPT-4o', time:'刚刚', cur:true},
+  {t:'给我一个代码块的示例', sub:'2 条消息 · GPT-4o · 翻译官', time:'昨天 21:34'},
+  {t:'Windows 桌面工具的窗口管理', sub:'8 条消息 · o3-mini', time:'昨天 19:02'},
+  {t:'深浅主题的配色变量怎么定义', sub:'5 条消息 · GPT-4o-mini', time:'周一 10:15'},
+  {t:'快捷键冲突的检测逻辑', sub:'4 条消息 · GPT-4o', time:'上周五 16:48'}
+];
+function toggleHist(open){
+  const d = $('#histDrawer'), o = $('#histOverlay');
+  d.classList.toggle('show', open); o.classList.toggle('show', open);
+}
+function renderHist(kw=''){
+  const list = HIST.filter(h => !kw || h.t.includes(kw) || h.sub.includes(kw));
+  $('#histList').innerHTML = list.length ? list.map((h,i)=>`
+    <div class="hist-item">
+      <div class="hi-row">
+        <div class="grow">
+          <div class="hi-t">${h.cur?'<span class="cur"></span>':''}${esc(h.t)}</div>
+          <div class="hi-sub">${esc(h.sub)}</div>
+          <div class="hi-time">${esc(h.time)}</div>
+        </div>
+        <button class="iconbtn" title="删除" data-del="${i}"><svg><use href="#i-trash"/></svg></button>
+      </div>
+    </div>`).join('')
+    : '<div class="hist-empty">没有匹配的对话</div>';
+  $$('#histList [data-del]').forEach(b=>{
+    b.onclick = ev=>{
+      ev.stopPropagation();
+      const idx = +b.dataset.del;
+      confirmDelete(`删除对话「${list[idx].t}」？删除后不可找回。`, ()=>{ toast('对话已删除（演示）','ok'); });
+    };
+  });
+  $$('#histList .hist-item').forEach((el,i)=>{
+    el.onclick = ()=>{ toggleHist(false); toast('已打开：' + list[i].t, 'info'); };
+  });
+}
+$('#btnHist').onclick = ()=>{ renderHist(); toggleHist(true); setTimeout(()=>$('#histSearch').focus(), 100); };
+$('#histClose').onclick = ()=>toggleHist(false);
+$('#histOverlay').onclick = ()=>toggleHist(false);
+$('#histSearch').addEventListener('input', e=>renderHist(e.target.value.trim()));
+
+/* ============ 设置页 ============ */
+$('#setNav').addEventListener('click', e=>{
+  const b = e.target.closest('button[data-p]'); if (!b) return;
+  $$('#setNav button').forEach(x=>x.classList.toggle('on', x===b));
+  $$('#setPanel [data-panel]').forEach(p=>p.style.display = p.dataset.panel === b.dataset.p ? '' : 'none');
+});
+
+/* Provider 选择 */
+const PROVIDERS = ['OpenAI','Anthropic','DeepSeek','Ollama（本地）','自定义'];
+$('#provChip').onclick = ()=>popMenu($('#provChip'),
+  PROVIDERS.map(p=>({nm:p, sel:p==='OpenAI'})),
+  it=>{
+    setChip($('#provChip'), it.nm);
+    $('#customProv').style.display = it.nm === '自定义' ? '' : 'none';
+    toast('Provider：' + it.nm, 'info');
+  });
+
+/* API Key 显示 / 清除 */
+$('#keyEye').onclick = ()=>{
+  const k = $('#apiKey');
+  k.type = k.type === 'password' ? 'text' : 'password';
+};
+$('#keyClear').onclick = ()=>confirmDelete('清除已保存的 API Key？清除后需重新输入才能使用模型。', ()=>{
+  $('#apiKey').value = '';
+  $('#keyState').textContent = '未保存';
+  toast('密钥已清除', 'ok');
+}, '清除');
+
+/* 获取模型（§9.3）*/
+const FETCHED = [
+  {nm:'GPT-4o', sub:'128K 上下文 · 默认模型'},
+  {nm:'GPT-4o-mini', sub:'128K 上下文'},
+  {nm:'OpenAI-GPT-4o-2026-03-LongContext-128K-Preview', sub:'128K 上下文 · 超长名称换行验证'},
+  {nm:'o3-mini', sub:'200K 上下文'}
+];
+$('#btnFetch').onclick = ()=>{
+  const b = $('#btnFetch');
+  b.classList.add('loading'); b.disabled = true;
+  setTimeout(()=>{
+    b.classList.remove('loading'); b.disabled = false;
+    const ml = $('#modelList');
+    ml.style.display = '';
+    ml.innerHTML = FETCHED.map((m,i)=>`
+      <div class="checkrow ${i===0?'on':''}">
+        <span class="box"><svg><use href="#i-check"/></svg></span>
+        <span class="ct"><span class="nm">${esc(m.nm)}</span><span class="sub">${esc(m.sub)}</span></span>
+      </div>`).join('');
+    $$('#modelList .checkrow').forEach(c=>c.onclick = ()=>c.classList.toggle('on'));
+    toast('已获取 4 个可用模型', 'ok');
+  }, 1200);
+};
+
+/* 角色预设（§9.2 多行 System Prompt）*/
+const ROLEDATA = [
+  {name:'翻译官', prompt:'你是专业的中英互译助手。规则：保留代码与专有名词原文；语气与原文一致；不确定时给出两种译法并说明差异。'},
+  {name:'代码助手', prompt:'你是资深全栈工程师。回答包含：结论先行、代码块、边界条件说明；不做无依据的 API 猜测。'},
+  {name:'写作教练', prompt:'你是写作教练。先指出结构与逻辑问题，再给句子级润色建议；每次最多给 3 条优先级排序的修改。'}
+];
+let editingRole = -1;
+function renderRoles(){
+  $('#roleList').innerHTML = ROLEDATA.map((r,i)=>`
+    <div class="role-item">
+      <div class="rt"><b>${esc(r.name)}</b><span class="sub">${esc(r.prompt)}</span></div>
+      <button class="iconbtn" title="编辑" data-e="${i}"><svg><use href="#i-edit"/></svg></button>
+      <button class="iconbtn" title="删除" data-d="${i}"><svg><use href="#i-trash"/></svg></button>
+    </div>`).join('');
+  $$('#roleList [data-e]').forEach(b=>b.onclick = ()=>{
+    editingRole = +b.dataset.e;
+    const r = ROLEDATA[editingRole];
+    $('#roleName').value = r.name; $('#rolePrompt').value = r.prompt;
+    $('#roleEditor').style.display = '';
+    $('#roleName').focus();
+  });
+  $$('#roleList [data-d]').forEach(b=>b.onclick = ()=>{
+    const i = +b.dataset.d;
+    confirmDelete(`删除角色「${ROLEDATA[i].name}」？该操作不可撤销。`, ()=>{
+      ROLEDATA.splice(i,1); renderRoles(); toast('角色已删除','ok');
+    });
+  });
+}
+renderRoles();
+$('#btnNewRole').onclick = ()=>{
+  editingRole = -1;
+  $('#roleName').value = ''; $('#rolePrompt').value = '';
+  $('#roleEditor').style.display = ''; $('#roleName').focus();
+};
+$('#roleCancel').onclick = ()=>{ $('#roleEditor').style.display = 'none'; };
+$('#roleSave').onclick = ()=>{
+  const n = $('#roleName').value.trim(), p = $('#rolePrompt').value.trim();
+  if (!n){ toast('角色名称不能为空','err'); return; }
+  if (editingRole >= 0){ ROLEDATA[editingRole] = {name:n, prompt:p}; }
+  else ROLEDATA.push({name:n, prompt:p});
+  renderRoles(); $('#roleEditor').style.display = 'none';
+  toast('角色已保存：' + n, 'ok');
+};
+
+/* 快捷键录制（含冲突演示）*/
+$('#hkEdit').onclick = ()=>{
+  const k = $('#hkMain');
+  k.textContent = '按下新组合…';
+  k.classList.remove('conflict');
+  $('#hkWarn').style.display = 'none';
+  setTimeout(()=>{
+    k.textContent = 'Alt + P';
+    k.classList.add('conflict');
+    $('#hkWarnTxt').textContent = '与系统快捷键冲突（Alt + P 已被占用），请更换组合';
+    $('#hkWarn').style.display = '';
+    toast('快捷键冲突，请更换组合', 'err');
+  }, 1500);
+};
+
+/* 通用开关 */
+$$('.toggle:not(:disabled)').forEach(t=>{
+  t.addEventListener('click', ()=>{
+    t.classList.toggle('on');
+    t.setAttribute('aria-checked', t.classList.contains('on'));
+  });
+});
+
+/* 检查更新 */
+$('#btnUpdate').onclick = ()=>{
+  $('#btnUpdate').disabled = true; $('#updState').textContent = '检查中…';
+  setTimeout(()=>{
+    $('#btnUpdate').disabled = false; $('#updState').textContent = '已是最新版本 v1.4.0';
+  }, 1200);
+};
+
+/* 保存（成功 / 失败双反馈）*/
+$('#btnSave').onclick = ()=>{
+  const custom = $('#customProv').style.display !== 'none';
+  const baseUrl = $('#baseUrl');
+  if (custom && !baseUrl.value.trim()){
+    baseUrl.classList.add('err');
+    baseUrl.focus();
+    $('#sfBannerTxt').textContent = '保存失败：自定义 Provider 的 Base URL 不能为空';
+    $('#sfBanner').style.display = '';
+    $('#saveState').textContent = '保存失败';
+    $('#saveState').className = 'state fail';
+    toast('保存失败：Base URL 不能为空', 'err');
+    return;
+  }
+  baseUrl.classList.remove('err');
+  $('#sfBanner').style.display = 'none';
+  $('#saveState').textContent = '已保存 · ' + new Date().toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'});
+  $('#saveState').className = 'state ok';
+  toast('设置已保存', 'ok');
+};
+$('#baseUrl').addEventListener('input', e=>e.target.classList.remove('err'));
+
+/* ============ 响应式演示窗 ============ */
+$('#wSeg').addEventListener('click', e=>{
+  const b = e.target.closest('button[data-w]'); if (!b) return;
+  $$('#wSeg button').forEach(x=>x.classList.toggle('on', x===b));
+  $('#rspWin').style.width = (+b.dataset.w / 16) + 'rem';
+});
+$('#rspMsgArea').innerHTML = `
+  <div class="msg msg-user"><div class="bubble">窗口宽度和字号变化时，布局如何重排？</div></div>
+  <div class="msg"><div class="role-name"><svg><use href="#i-spark"/></svg>翻译官</div>
+    <div class="ai-body">宽窗时消息阅读列限宽 40rem 居中；360px 下顶栏 chip 收缩为图标、发送键保持可点；字号 150% 时所有尺寸按 rem 等比放大。</div>
+    <div class="ai-ops"><button class="iconbtn" style="width:1.4rem;height:1.4rem"><svg style="width:.8rem;height:.8rem"><use href="#i-copy"/></svg></button></div></div>
+  <div class="msg msg-user"><div class="bubble">超长用户消息在窄窗下的换行行为验证：连续字符与中文混排不应撑破气泡，气泡最大宽度 85%，overflow-wrap:anywhere 兜底。</div></div>
+  <div class="msg"><div class="role-name"><svg><use href="#i-spark"/></svg>翻译官</div>
+    <div class="ai-body">已按窗口宽度自适应换行。切换上方宽度档位，同时用顶部字号切换验证 125% / 150% 组合。</div>
+    <div class="ai-ops"><button class="iconbtn" style="width:1.4rem;height:1.4rem"><svg style="width:.8rem;height:.8rem"><use href="#i-copy"/></svg></button></div></div>`;
+
+/* ============ 状态全景（17 项 §5）============ */
+const mini = inner => `<div class="win mini-win"><div class="titlebar"><svg class="tb-ic"><use href="#i-spark"/></svg>鲸唤</div><div class="wview">${inner}</div></div>`;
+const T = {
+  quick: v => `<div class="quickwrap" style="justify-content:center;padding:0 .75rem 2rem"><textarea class="bare-input" rows="1" placeholder="问点什么…">${esc(v)}</textarea></div>`,
+  chat: inner => `<div style="flex:1;display:flex;min-height:0;position:relative"><div class="msg-area" style="overflow:hidden;padding:.6rem">${inner}</div><div class="fade-band"><div class="blurpart"></div></div></div>`,
+  user: t => `<div class="msg msg-user" style="margin-bottom:.6rem"><div class="bubble">${esc(t)}</div></div>`,
+  ai: t => `<div class="msg"><div class="role-name"><svg><use href="#i-spark"/></svg>翻译官</div><div class="ai-body">${t}</div></div>`,
+  center: (t, d, extra='') => `<div class="center-block"><svg><use href="#i-warn"/></svg><b>${t}</b>${d}${extra}</div>`,
+  row: (k, v) => `<div class="set-row" style="padding:.4rem 0"><div class="k">${k}</div>${v}</div>`
+};
+const DARKVARS = `--bg:#191B1F;--surface:#212429;--surface-2:#2A2E35;--border:#383D45;--border-strong:#4A505B;--text-primary:#ECEEF1;--text-secondary:#A6ADBA;--text-disabled:#646B77;--accent:#6B93F0;--accent-fill:#3A63D6;--accent-subtle:#26314A;--on-accent:#fff`;
+const STATES = [
+  {t:'01 空白（快捷输入）', d:'裸输入框 + 弱化模型/角色 chip', h: T.quick('')},
+  {t:'02 输入中', d:'Enter 发送 / Shift+Enter 换行提示', h: T.quick('帮我把这段话翻译成英文：…')},
+  {t:'03 发送中', d:'骨架屏 + Agent 启动状态行', h: T.chat(T.user('总结这篇文档') + '<div class="statusline"><span class="spin"></span>Agent 启动中 · 连接模型…</div><div style="display:flex;flex-direction:column;gap:.4rem;margin-top:.4rem"><div class="skel" style="width:60%"></div><div class="skel" style="width:85%"></div></div>')},
+  {t:'04 流式回复中', d:'光标闪烁、发送键变停止键', h: T.chat(T.user('介绍一下鲸唤') + T.ai('鲸唤是桌面端轻量 AI 快捷对话工具，全局快捷键随时呼出，输入即得流式回复。<span class="caret"></span>'))},
+  {t:'05 已停止', d:'停止后保留已生成内容 + 「已停止」标记', h: T.chat(T.user('写一篇长文') + T.ai('好的，这是一篇关于……') + '<div class="stopped-tag">已停止</div>')},
+  {t:'06 Agent 启动中', d:'首字节延迟内的过渡状态', h: T.chat('<div class="center-block"><span class="statusline" style="justify-content:center"><span class="spin"></span>Agent 启动中 · 连接模型…</span></div>')},
+  {t:'07 连接失败', d:'错误说明 + 重试入口', h: T.chat('<div class="center-block"><svg><use href="#i-warn"/></svg><b>连接失败</b>无法连接模型服务<button class="retry-link">重试</button></div>')},
+  {t:'08 凭据缺失', d:'引导去设置页填写 API Key', h: T.chat('<div class="center-block"><svg><use href="#i-warn"/></svg><b>未配置 API Key</b>请先在设置中填写密钥<br><button class="btn" style="margin-top:.5rem">打开设置</button></div>')},
+  {t:'09 模型不可用', d:'所选模型已下线 / 无权限', h: T.chat('<div class="center-block"><svg><use href="#i-warn"/></svg><b>模型不可用</b>gpt-4-turbo 已停用，请切换模型</div>')},
+  {t:'10 快捷键冲突', d:'录制到已占用组合时的警告', h: T.row('呼出窗口', '<div class="fieldrow"><kbd class="rec conflict">Alt + P</kbd></div><div class="warn-line"><svg><use href="#i-warn"/></svg>与系统快捷键冲突，请更换组合</div>')},
+  {t:'11 保存成功', d:'底部状态 + 成功 Toast', h: `<div style="padding:.6rem"><div class="savebar" style="border-top:1px solid var(--border)"><button class="btn primary">保存</button><span class="state ok">已保存 · 刚刚</span></div></div>`},
+  {t:'12 保存失败', d:'红色横幅 + 失败 Toast', h: `<div style="padding:.6rem"><div class="savefail-banner"><svg><use href="#i-warn"/></svg>保存失败：Base URL 不能为空</div><div class="savebar"><button class="btn primary">保存</button><span class="state fail">保存失败</span></div></div>`},
+  {t:'13 删除角色确认', d:'二次确认，删除不可撤销', h: `<div style="padding:.6rem"><div class="role-item"><div class="rt"><b>写作教练</b><span class="sub">你是写作教练……</span></div><button class="iconbtn"><svg><use href="#i-trash"/></svg></button></div><div style="font-size:.6875rem;color:var(--text-secondary)">点击垃圾桶 → 弹出确认框</div></div>`},
+  {t:'14 清除密钥确认', d:'清除前二次确认', h: T.row('API Key', '<button class="btn danger">清除</button>')},
+  {t:'15 消息过长', d:'气泡内换行，不撑破布局', h: T.chat(T.user('这是一条非常长的消息……'.repeat(2)) + T.ai('长文本正常换行，overflow-wrap 兜底连续字符。'))},
+  {t:'16 深色主题对照', d:'同一状态在深色下的表现', h: `<div class="win mini-win" style="${DARKVARS}"><div class="titlebar"><svg class="tb-ic"><use href="#i-spark"/></svg>鲸唤</div><div class="wview">${T.chat(T.user('深色主题下的气泡') + T.ai('浅字绑深底，对比度 ≥ 4.5:1。'))}</div></div>`},
+  {t:'17 窄窗 + 大字体', d:'360px 宽度 × 150% 字号组合', h: `<div class="win mini-win" style="width:14rem"><div class="titlebar"><svg class="tb-ic"><use href="#i-spark"/></svg>鲸唤</div><div class="wview">${T.chat(T.user('窄窗测试') + T.ai('chip 收缩为图标，发送键保持可点。'))}</div></div>`}
+];
+$('#stateCards').innerHTML = STATES.map(s=>`
+  <div class="state-card">
+    <div class="cap"><b>${esc(s.t)}</b>${esc(s.d)}</div>
+    ${s.t.startsWith('10')||s.t.startsWith('14') ? `<div class="win mini-win"><div class="titlebar"><svg class="tb-ic"><use href="#i-spark"/></svg>设置</div><div class="wview"><div style="padding:.6rem;overflow:hidden">${s.h}</div></div></div>` : s.h}
+  </div>`).join('');
+
+/* ============ Esc 链：浮层 → 历史抽屉 → 确认框 → 收起窗口 ============ */
+document.addEventListener('keydown', e=>{
+  if (e.key !== 'Escape') return;
+  if (popEl){ closePop(); return; }
+  if ($('#histDrawer').classList.contains('show')){ toggleHist(false); return; }
+  if ($('#confirmOverlay').classList.contains('show')){ $('#confirmOverlay').classList.remove('show'); confirmCb = null; return; }
+  collapseWin();
+});
+
+/* ============ 初始化 ============ */
+renderHist();
+</script>
+</body>
+</html>

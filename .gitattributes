@@ -1,0 +1,8 @@
+# 仓库里统一存 LF，避免 Windows 上出现「整个文件都变了」的假 diff。
+* text=auto eol=lf
+
+# 二进制产物（若哪天纳入了 dist/）
+*.piplug binary
+*.png binary
+*.jpg binary
+*.zip binary

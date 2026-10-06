@@ -1,0 +1,18 @@
+# ---- 构建产物（用 npm run pack 重新生成）----
+dist/
+*.piplug
+
+# ---- 依赖 ----
+node_modules/
+
+# ---- 临时目录 ----
+ref/
+
+# ---- 系统 / 编辑器噪音 ----
+.DS_Store
+Thumbs.db
+desktop.ini
+*.log
+*.tmp
+.vscode/
+.idea/

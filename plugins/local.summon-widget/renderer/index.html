@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Summon</title>
+    <style>
+      /* ── widget shape ────────────────────────────────────────────────────
+         The host opens this as a transparent, frameless window with no drag
+         band (--pi-plugin-titlebar-height is 0px). The page background must
+         stay fully transparent so the window disappears behind the orb, and
+         only the orb itself is drawn. Empty space drags the window; anything
+         marked data-pi-plugin-no-drag stays clickable instead.
+         ─────────────────────────────────────────────────────────────────── */
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        background: transparent;
+        overflow: hidden;
+        font: 12px/1.4 ui-sans-serif, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+
+      #stage {
+        width: 100%;
+        height: 100%;
+        display: grid;
+        place-items: center;
+        position: relative;
+      }
+
+      /* Bleeds past the orb silhouette; must never swallow drag gestures. */
+      #glow {
+        position: absolute;
+        width: 156px;
+        height: 156px;
+        border-radius: 50%;
+        pointer-events: none;
+        background: radial-gradient(circle, rgba(90, 150, 255, 0.5) 0%, rgba(90, 150, 255, 0) 66%);
+        filter: blur(6px);
+        opacity: 0.75;
+        transition: opacity 0.2s ease;
+      }
+
+      #orb {
+        position: relative;
+        width: 108px;
+        height: 108px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        cursor: pointer;
+        background: radial-gradient(
+          circle at 32% 26%,
+          #9ec8ff 0%,
+          #5b8ee0 34%,
+          #2b5185 68%,
+          #16294a 100%
+        );
+        box-shadow:
+          0 10px 26px rgba(0, 0, 0, 0.45),
+          inset 0 0 0 1px rgba(255, 255, 255, 0.12),
+          inset 0 1px 0 rgba(255, 255, 255, 0.4);
+        transition: transform 0.16s ease, box-shadow 0.16s ease, filter 0.16s ease;
+      }
+
+      #orb:hover {
+        transform: scale(1.045);
+        filter: brightness(1.08);
+        box-shadow:
+          0 14px 38px rgba(70, 140, 255, 0.45),
+          inset 0 0 0 1px rgba(255, 255, 255, 0.18),
+          inset 0 1px 0 rgba(255, 255, 255, 0.45);
+      }
+
+      #orb:active {
+        transform: scale(0.965);
+      }
+
+      #orb:focus-visible {
+        outline: 2px solid #9ec8ff;
+        outline-offset: 4px;
+      }
+
+      /* Amber ring when the global shortcut did not register. */
+      #orb.warn {
+        box-shadow:
+          0 10px 26px rgba(0, 0, 0, 0.45),
+          inset 0 0 0 3px rgba(251, 191, 36, 0.85),
+          inset 0 1px 0 rgba(255, 255, 255, 0.35);
+      }
+
+      #orb svg {
+        width: 46px;
+        height: 46px;
+        display: block;
+        pointer-events: none;
+        filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.35));
+      }
+
+      #hint {
+        position: absolute;
+        bottom: 6px;
+        left: 0;
+        right: 0;
+        text-align: center;
+        color: rgba(255, 255, 255, 0.82);
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
+        font-size: 10.5px;
+        letter-spacing: 0.02em;
+        white-space: nowrap;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.18s ease;
+      }
+
+      #stage:hover #hint,
+      #hint.always {
+        opacity: 1;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        #orb,
+        #glow,
+        #hint {
+          transition: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Deliberately NOT marked data-pi-plugin-no-drag: the host builds its drag
+         map from that attribute, and putting it on the full-bleed wrapper would
+         make the window impossible to move. Only the orb opts out. -->
+    <div id="stage">
+      <div id="glow"></div>
+
+      <!-- Clickable, so it opts out of window dragging. -->
+      <div id="orb" data-pi-plugin-no-drag role="button" tabindex="0" aria-label="Summon">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path
+            d="M12 2.6l1.9 5.3 5.3 1.9-5.3 1.9L12 17l-1.9-5.3L4.8 9.8l5.3-1.9L12 2.6z"
+            fill="rgba(255,255,255,0.95)"
+          />
+          <path
+            d="M18.6 14.4l.85 2.35 2.35.85-2.35.85-.85 2.35-.85-2.35-2.35-.85 2.35-.85.85-2.35z"
+            fill="rgba(255,255,255,0.7)"
+          />
+        </svg>
+      </div>
+
+      <div id="hint">…</div>
+    </div>
+
+    <script>
+      (function () {
+        var bridge = window.pluginBridge;
+        var orb = document.getElementById("orb");
+        var hint = document.getElementById("hint");
+        var stage = document.getElementById("stage");
+
+        var HEARTBEAT_MS = 2000;
+        var state = { dismissOnClick: true, accelerator: null, shortcutOk: true };
+        var heartbeatTimer = null;
+
+        function invoke(channel, payload) {
+          if (!bridge || typeof bridge.invoke !== "function") {
+            return Promise.reject(new Error("pluginBridge unavailable"));
+          }
+          return bridge.invoke(channel, payload);
+        }
+
+        function render() {
+          orb.classList.toggle("warn", !state.shortcutOk);
+          var key = state.accelerator || "未注册快捷键";
+          orb.title = state.shortcutOk ? "呼出键：" + key : "快捷键未生效：" + key;
+          hint.textContent = state.shortcutOk ? key : "快捷键未生效 · 点这里查看";
+        }
+
+        // The widget beacons while it is alive; the plugin derives liveness from
+        // this instead of trusting a boolean it set when it opened us. That keeps
+        // the hotkey correct even when the host opened this window itself, and
+        // self-heals if the page dies without a clean unload.
+        function startHeartbeat() {
+          if (heartbeatTimer) return;
+          heartbeatTimer = setInterval(function () {
+            invoke("summon.heartbeat", {}).catch(function () {});
+          }, HEARTBEAT_MS);
+        }
+
+        function stopHeartbeat() {
+          if (heartbeatTimer) {
+            clearInterval(heartbeatTimer);
+            heartbeatTimer = null;
+          }
+        }
+
+        function loadSettings() {
+          return invoke("summon.settings", {})
+            .then(function (res) {
+              if (res && res.settings) {
+                state.dismissOnClick = res.settings.dismissOnClick !== false;
+                if (res.settings.accelerator) state.accelerator = res.settings.accelerator;
+              }
+              if (res && res.shortcut) {
+                state.shortcutOk = res.shortcut.registered !== false;
+                if (res.shortcut.active) state.accelerator = res.shortcut.active;
+              }
+              render();
+            })
+            .catch(function () {
+              render();
+            });
+        }
+
+        function activate() {
+          if (state.dismissOnClick) {
+            // The plugin closes us via pi.ui.closePanel(); it keeps its own
+            // liveness in sync because our pagehide also fires.
+            invoke("summon.dismiss", {}).catch(function () {});
+          } else {
+            invoke("ui.showToast", {
+              message: state.shortcutOk
+                ? "按 " + (state.accelerator || "快捷键") + " 可隐藏悬浮窗"
+                : "快捷键未生效，可在插件设置里换一个键",
+            }).catch(function () {});
+          }
+        }
+
+        if (!bridge || typeof bridge.invoke !== "function") {
+          // Opened outside PI-Desktop — keep it honest rather than looking broken.
+          hint.classList.add("always");
+          hint.textContent = "未在 PI-Desktop 面板中运行";
+          orb.style.cursor = "default";
+          return;
+        }
+
+        orb.addEventListener("click", activate);
+        orb.addEventListener("keydown", function (event) {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            activate();
+          }
+        });
+
+        // Best-effort state sync; the heartbeat is the real liveness signal.
+        window.addEventListener("pagehide", function () {
+          stopHeartbeat();
+          try {
+            bridge.invoke("summon.closed", {});
+          } catch (err) {
+            /* nothing useful to do during teardown */
+          }
+        });
+
+        var shape = document.documentElement.dataset.piPluginPanelShape || "(unset)";
+        console.log("[summon orb] shape=" + shape + " size=" + window.innerWidth + "x" + window.innerHeight);
+
+        loadSettings().then(startHeartbeat);
+      })();
+    </script>
+  </body>
+</html>

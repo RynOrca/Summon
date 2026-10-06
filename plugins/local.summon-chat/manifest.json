@@ -1,0 +1,201 @@
+{
+  "schemaVersion": 1,
+  "id": "local.summon-chat",
+  "name": "Summon Chat",
+  "version": "0.15.0",
+  "description": "A floating chat window summoned by a global hotkey: talk to a real PI-Desktop session (Agent mode) or to a quick chat with web search. Custom preset roles.",
+  "i18n": {
+    "en": {
+      "name": "Summon Chat",
+      "description": "A floating chat window summoned by a global hotkey: talk to a real PI-Desktop session (Agent mode) or to a quick chat with web search. Custom preset roles."
+    },
+    "zh-CN": {
+      "name": "悬浮对话窗",
+      "description": "用系统级快捷键呼出的对话悬浮窗：可以接宿主真实会话（Agent 模式），也可以快捷对话并联网搜索。支持自定义预设角色。"
+    }
+  },
+  "author": "local",
+  "main": "main.js",
+  "ui": {
+    "panel": "renderer/index.html",
+    "shape": "widget",
+    "width": 360,
+    "height": 660,
+    "alwaysOnTop": true,
+    "title": {
+      "en": "Summon Chat",
+      "zh-CN": "鲸唤 Summon"
+    }
+  },
+  "contributes": {
+    "commands": [
+      {
+        "id": "summon.chat.toggle",
+        "title": "Summon Chat: Toggle Window",
+        "keywords": [
+          "chat",
+          "summon",
+          "toggle",
+          "对话",
+          "呼出",
+          "切换"
+        ]
+      },
+      {
+        "id": "summon.chat.open",
+        "title": "Summon Chat: Open Window",
+        "keywords": [
+          "chat",
+          "open",
+          "打开"
+        ]
+      },
+      {
+        "id": "summon.chat.close",
+        "title": "Summon Chat: Close Window",
+        "keywords": [
+          "chat",
+          "close",
+          "关闭"
+        ]
+      },
+      {
+        "id": "summon.chat.status",
+        "title": "Summon Chat: Status",
+        "keywords": [
+          "chat",
+          "status",
+          "状态"
+        ]
+      }
+    ],
+    "globalShortcuts": [
+      {
+        "id": "toggle",
+        "command": "summon.chat.toggle",
+        "default": "Alt+Shift+C"
+      }
+    ],
+    "settings": [
+      {
+        "key": "accelerator",
+        "title": "呼出快捷键",
+        "description": "点一下按钮，然后直接按下你想用的组合键即可录制。会同时注册为系统级快捷键；若被别的软件占用会提示并自动退回备选键。",
+        "type": "shortcut",
+        "default": "Alt+Shift+C",
+        "command": "summon.chat.toggle",
+        "scope": "plugin"
+      },
+      {
+        "key": "agentStartMode",
+        "title": "Agent 模式默认行为",
+        "description": "新开：每次呼出都从一个全新会话开始。接续：接着上次那个会话继续。两种情况下都可以在悬浮窗里用「›」按钮挑一个历史会话接续。",
+        "type": "select",
+        "default": "new",
+        "enum": [
+          {
+            "label": "新开一个会话",
+            "value": "new"
+          },
+          {
+            "label": "接续上次的会话",
+            "value": "continue"
+          }
+        ]
+      },
+      {
+        "key": "appearance",
+        "title": "外观",
+        "description": "跟随系统 / 深色（纯黑）/ 浅色。",
+        "type": "select",
+        "default": "system",
+        "enum": [
+          {
+            "label": "跟随系统",
+            "value": "system"
+          },
+          {
+            "label": "深色（纯黑）",
+            "value": "dark"
+          },
+          {
+            "label": "浅色",
+            "value": "light"
+          }
+        ]
+      },
+      {
+        "key": "fontSize",
+        "title": "字体大小",
+        "description": "界面基础字号，12–20 px。",
+        "type": "number",
+        "default": 13
+      },
+      {
+        "key": "opacity",
+        "title": "整体透明度",
+        "description": "窗口整体的不透明度百分比，50–100。",
+        "type": "number",
+        "default": 100
+      },
+      {
+        "key": "maxToolRounds",
+        "title": "快捷对话的搜索轮次上限",
+        "description": "快捷对话里最多执行几轮联网搜索。每多一轮就多消耗一次模型调用（宿主限制每分钟 8 次）。",
+        "type": "number",
+        "default": 3
+      },
+      {
+        "key": "searchEndpoint",
+        "title": "自定义搜索端点（可选）",
+        "description": "留空则用内置的 DuckDuckGo。填了就用你自己的（SearXNG / Tavily / Brave 等 JSON 接口）。",
+        "type": "string",
+        "default": ""
+      },
+      {
+        "key": "searchApiKey",
+        "title": "搜索 API Key（可选）",
+        "description": "配合自定义搜索端点使用，以 Authorization: Bearer 头发送。",
+        "type": "string",
+        "default": ""
+      }
+    ],
+    "views": [
+      {
+        "id": "roles",
+        "title": {
+          "en": "Summon Chat Roles",
+          "zh-CN": "Summon Chat 角色"
+        },
+        "icon": "bot",
+        "entry": "views/roles.html",
+        "order": 20
+      }
+    ]
+  },
+  "permissions": [
+    "ui.panel",
+    "ui.view",
+    "keyboard.globalShortcut",
+    "notify",
+    "models.list",
+    "agent.complete",
+    "desktop.control",
+    "net.fetch",
+    "net.anyHost"
+  ],
+  "net": {
+    "domains": [
+      "html.duckduckgo.com",
+      "lite.duckduckgo.com",
+      "duckduckgo.com"
+    ]
+  },
+  "engines": {
+    "piDesktop": ">=0.16.0"
+  },
+  "activationEvents": [
+    "onCommand:summon.chat.toggle",
+    "onStartup"
+  ]
+}

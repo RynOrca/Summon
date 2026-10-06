@@ -1,0 +1,2123 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>鲸唤 Summon</title>
+    <style>
+/* ===================== 设计系统（由 tools/build-renderer.mjs 注入）===================== */
+/* ------------------------------------------------------------------------
+ * 由 tools/export-design-base.mjs 从设计源包导出，请勿手改。
+ * 设计来源：鲸唤 Summon 原型源码包 v1.4（design.md + index.html）
+ *   Token        index.html:8–112   （31 个自定义属性）
+ *   组件/窗口框架 index.html:169–511
+ * 图标 sprite 在 index.html:115–161（22 个 symbol），需内联进页面。
+ * 文档页脚手架（侧栏/状态画廊/响应式演示）已排除。
+ * ------------------------------------------------------------------------ */
+/* ============ Design Tokens（与 design.md §1 一致）============ */
+:root, [data-theme="light"]{
+  --bg:#FFFFFF; --surface:#F6F7F8; --surface-2:#EDEFF2;
+  --border:#D9DDE3; --border-strong:#B8BEC9;
+  --text-primary:#17191D; --text-secondary:#565D68; --text-disabled:#9AA1AC;
+  --accent:#2E6BE6; --accent-hover:#1F56C9; --accent-pressed:#17439C;
+  --accent-fill:#2E6BE6; --on-accent:#FFFFFF; --accent-subtle:#E8EFFC;
+  --success:#1E8E4E; --success-bg:#E6F6EC;
+  --warning:#A85A00; --warning-bg:#FBF1E2;
+  --error:#C62F1F; --error-bg:#FBE9E7;
+  --skeleton-a:#EDEFF2; --skeleton-b:#F8F9FA;
+  --shadow-window:0 24px 48px rgba(0,0,0,.18);
+  --shadow-pop:0 8px 24px rgba(0,0,0,.14);
+}
+
+[data-theme="dark"]{
+  --bg:#191B1F; --surface:#212429; --surface-2:#2A2E35;
+  --border:#383D45; --border-strong:#4A505B;
+  --text-primary:#ECEEF1; --text-secondary:#A6ADBA; --text-disabled:#646B77;
+  --accent:#6B93F0; --accent-hover:#82A4F5; --accent-pressed:#5479D6;
+  --accent-fill:#3A63D6; --on-accent:#FFFFFF; --accent-subtle:#26314A;
+  --success:#4CBF7E; --success-bg:#1B2E24;
+  --warning:#E0A03C; --warning-bg:#33280F;
+  --error:#EF6A5A; --error-bg:#3A1F1B;
+  --skeleton-a:#23262B; --skeleton-b:#2C3037;
+  --shadow-window:0 24px 48px rgba(0,0,0,.5);
+  --shadow-pop:0 8px 24px rgba(0,0,0,.45);
+}
+
+:root{
+  --font-ui:"Segoe UI Variable Text","Segoe UI","Microsoft YaHei UI",system-ui,-apple-system,sans-serif;
+  --font-code:"Cascadia Code",Consolas,ui-monospace,monospace;
+  /* 动效 Token（design.md §12.2）*/
+  --dur-fast:120ms; --dur-expand:160ms; --dur-drawer:240ms; --dur-view:180ms;
+  --ease-smooth:cubic-bezier(.2,0,0,1);
+}
+
+html{font-size:16px}
+
+[data-fs="125"]{font-size:20px}
+
+[data-fs="150"]{font-size:24px}
+
+*{box-sizing:border-box}
+
+html,body{margin:0;padding:0}
+
+body{
+  font-family:var(--font-ui); background:var(--surface); color:var(--text-primary);
+  font-size:.875rem; line-height:1.55;
+  transition:background-color .2s ease, color .2s ease;
+}
+
+h1,h2,h3{margin:0 0 .5rem; font-weight:600}
+
+h2{font-size:1.25rem}
+
+h3{font-size:1rem}
+
+p{margin:.25rem 0 .75rem}
+
+a{color:var(--accent)}
+
+code{font-family:var(--font-code); background:var(--surface-2); padding:1px 5px; border-radius:4px; font-size:.75rem}
+
+:focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:4px}
+
+
+/* ============ 展示页布局 ============ */
+.layout{display:flex; min-height:100vh}
+
+.callout{background:var(--accent-subtle); border:1px solid var(--accent); border-radius:8px; padding:.75rem 1rem; font-size:.75rem; margin:.75rem 0}
+
+kbd{
+  font-family:var(--font-code); background:var(--surface); border:1px solid var(--border);
+  border-bottom-width:2px; border-radius:4px; padding:1px 6px; font-size:.75rem;
+}
+
+
+/* 主题/字号 全局切换器（展示页顶栏）*/
+.pagebar{
+  display:flex; align-items:center; gap:.75rem; flex-wrap:wrap; margin-bottom:1.25rem;
+  background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:.5rem .75rem;
+  position:sticky; top:.75rem; z-index:50; box-shadow:var(--shadow-pop);
+}
+
+.seg{display:inline-flex; background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden}
+
+.seg button{
+  border:none; background:transparent; color:var(--text-secondary); font-family:inherit;
+  font-size:.75rem; padding:.3rem .6rem; cursor:pointer;
+  transition:background-color var(--dur-fast) ease-out, color var(--dur-fast) ease-out;
+}
+
+.seg button:hover{background:var(--surface-2)}
+
+.seg button.on{background:var(--accent-fill); color:var(--on-accent)}
+
+/* ============ 通用组件（design.md §2 状态矩阵）============ */
+.btn{
+  display:inline-flex; align-items:center; gap:.35rem; height:2rem; padding:0 .75rem;
+  border-radius:6px; border:1px solid transparent; font-family:inherit; font-size:.75rem;
+  cursor:pointer; color:var(--text-primary); background:var(--surface); border-color:var(--border);
+  transition:background-color var(--dur-fast) ease-out, border-color var(--dur-fast) ease-out,
+             color var(--dur-fast) ease-out, transform var(--dur-fast) ease-out, opacity var(--dur-fast) ease-out;
+  white-space:nowrap;
+}
+.btn:hover{background:var(--surface-2); border-color:var(--border-strong)}
+.btn:active,.btn.pressed{transform:translateY(.5px); background:var(--border); border-color:var(--border-strong)}
+.btn:disabled,.btn.disabled{color:var(--text-disabled); background:var(--surface-2); border-color:var(--border); cursor:not-allowed; transform:none}
+.btn.primary{background:var(--accent-fill); color:var(--on-accent); border-color:var(--accent-fill)}
+.btn.primary:hover{background:var(--accent-hover)}
+.btn.primary.pressed,.btn.primary:active{background:var(--accent-pressed)}
+.btn.primary:disabled,.btn.primary.disabled{background:var(--border); color:var(--text-disabled)}
+.btn.danger{color:var(--error)}
+.btn.danger:hover{border-color:var(--error); background:var(--error-bg)}
+.btn.ghost{background:transparent; border-color:transparent; color:var(--text-secondary)}
+.btn.ghost:hover{background:var(--surface-2); color:var(--text-primary)}
+.btn.loading{pointer-events:none; position:relative}
+.btn.loading::after{
+  content:""; width:.8rem; height:.8rem; border-radius:50%;
+  border:2px solid var(--text-disabled); border-top-color:var(--accent);
+  animation:spin .8s linear infinite;
+}
+.btn .ic{width:1rem; height:1rem; flex:0 0 1rem}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.iconbtn{
+  display:inline-grid; place-items:center; width:1.75rem; height:1.75rem; border:none;
+  background:transparent; color:var(--text-secondary); border-radius:50%; cursor:pointer;
+  transition:background-color var(--dur-fast) ease-out, color var(--dur-fast) ease-out;
+}
+.iconbtn svg{width:1rem; height:1rem}
+.iconbtn:hover{background:var(--surface-2); color:var(--text-primary)}
+.iconbtn:disabled{color:var(--text-disabled); cursor:not-allowed; background:transparent}
+.iconbtn.closebtn:hover{background:var(--error-bg); color:var(--error)}
+
+.field label{display:block; font-size:.75rem; color:var(--text-secondary); margin-bottom:.25rem}
+.input{
+  width:100%; height:2rem; padding:0 .5rem; font-family:inherit; font-size:.875rem;
+  color:var(--text-primary); background:var(--surface); border:1px solid var(--border); border-radius:6px;
+  transition:border-color var(--dur-fast) ease-out, background-color var(--dur-fast) ease-out;
+}
+.input:hover{border-color:var(--border-strong)}
+.input:focus{border-color:var(--accent); outline:none}
+.input:disabled{color:var(--text-disabled); background:var(--surface-2); cursor:not-allowed}
+.input.err{border-color:var(--error)}
+.field .err-msg{color:var(--error); font-size:.75rem; margin-top:.2rem}
+textarea.input{height:auto; min-height:6rem; max-height:15rem; resize:vertical; line-height:1.55; padding:.4rem .5rem}
+.fieldrow{display:flex; align-items:center; gap:.5rem}
+.fieldrow .input{flex:1}
+
+.chip{
+  display:inline-flex; align-items:center; gap:.25rem; height:1.75rem; padding:0 .5rem;
+  background:var(--surface); border:1px solid var(--border); border-radius:6px;
+  color:var(--text-secondary); font-size:.75rem; font-family:inherit; cursor:pointer;
+  transition:background-color var(--dur-fast) ease-out, border-color var(--dur-fast) ease-out, color var(--dur-fast) ease-out;
+  max-width:100%;
+}
+.chip:hover{background:var(--surface-2); color:var(--text-primary)}
+.chip.open{background:var(--accent-subtle); border-color:var(--accent); color:var(--accent)}
+.chip:disabled{color:var(--text-disabled); cursor:not-allowed}
+.chip svg{width:.75rem; height:.75rem; flex:0 0 .75rem}
+.chip b{font-weight:500; overflow-wrap:anywhere}
+
+/* 下拉浮层：置顶、不被窗口裁剪（design.md §9.5）*/
+.popmenu{
+  position:fixed; z-index:400; min-width:10rem; max-width:18rem; max-height:15rem; overflow-y:auto;
+  background:var(--bg); border:1px solid var(--border); border-radius:8px; box-shadow:var(--shadow-pop);
+  padding:.25rem; animation:popIn 160ms ease-out;
+}
+@keyframes popIn{from{opacity:0; transform:translateY(4px) scale(.96)} to{opacity:1; transform:none}}
+.popmenu .item{
+  display:flex; align-items:flex-start; gap:.4rem; width:100%; text-align:left;
+  padding:.35rem .5rem; border:none; background:transparent; border-radius:6px;
+  font-family:inherit; font-size:.75rem; color:var(--text-primary); cursor:pointer;
+}
+.popmenu .item:hover{background:var(--surface-2)}
+.popmenu .item.sel{background:var(--accent-subtle)}
+.popmenu .item .nm{font-weight:500; overflow-wrap:anywhere}
+.popmenu .item .sub{color:var(--text-secondary); font-size:.6875rem; display:block; overflow-wrap:anywhere}
+
+/* 开关 / 复选 */
+.toggle{position:relative; width:2rem; height:1.125rem; border-radius:1rem; background:var(--surface-2); border:1px solid var(--border-strong); cursor:pointer; transition:background-color var(--dur-fast) ease-out, border-color var(--dur-fast) ease-out; flex:0 0 auto}
+.toggle::after{content:""; position:absolute; top:1px; left:1px; width:.85rem; height:.85rem; border-radius:50%; background:var(--bg); border:1px solid var(--border-strong); transition:transform var(--dur-fast) ease-out}
+.toggle.on{background:var(--accent-fill); border-color:var(--accent-fill)}
+.toggle.on::after{transform:translateX(.85rem); border-color:transparent}
+.toggle:disabled{opacity:.5; cursor:not-allowed}
+.checkrow{display:flex; align-items:flex-start; gap:.4rem; font-size:.75rem; cursor:pointer}
+.checkrow .box{width:1rem; height:1rem; flex:0 0 1rem; margin-top:1px; border:1px solid var(--border-strong); border-radius:4px; display:grid; place-items:center; color:var(--on-accent); transition:background-color var(--dur-fast) ease-out}
+.checkrow.on .box{background:var(--accent-fill); border-color:var(--accent-fill)}
+.checkrow .box svg{width:.75rem; height:.75rem; opacity:0}
+.checkrow.on .box svg{opacity:1}
+.checkrow .ct .sub{color:var(--text-secondary); font-size:.6875rem; display:block; overflow-wrap:anywhere}
+
+kbd.rec{min-width:3.2rem; text-align:center}
+kbd.conflict{border-color:var(--warning); color:var(--warning)}
+.warn-line{color:var(--warning); font-size:.75rem; display:flex; align-items:center; gap:.3rem; margin-top:.25rem}
+.warn-line svg{width:.9rem; height:.9rem; flex:0 0 .9rem}
+
+/* Toast */
+.toasts{position:fixed; left:50%; bottom:1.25rem; transform:translateX(-50%); z-index:600; display:flex; flex-direction:column; gap:.4rem; align-items:center; pointer-events:none}
+.toast{
+  display:flex; align-items:center; gap:.4rem; padding:.45rem .8rem; background:var(--bg);
+  border:1px solid var(--border); border-radius:8px; box-shadow:var(--shadow-pop); font-size:.75rem;
+  animation:toastIn 160ms ease-out;
+}
+.toast svg{width:1rem; height:1rem; flex:0 0 1rem}
+.toast.ok svg{color:var(--success)} .toast.err svg{color:var(--error)} .toast.info svg{color:var(--accent)}
+@keyframes toastIn{from{opacity:0; transform:translateY(8px)} to{opacity:1; transform:none}}
+.toast.hide{opacity:0; transform:translateY(8px); transition:opacity .3s ease-out, transform .3s ease-out}
+
+/* 确认对话框 */
+.overlay{position:fixed; inset:0; z-index:500; background:rgba(0,0,0,.32); display:grid; place-items:center; opacity:0; pointer-events:none; transition:opacity 180ms ease-out}
+.overlay.show{opacity:1; pointer-events:auto}
+.modal{
+  width:min(20rem,90vw); background:var(--bg); border:1px solid var(--border); border-radius:8px;
+  box-shadow:var(--shadow-pop); padding:1rem; transform:scale(.96); opacity:0;
+  transition:transform 160ms ease-out, opacity 160ms ease-out;
+}
+.overlay.show .modal{transform:none; opacity:1}
+.modal h3{display:flex; align-items:center; gap:.4rem; font-size:.875rem; margin-bottom:.35rem}
+.modal h3 svg{width:1.1rem; height:1.1rem; color:var(--warning)}
+.modal p{font-size:.75rem; color:var(--text-secondary)}
+.modal .acts{display:flex; justify-content:flex-end; gap:.5rem; margin-top:.9rem}
+
+/* 骨架屏 / 状态行 */
+.skel{height:.8rem; border-radius:4px; background:linear-gradient(90deg,var(--skeleton-a),var(--skeleton-b),var(--skeleton-a)); background-size:200% 100%; animation:shine 1.2s linear infinite}
+@keyframes shine{to{background-position:-200% 0}}
+.statusline{display:flex; align-items:center; gap:.4rem; font-size:.75rem; color:var(--text-secondary); padding:.35rem 0}
+.statusline .spin{width:1rem; height:1rem; flex:0 0 1rem; border-radius:50%; border:2px solid var(--border); border-top-color:var(--accent); animation:spin .8s linear infinite}
+
+/* ============ 桌面窗口原型框架 ============ */
+.win{
+  container-type:inline-size;
+  background:var(--bg); border:1px solid var(--border); border-radius:10px;
+  box-shadow:var(--shadow-window); overflow:hidden;
+  display:flex; flex-direction:column; margin:0 auto; position:relative;
+}
+.win .titlebar{
+  display:flex; align-items:center; gap:.4rem; height:2rem; flex:0 0 2rem;
+  background:var(--surface); border-bottom:1px solid var(--border);
+  padding:0 .35rem 0 .75rem; font-size:.6875rem; color:var(--text-secondary);
+}
+.win .titlebar .tb-ic{width:.65rem; height:.65rem; color:var(--accent)}
+.win .titlebar .wbtns{margin-left:auto; display:flex; gap:.15rem}
+.wview{flex:1; display:flex; flex-direction:column; min-height:0; position:relative}
+
+/* 视图切换动画（§12.2）*/
+.view{display:none; flex:1; flex-direction:column; min-height:0; opacity:0; transform:translateY(4px)}
+.view.on{display:flex; animation:viewIn 180ms ease-out forwards}
+@keyframes viewIn{to{opacity:1; transform:none}}
+
+/* 顶栏 */
+.topbar{display:flex; align-items:center; gap:.3rem; padding:.35rem .5rem; border-bottom:none; flex:0 0 auto; min-height:2.75rem}
+.topbar .grow{flex:1; min-width:0; display:flex; gap:.3rem; align-items:center; overflow:hidden}
+.topbar .iconbtn{flex:0 0 auto}
+
+/* —— 快捷输入态（design.md §3.1 / §9.8 无背景输入）—— */
+.quickwrap{flex:1; display:flex; flex-direction:column; justify-content:center; padding:0 1rem 4rem; gap:.5rem; min-height:0}
+.bare-input{
+  width:100%; border:none; background:transparent; outline:none; resize:none;
+  font-family:inherit; font-size:.875rem; line-height:1.55; color:var(--text-primary);
+  min-height:2.5rem; max-height:10rem; padding:0; caret-color:var(--accent);
+}
+.bare-input::placeholder{color:var(--text-disabled)}
+.quick-hint{font-size:.6875rem; color:var(--text-disabled)}
+.quick-chips{display:flex; justify-content:center; gap:.5rem; margin-top:.5rem; flex-wrap:wrap}
+
+/* —— 对话态 —— */
+.msg-area{flex:1; overflow-y:auto; padding:1rem; position:relative; min-height:0; scroll-behavior:smooth}
+.msg{margin-bottom:1rem; position:relative}
+.msg .role-name{font-size:.6875rem; color:var(--text-secondary); margin-bottom:.15rem; display:flex; align-items:center; gap:.3rem}
+.msg .role-name svg{width:.7rem;height:.7rem;color:var(--accent)}
+.msg-user{display:flex; flex-direction:column; align-items:flex-end}
+.bubble{
+  display:inline-block; max-width:85%; background:var(--accent-fill); color:var(--on-accent);
+  border-radius:8px; padding:.5rem .75rem; font-size:.875rem; line-height:1.55; overflow-wrap:anywhere;
+  white-space:pre-wrap; text-align:left;
+}
+.msg-user .msg-ops{display:flex; gap:.1rem; margin-top:.15rem; opacity:0; transition:opacity var(--dur-fast) ease-out}
+.msg-user:hover .msg-ops{opacity:1}
+.ai-body{font-size:.875rem; line-height:1.6; overflow-wrap:anywhere; white-space:pre-wrap}
+.ai-body .caret{display:inline-block; width:2px; height:1em; background:var(--accent); vertical-align:-.15em; animation:caretBlink 1s steps(2) infinite}
+@keyframes caretBlink{50%{opacity:0}}
+.ai-ops{display:flex; gap:.1rem; opacity:0; transition:opacity var(--dur-fast) ease-out}
+.msg:hover .ai-ops{opacity:1}
+.stopped-tag{font-size:.6875rem; color:var(--text-disabled); margin-top:.15rem}
+.err-line{display:flex; align-items:center; gap:.3rem; color:var(--error); font-size:.75rem; margin-top:.25rem}
+.err-line svg{width:.9rem;height:.9rem}
+.retry-link{color:var(--accent); font-size:.75rem; cursor:pointer; text-decoration:underline; background:none; border:none; font-family:inherit; padding:0}
+.codeblk{position:relative; margin:.4rem 0; background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:.6rem .75rem; font-family:var(--font-code); font-size:.75rem; overflow-x:auto; white-space:pre}
+.codeblk .lang{position:absolute; top:.25rem; right:.5rem; font-size:.625rem; color:var(--text-disabled)}
+
+/* 消息区中部状态块（连接失败/凭据缺失/模型不可用 §5）*/
+.center-block{
+  margin:auto; text-align:center; color:var(--text-secondary); font-size:.75rem; max-width:22rem; padding:1rem;
+}
+.center-block svg{width:2rem; height:2rem; color:var(--text-disabled); margin-bottom:.5rem}
+.center-block b{color:var(--text-primary); display:block; font-size:.875rem; margin-bottom:.2rem}
+
+/* 模糊过渡带（design.md §9.7 / §11.2：下边界贴输入区上边界）*/
+.fade-band{
+  position:absolute; left:0; right:0; bottom:0; height:4rem; pointer-events:none; z-index:2;
+  background:linear-gradient(180deg, transparent, var(--bg));
+}
+.fade-band .blurpart{
+  position:absolute; inset:0; bottom:0; height:2.5rem;
+  -webkit-backdrop-filter:blur(8px); backdrop-filter:blur(8px);
+  mask-image:linear-gradient(180deg, transparent, #000);
+  -webkit-mask-image:linear-gradient(180deg, transparent, #000);
+}
+
+/* 输入区（composer）：透明背景、无线（§9.7/§12）*/
+.composer{flex:0 0 auto; padding:.5rem .75rem .6rem; position:relative; z-index:3; background:var(--bg)}
+.composer .cinbox{display:flex; align-items:flex-end; gap:.4rem}
+.bare-input.comp{min-height:2.5rem; max-height:10rem}
+.sendkey{
+  width:1.75rem; height:1.75rem; flex:0 0 1.75rem; display:grid; place-items:center;
+  border:none; border-radius:6px; background:var(--accent-fill); color:var(--on-accent); cursor:pointer;
+  transition:background-color var(--dur-fast) ease-out, opacity var(--dur-fast) ease-out, transform 160ms ease-out;
+}
+.sendkey svg{width:1rem; height:1rem}
+.sendkey:hover{background:var(--accent-hover)}
+.sendkey:active{background:var(--accent-pressed)}
+.sendkey:disabled{background:var(--border); color:var(--text-disabled); cursor:not-allowed}
+.sendkey.stop{background:var(--surface); color:var(--text-primary); border:1px solid var(--border)}
+.sendkey.stop svg{width:.75rem; height:.75rem}
+.sendkey.stop:hover{border-color:var(--error); color:var(--error)}
+.comp-hint{font-size:.625rem; color:var(--text-disabled); margin-top:.3rem; text-align:right}
+
+/* 右缘跳转刻度条（§12.1：右对齐、当前向左凸、8px）*/
+.ticks{
+  position:absolute; right:12px; top:50%; transform:translateY(-50%); z-index:4;
+  display:flex; flex-direction:column; gap:.25rem; align-items:flex-end;
+}
+.tick{
+  height:2px; width:8px; border:none; padding:0; border-radius:4px; cursor:pointer;
+  background:var(--border-strong); position:relative;
+  transition:width 120ms ease-out, background-color 120ms ease-out;
+}
+.tick::before{content:""; position:absolute; inset:-5px -2px} /* 扩大命中区 */
+.tick:hover{background:var(--accent-hover)}
+.tick.active{width:12px; background:var(--accent)}
+
+/* 滚动条（§9.4/§12 融合 + §9.10 显隐：滚动时显示、静止1s后1s渐隐）*/
+.scroller{scrollbar-width:thin; scrollbar-color:transparent transparent; transition:scrollbar-color 1s ease-out}
+.scroller.show{scrollbar-color:var(--border-strong) transparent}
+.scroller::-webkit-scrollbar{width:4px; height:4px}
+.scroller::-webkit-scrollbar-track{background:transparent}
+.scroller::-webkit-scrollbar-thumb{background:transparent; border-radius:4px; transition:background-color 1s ease-out}
+.scroller.show::-webkit-scrollbar-thumb{background:var(--border-strong)}
+.scroller::-webkit-scrollbar-thumb:hover{background:var(--text-disabled)}
+
+/* —— 设置视图 —— */
+.settings-body{flex:1; display:flex; min-height:0}
+.set-nav{width:10rem; flex:0 0 10rem; border-right:1px solid var(--border); padding:.5rem .4rem; display:flex; flex-direction:column; gap:2px}
+.set-nav button{
+  display:flex; align-items:center; gap:.4rem; text-align:left; border:none; background:transparent;
+  padding:.4rem .5rem; border-radius:6px; font-family:inherit; font-size:.75rem; color:var(--text-secondary); cursor:pointer;
+  transition:background-color var(--dur-fast) ease-out, color var(--dur-fast) ease-out;
+}
+.set-nav button:hover{background:var(--surface-2)}
+.set-nav button.on{background:var(--accent-subtle); color:var(--accent)}
+.set-nav button svg{width:1rem; height:1rem; flex:0 0 1rem}
+.set-panel{flex:1; overflow-y:auto; padding:1rem; min-width:0}
+.set-panel h4{margin:.75rem 0 .35rem; font-size:.8125rem}
+.set-panel h4:first-child{margin-top:0}
+.set-row{display:flex; align-items:center; gap:.75rem; padding:.55rem 0; border-bottom:1px solid var(--border); flex-wrap:wrap}
+.set-row:last-child{border-bottom:none}
+.set-row .k{flex:1; min-width:8rem}
+.set-row .k .sub{display:block; color:var(--text-secondary); font-size:.6875rem}
+.savebar{flex:0 0 auto; display:flex; align-items:center; gap:.75rem; padding:.5rem 1rem; border-top:none}
+.savebar .state{font-size:.75rem}
+.savebar .state.ok{color:var(--success)} .savebar .state.fail{color:var(--error)}
+.savefail-banner{
+  display:flex; gap:.4rem; align-items:center; margin-bottom:.75rem; padding:.5rem .75rem;
+  background:var(--error-bg); color:var(--error); border-radius:6px; font-size:.75rem;
+}
+.savefail-banner svg{width:1rem;height:1rem;flex:0 0 1rem}
+.model-list{display:flex; flex-direction:column; gap:.35rem; margin:.5rem 0}
+.role-item{display:flex; align-items:flex-start; gap:.5rem; padding:.5rem; border:1px solid var(--border); border-radius:6px; margin-bottom:.4rem}
+.role-item .rt{flex:1; min-width:0}
+.role-item .rt b{font-size:.75rem; display:block}
+.role-item .rt .sub{font-size:.6875rem; color:var(--text-secondary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.field-label-row{display:flex; justify-content:space-between; align-items:center; margin-bottom:.25rem}
+.field-label-row label{font-size:.75rem; color:var(--text-secondary)}
+
+/* —— 历史侧栏抽屉（§9.6/§12.2）—— */
+.hist-overlay{position:absolute; inset:0; z-index:450; background:rgba(0,0,0,.32); opacity:0; pointer-events:none; transition:opacity 180ms ease-out}
+.hist-overlay.show{opacity:1; pointer-events:auto}
+.hist-drawer{
+  position:absolute; top:0; bottom:0; left:0; width:min(17.5rem,80cqw); z-index:460;
+  background:var(--bg); border-right:1px solid var(--border); display:flex; flex-direction:column;
+  transform:translateX(-100%); transition:transform 240ms cubic-bezier(.2,0,0,1);
+}
+.hist-drawer.show{transform:none}
+.hist-drawer .hd-head{display:flex; align-items:center; gap:.4rem; padding:.6rem .75rem; border-bottom:1px solid var(--border)}
+.hist-drawer .hd-head .search{flex:1; min-width:0}
+.hist-list{flex:1; overflow-y:auto; padding:.4rem}
+.hist-item{
+  display:block; width:100%; text-align:left; background:transparent; border:none; border-radius:6px;
+  padding:.5rem; font-family:inherit; cursor:pointer; margin-bottom:2px;
+  opacity:0; transform:translateY(4px);
+  transition:background-color var(--dur-fast) ease-out, opacity 120ms ease-out, transform 120ms ease-out;
+}
+.hist-drawer.show .hist-item{animation:histIn 240ms ease-out forwards}
+@keyframes histIn{to{opacity:1; transform:none}}
+.hist-item:hover{background:var(--surface-2)}
+.hist-item .hi-t{font-size:.75rem; color:var(--text-primary); display:flex; align-items:center; gap:.35rem}
+.hist-item .hi-t .cur{width:.4rem; height:.4rem; border-radius:50%; background:var(--accent); flex:0 0 .4rem}
+.hist-item .hi-sub{font-size:.6875rem; color:var(--text-secondary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.hist-item .hi-time{font-size:.625rem; color:var(--text-disabled)}
+.hist-item .hi-row{display:flex; align-items:center; gap:.4rem}
+.hist-item .hi-row .grow{flex:1; min-width:0}
+.hist-item .iconbtn{width:1.4rem; height:1.4rem; opacity:0}
+.hist-item:hover .iconbtn{opacity:1}
+.hist-empty{text-align:center; color:var(--text-disabled); font-size:.75rem; padding:2rem .5rem}
+
+/* ============ 容器查询响应式（§4：320–900px 自适应）============ */
+@container (max-width: 400px){
+  .topbar .chip .chip-txt{display:none}
+  .set-nav{width:auto; flex:0 0 auto; flex-direction:row; overflow-x:auto; border-right:none; border-bottom:1px solid var(--border)}
+  .settings-body{flex-direction:column}
+  .quickwrap{padding:0 .75rem 3rem}
+  .ticks{right:9px}
+}
+@container (max-width: 480px){
+  .topbar{gap:.15rem}
+  .btn{padding:0 .5rem; gap:.2rem}
+  .bubble{max-width:92%}
+}
+@container (min-width: 720px){
+  .msg-area .msg-inner{max-width:40rem; margin:0 auto}
+  .quickwrap{padding:0 3rem 5rem}
+}
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:1ms !important; transition-duration:1ms !important}
+  .view.on,.hist-drawer.show .hist-item{animation:none; opacity:1; transform:none}
+}
+
+/* ------------------------------------------------------------------------
+ * 对设计的唯一偏离：用户明确要求暗色主题底色为**纯黑**，
+ * 而设计的暗色底面是近黑色（--bg: #191B1F）。
+ * 以覆写规则追加而不是改写 Token 块，这样上面引入的 Token 与源包保持逐字节一致。
+ * ------------------------------------------------------------------------ */
+[data-theme="dark"]{ --bg:#000000; }
+
+/* ===================== 本插件对设计基座的补充 =====================
+   只做三件设计基座没有覆盖的事：让窗口在 widget 形态下透出圆角、给 Markdown 与
+   思考块排版、以及承载对话气泡里的富文本。所有颜色一律走设计 Token。 */
+html, body { background: transparent; height: 100%; }
+body { overflow: hidden; }
+/* position:fixed + inset:0 makes the surface exactly the viewport. With
+   `height:100vh` the surface ended up taller than the widget window, so the
+   bottom rounded corners fell outside it and the window looked square-bottomed
+   while the top stayed rounded. */
+#win {
+  position: fixed; inset: 0;
+  display: flex; flex-direction: column;
+  border-radius: 12px; overflow: hidden;
+}
+
+/* 消息区外层。必须撑满剩余高度并建立定位上下文，否则：
+   · .msg-area 没有可滚动的高度 → 内容把整个窗口撑高，顶栏/工具栏被推出视野；
+   · .fade-band 会锚到 .wview 而不是消息区 → 模糊出现在错误的位置。
+   原型用行内样式做同一件事。 */
+.chatbody { flex: 1; display: flex; min-height: 0; position: relative; }
+
+/* 设置面板右侧：.set-panel 可滚动 + .savebar 常驻底部，同样需要撑满高度。 */
+.setwrap { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+
+/* 滚动区底部留出 composer 与状态行的空间，使其看起来是被模糊带盖住的 */
+.msg-area { padding-bottom: 5rem; }
+
+/* 状态行（思考中/搜索中）——设计有 .statusline，这里让它贴在 composer 上方 */
+.statusline { padding: 0 .75rem .25rem; }
+
+/* 设计基座里的 .warn-line / .savefail-banner 自带 display，用 hidden 切换时
+   必须补 [hidden] 覆盖：作者样式的 display 会压过浏览器默认的
+   [hidden]{display:none}，漏掉就会永远显示（这个坑曾让整个窗口变白屏）。 */
+.statusline[hidden],
+.warn-line[hidden],
+.savefail-banner[hidden],
+#roleEditor[hidden],
+[data-panel][hidden],
+.queue-strip[hidden] { display: none; }
+
+/* 排队中的消息（忙时按 Enter 会排到这里；Agent 模式改为直接发送当引导） */
+.queue-strip { display: flex; flex-wrap: wrap; gap: .3rem; padding: 0 .75rem .3rem; }
+.queue-strip .chip { max-width: 100%; }
+.queue-strip .chip b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* 消息：用户气泡右对齐；助手区承载 Markdown */
+.msg-user { display: flex; flex-direction: column; align-items: flex-end; }
+.ai-body > .md { white-space: normal; }
+.md > *:first-child { margin-top: 0; }
+.md > *:last-child { margin-bottom: 0; }
+.md p { margin: 0 0 .5rem; }
+.md h1, .md h2, .md h3, .md h4 { margin: .7rem 0 .4rem; line-height: 1.3; }
+.md h1 { font-size: 1.25rem; }
+.md h2 { font-size: 1.075rem; }
+.md h3 { font-size: .95rem; }
+.md ul, .md ol { margin: 0 0 .5rem; padding-left: 1.25rem; }
+.md li { margin: .15rem 0; }
+.md code {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: .8125rem; background: var(--surface-2);
+  padding: .05rem .3rem; border-radius: 4px;
+}
+.md pre {
+  margin: 0 0 .5rem; padding: .5rem .7rem; background: var(--surface-2);
+  border-radius: 6px; overflow-x: auto;
+}
+.md pre code { background: transparent; padding: 0; }
+.md blockquote {
+  margin: 0 0 .5rem; padding-left: .6rem;
+  border-left: 2px solid var(--border-strong); color: var(--text-secondary);
+}
+.md a { color: var(--accent-fill); }
+.md hr { border: 0; border-top: 1px solid var(--border); margin: .7rem 0; }
+
+/* 思考块：折叠，复用设计的 .callout 外观 */
+details.think { margin: 0 0 .5rem; }
+details.think > summary {
+  cursor: pointer; list-style: none; display: flex; align-items: center; gap: .3rem;
+  font-size: .75rem; color: var(--text-secondary);
+}
+details.think > summary::-webkit-details-marker { display: none; }
+details.think > summary .arrow { transition: transform var(--dur-fast); }
+details.think[open] > summary .arrow { transform: rotate(90deg); }
+details.think > .body {
+  margin-top: .3rem; white-space: pre-wrap;
+  font-size: .8125rem; color: var(--text-secondary);
+  border-left: 2px solid var(--border); padding-left: .6rem;
+}
+
+/* 弹出菜单的分组标题（角色 / 模型 / 思考深度）。它不是可选项，所以**不能**有
+   hover 或选中的底色，也不能有点击指针 —— 之前直接复用了 .item，看起来像能选，
+   会误导。比选项大 5%（选项 .75rem → 标题 .7875rem）以便一眼区分。
+   设计基座没有这个类，是本插件补的。 */
+.popmenu .group {
+  padding: .4rem .5rem .2rem;
+  font-size: .7875rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: default;
+  pointer-events: none;
+  letter-spacing: .02em;
+}
+
+/* 历史抽屉的分组标题：快捷对话与宿主会话是两类东西，必须分开列。 */
+.hist-group {
+  padding: .5rem .75rem .25rem;
+  font-size: .6875rem;
+  color: var(--text-disabled);
+  letter-spacing: .02em;
+}
+
+/* 消息里的工具行 */
+.tool-line {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: .75rem; color: var(--text-disabled);
+}
+
+/* 工具原始输出（展开后）：自己滚，别把整段对话撑长 */
+.tool-raw {
+  margin: .3rem 0 0; padding: .5rem .6rem; max-height: 16rem; overflow: auto;
+  background: var(--surface-2); border-radius: 6px;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: .75rem; white-space: pre-wrap; overflow-wrap: anywhere;
+  color: var(--text-secondary);
+}
+
+/* 设置里角色行的选中态（.role-item 由设计提供外观） */
+.role-item.cur { border-color: var(--accent-fill); }
+.role-item[role="button"] { cursor: pointer; }
+
+/* 外观/思考等分段控件的说明行 */
+.set-row .k .sub { display: block; }
+</style>
+  </head>
+  <body>
+    <!-- 设计系统图标 sprite（由 tools/build-renderer.mjs 注入，22 个 symbol） -->
+    <svg hidden aria-hidden="true">
+<!-- 由 tools/export-design-base.mjs 从 鲸唤 Summon 原型源码包 v1.4 导出（index.html 图标 sprite），内联进 <svg hidden> 即可。 -->
+<symbol id="i-new" viewBox="0 0 16 16"><path fill="currentColor" d="M8 2.5a.75.75 0 0 1 .75.75v4h4a.75.75 0 0 1 0 1.5h-4v4a.75.75 0 0 1-1.5 0v-4h-4a.75.75 0 0 1 0-1.5h4v-4A.75.75 0 0 1 8 2.5Z"/></symbol>
+  <symbol id="i-history" viewBox="0 0 16 16"><path fill="currentColor" d="M8 2.5a5.5 5.5 0 1 0 5.27 6.98.7.7 0 0 1 1.35.38A7 7 0 1 1 10.6 3.4l1.2-1.2a.7.7 0 0 0-.99-.99L8.9 3.12a.7.7 0 0 0 0 .99l1.9 1.9a.7.7 0 0 0 .99-.98l-1.2-1.2A5.5 5.5 0 0 0 8 2.5Zm-.3 2.7a.65.65 0 0 1 1.3 0V8l1.87 1.08a.65.65 0 1 1-.65 1.13L8.05 8.8a.65.65 0 0 1-.35-.57V5.2Z"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 16 16"><path fill="currentColor" d="M8 5.75a2.25 2.25 0 1 0 0 4.5 2.25 2.25 0 0 0 0-4.5ZM6.4 8a1.6 1.6 0 1 1 3.2 0 1.6 1.6 0 0 1-3.2 0Z"/><path fill="currentColor" d="M7.44 1.5c-.52 0-.96.37-1.05.88l-.15.85c-.31.13-.61.3-.88.5l-.83-.28a1.07 1.07 0 0 0-1.28.47l-.5.87c-.25.44-.16 1 .23 1.32l.66.55a4.6 4.6 0 0 0 0 1.02l-.66.55c-.39.32-.48.88-.23 1.32l.5.87c.25.44.78.63 1.28.47l.83-.28c.27.2.57.37.88.5l.15.85c.09.51.53.88 1.05.88h1.12c.52 0 .96-.37 1.05-.88l.15-.85c.31-.13.61-.3.88-.5l.83.28c.5.16 1.03-.03 1.28-.47l.5-.87c.25-.44.16-1-.23-1.32l-.66-.55a4.6 4.6 0 0 0 0-1.02l.66-.55c.39-.32.48-.88.23-1.32l-.5-.87a1.07 1.07 0 0 0-1.28-.47l-.83.28c-.27-.2-.57-.37-.88-.5l-.15-.85c-.09-.51-.53-.88-1.05-.88H7.44Z"/></symbol>
+  <symbol id="i-close" viewBox="0 0 16 16"><path fill="currentColor" d="M3.4 3.4a.7.7 0 0 1 1 0L8 7l3.6-3.6a.7.7 0 1 1 1 1L9 8l3.6 3.6a.7.7 0 1 1-1 1L8 9l-3.6 3.6a.7.7 0 1 1-1-1L7 8 3.4 4.4a.7.7 0 0 1 0-1Z"/></symbol>
+  <symbol id="i-min" viewBox="0 0 16 16"><path fill="currentColor" d="M3.5 8.25a.75.75 0 0 1 .75-.75h7.5a.75.75 0 0 1 0 1.5H4.25a.75.75 0 0 1-.75-.75Z"/></symbol>
+  <symbol id="i-send" viewBox="0 0 16 16"><path fill="currentColor" d="M1.6 7.3 13.9 2.2c.6-.25 1.2.35.98.96L9.8 14.4c-.23.62-1.1.65-1.36.05l-1.86-4.2-4.28-1.6c-.62-.24-.62-1.12 0-1.35l-.3 0Zm1.9.75 4.06 1.52c.27.1.48.32.58.6l1.35 3.06 3.24-8.7L3.5 8.05Z"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 16 16"><rect fill="currentColor" x="4" y="4" width="8" height="8" rx="1.5"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 16 16"><path fill="currentColor" d="M4 5.5C4 4.67 4.67 4 5.5 4h6c.83 0 1.5.67 1.5 1.5v6c0 .83-.67 1.5-1.5 1.5h-6A1.5 1.5 0 0 1 4 11.5v-6Zm1.5 0v6h6v-6h-6ZM2.5 5C2.5 4.17 3.17 3.5 4 3.5h6.5a.5.5 0 0 1 0 1H4.5v6a.5.5 0 0 1-1 0V5Z"/></symbol>
+  <symbol id="i-retry" viewBox="0 0 16 16"><path fill="currentColor" d="M8 2.5a5.5 5.5 0 1 0 5.27 6.98.7.7 0 0 1 1.35.38A7 7 0 1 1 10.6 3.4l1.2-1.2a.7.7 0 0 0-.99-.99L8.9 3.12a.7.7 0 0 0 0 .99l1.9 1.9a.7.7 0 0 0 .99-.98l-1.2-1.2A5.5 5.5 0 0 0 8 2.5Z"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 16 16"><path fill="currentColor" d="M4.4 6.35a.65.65 0 0 1 .92-.92L8 8.11l2.68-2.68a.65.65 0 1 1 .92.92L8.46 10.5a.65.65 0 0 1-.92 0L4.4 6.35Z"/></symbol>
+  <symbol id="i-check" viewBox="0 0 16 16"><path fill="currentColor" d="m6.73 11.06 6.55-6.55a.75.75 0 0 1 1.06 1.06l-7.6 7.6a.75.75 0 0 1-1.06 0L1.66 9.15a.75.75 0 0 1 1.06-1.06l4.01 4.97Z"/></symbol>
+  <symbol id="i-warn" viewBox="0 0 16 16"><path fill="currentColor" d="M8.6 2.16a.7.7 0 0 0-1.2 0L1.66 12.3a.7.7 0 0 0 .6 1.06h11.48a.7.7 0 0 0 .6-1.06L8.6 2.16ZM8.5 6v3.2a.5.5 0 0 1-1 0V6a.5.5 0 0 1 1 0Zm-.5 5.4a.6.6 0 1 1 0-1.2.6.6 0 0 1 0 1.2Z"/></symbol>
+  <symbol id="i-info" viewBox="0 0 16 16"><path fill="currentColor" d="M8 1.9a6.1 6.1 0 1 0 0 12.2A6.1 6.1 0 0 0 8 1.9Zm0 1.4a4.7 4.7 0 1 1 0 9.4 4.7 4.7 0 0 1 0-9.4Zm0 1.6a.65.65 0 1 0 0 1.3.65.65 0 0 0 0-1.3Zm-.05 2.2c.36 0 .65.29.65.65v2.8a.65.65 0 1 1-1.3 0V8.15c0-.36.29-.65.65-.65Z"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 16 16"><path fill="currentColor" d="M6.5 2a.75.75 0 0 0-.72.55L5.5 3.2h-2a.65.65 0 1 0 0 1.3h9a.65.65 0 1 0 0-1.3h-2l-.28-.65A.75.75 0 0 0 9.5 2h-3ZM4.7 5.9h6.6l-.43 7.02a1.3 1.3 0 0 1-1.3 1.23H6.43a1.3 1.3 0 0 1-1.3-1.23L4.7 5.9Z"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 16 16"><path fill="currentColor" d="M11.87 1.87a1.7 1.7 0 0 1 2.4 2.4l-.53.53-2.4-2.4.53-.53ZM10.4 3.35l2.4 2.4-6.9 6.9-3.02.62.62-3.02 6.9-6.9Z"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 16 16"><path fill="currentColor" d="M8 5.5c-3.04 0-5.34 2.2-6.13 3.14a.87.87 0 0 0 0 1.1C2.66 10.7 4.96 12.9 8 12.9s5.34-2.2 6.13-3.15a.87.87 0 0 0 0-1.1C13.34 7.7 11.04 5.5 8 5.5Zm0 1.6a2.15 2.15 0 1 1 0 4.3 2.15 2.15 0 0 1 0-4.3Z"/></symbol>
+  <symbol id="i-key" viewBox="0 0 16 16"><path fill="currentColor" d="M10.5 1.8a3.7 3.7 0 0 1 3.66 4.24 3.7 3.7 0 0 1-4.4 3.04l-.53.52v.9h-.9l-.1 1.4h-1.4l-.9.9H4.6v-1.9l4.34-4.34A3.7 3.7 0 0 1 10.5 1.8Zm1.2 2.2a1.1 1.1 0 1 0 0 2.2 1.1 1.1 0 0 0 0-2.2Z"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 16 16"><path fill="currentColor" d="M8 3a5 5 0 1 0 4.9 6h-1.55A3.5 3.5 0 1 1 8 4.5c.97 0 1.84.4 2.47 1.03L8.5 8H13V3.5l-1.6 1.6A5 5 0 0 0 8 3Z"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 16 16"><path fill="currentColor" d="M2.75 4h10.5a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1 0-1.5Zm0 3.25h10.5a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1 0-1.5Zm0 3.25h7a.75.75 0 0 1 0 1.5h-7a.75.75 0 0 1 0-1.5Z"/></symbol>
+  <symbol id="i-left" viewBox="0 0 16 16"><path fill="currentColor" d="M10.35 3.4a.65.65 0 0 1 .93.93L7.25 8.35l4.03 4.02a.65.65 0 1 1-.93.93L5.4 10.35a.65.65 0 0 1 0-.93l4.95-6.02Z"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 16 16"><path fill="currentColor" d="M8 1.5c.3 0 .55.22.6.51l.42 2.45a3.5 3.5 0 0 0 2.52 2.52l2.45.42A.61.61 0 0 1 14 8.6l-2.45.42a3.5 3.5 0 0 0-2.52 2.52l-.42 2.45a.61.61 0 0 1-1.2 0l-.43-2.45A3.5 3.5 0 0 0 4.46 9.02L2 8.6a.61.61 0 0 1 0-1.2l2.45-.42A3.5 3.5 0 0 0 6.98 4.46l.42-2.45c.05-.3.3-.51.6-.51Z"/></symbol>
+  <symbol id="i-search" viewBox="0 0 16 16"><path fill="currentColor" d="M6.9 1.9a5 5 0 1 0 3.16 8.86l2.6 2.59a.7.7 0 0 0 1-1l-2.6-2.6A5 5 0 0 0 6.9 1.9Zm0 1.4a3.6 3.6 0 1 1 0 7.2 3.6 3.6 0 0 1 0-7.2Z"/></symbol>
+    </svg>
+
+    <div class="win" id="win">
+      <div class="titlebar">
+        <svg class="tb-ic"><use href="#i-spark" /></svg>
+        <span>鲸唤 Summon</span>
+        <span class="wbtns">
+          <button class="iconbtn closebtn" id="btnClose" title="隐藏窗口" aria-label="隐藏窗口"><svg><use href="#i-close" /></svg></button>
+        </span>
+      </div>
+
+      <div class="wview">
+        <!-- ============ 对话态（唯一视图，呼出即对话） ============ -->
+        <div class="view on" id="view-chat">
+          <div class="topbar">
+            <div class="grow">
+              <button class="iconbtn" id="btnNewChat" title="新对话"><svg><use href="#i-new" /></svg></button>
+              <button class="iconbtn" id="btnHist" title="对话历史"><svg><use href="#i-history" /></svg></button>
+              <button class="chip" id="cModel" title="模型"><svg><use href="#i-spark" /></svg><b class="chip-txt">模型</b><svg><use href="#i-chev" /></svg></button>
+              <button class="chip" id="cRole" title="角色"><svg><use href="#i-eye" /></svg><b class="chip-txt">角色</b><svg><use href="#i-chev" /></svg></button>
+            </div>
+            <button class="iconbtn" id="btnMore" title="更多"><svg><use href="#i-menu" /></svg></button>
+            <button class="iconbtn" id="btnSettings" title="设置"><svg><use href="#i-settings" /></svg></button>
+          </div>
+
+          <div class="chatbody">
+            <div class="msg-area scroller" id="msgArea" data-pi-plugin-no-drag></div>
+            <div class="ticks" id="ticks"></div>
+            <div class="fade-band"><div class="blurpart"></div></div>
+          </div>
+
+          <div class="statusline" id="statusline" hidden>
+            <span class="spin"></span><span id="statusText">正在思考…</span>
+          </div>
+
+          <div class="queue-strip" id="queueStrip" hidden></div>
+
+          <div class="composer" data-pi-plugin-no-drag>
+            <div class="cinbox">
+              <textarea class="bare-input comp" id="chatInput" rows="1" placeholder="问点什么…" aria-label="提问输入框"></textarea>
+              <button class="iconbtn" id="btnEnhance" title="增强提示词"><svg><use href="#i-spark" /></svg></button>
+              <button class="sendkey" id="sendKey" title="发送" disabled><svg><use id="sendIcon" href="#i-send" /></svg></button>
+            </div>
+            <div class="comp-hint" id="compHint">Enter 发送 · Shift+Enter 换行</div>
+          </div>
+        </div>
+
+        <!-- ============ 设置态 ============ -->
+        <div class="view" id="view-set">
+          <div class="topbar">
+            <button class="iconbtn" id="btnBack" title="返回"><svg><use href="#i-left" /></svg></button>
+            <span style="font-size:.875rem; font-weight:600">设置</span>
+          </div>
+          <div class="settings-body">
+            <nav class="set-nav" id="setNav">
+              <button class="on" data-p="roles"><svg><use href="#i-eye" /></svg>角色预设</button>
+              <button data-p="hotkey"><svg><use href="#i-key" /></svg>快捷键</button>
+              <button data-p="look"><svg><use href="#i-spark" /></svg>外观</button>
+              <button data-p="search"><svg><use href="#i-search" /></svg>搜索</button>
+              <button data-p="gen"><svg><use href="#i-refresh" /></svg>通用</button>
+            </nav>
+            <div class="setwrap">
+              <div class="set-panel scroller" id="setPanel">
+                <div id="sfBanner" class="savefail-banner" hidden><svg><use href="#i-warn" /></svg><span id="sfBannerTxt"></span></div>
+
+                <!-- 角色预设 -->
+                <div data-panel="roles">
+                  <h4>角色预设</h4>
+                  <div id="roleList"></div>
+                  <div class="fieldrow" style="margin-top:.5rem">
+                    <button class="btn" id="btnNewRole"><svg class="ic"><use href="#i-new" /></svg>新建角色</button>
+                    <span class="grow"></span>
+                    <span class="state" id="roleState"></span>
+                  </div>
+                  <div id="roleEditor" hidden style="margin-top:.75rem; border:1px solid var(--border); border-radius:8px; padding:.75rem">
+                    <div class="field-label-row"><label>角色名称</label></div>
+                    <input class="input" id="roleName" placeholder="如：翻译官" style="margin-bottom:.5rem" />
+                    <div class="field-label-row"><label>System Prompt<span style="color:var(--text-disabled)">（快捷对话使用；Agent 模式由宿主会话负责）</span></label></div>
+                    <textarea class="input" id="rolePrompt" placeholder="定义角色的回复规则、语气与定位，可直接粘贴完整文本。想让它在回答前先读某个技能，就在这里写 /技能名"></textarea>
+                    <div class="comp-hint" style="text-align:left">用 <code>/技能名</code> 引用技能（与主窗口语法一致），例如「先按 /tavily-search 的说明来」—— 被引用的技能文档会作为背景知识注入。</div>
+                    <div class="field-label-row"><label>可用工具</label></div>
+                    <div class="fieldrow" style="margin-top:.1rem">
+                      <label class="checkrow" id="roleToolWrap"><span class="box"><svg><use href="#i-check" /></svg></span><span class="ct">联网搜索<span class="sub">快捷对话目前只支持这一个工具</span></span></label>
+                    </div>
+                    <div class="fieldrow" style="justify-content:flex-end; margin-top:.5rem">
+                      <button class="btn" id="roleCancel">取消</button>
+                      <button class="btn primary" id="roleSave">保存角色</button>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 快捷键 -->
+                <div data-panel="hotkey" hidden>
+                  <h4>快捷键</h4>
+                  <div class="set-row">
+                    <div class="k">呼出窗口<span class="sub">全局热键，任意应用内可用</span></div>
+                    <div class="fieldrow"><kbd class="rec" id="hkMain" role="button" tabindex="0">Alt+Shift+C</kbd><span class="state" id="hkState"></span></div>
+                  </div>
+                  <div class="warn-line" id="hkWarn" hidden><svg><use href="#i-warn" /></svg><span id="hkWarnTxt"></span></div>
+                  <div class="set-row"><div class="k">录制方式</div><span class="state">点一下上面的按键框，然后直接按组合键；Esc 取消</span></div>
+                </div>
+
+                <!-- 外观 -->
+                <div data-panel="look" hidden>
+                  <h4>外观</h4>
+                  <div class="set-row">
+                    <div class="k">主题</div>
+                    <div class="seg" id="themeSeg">
+                      <button data-theme="light">浅色</button><button data-theme="dark">深色</button><button data-theme="system" class="on">跟随系统</button>
+                    </div>
+                  </div>
+                  <div class="set-row">
+                    <div class="k">字体大小<span class="sub">即时生效</span></div>
+                    <div class="seg" id="fontSeg">
+                      <button data-fs="13">小</button><button data-fs="15" class="on">标准</button><button data-fs="17">大</button><button data-fs="19">特大</button>
+                    </div>
+                  </div>
+                  <div class="set-row">
+                    <div class="k">整体透明度<span class="sub">窗口整体的不透明度</span></div>
+                    <div class="seg" id="opacitySeg">
+                      <button data-op="100" class="on">100%</button><button data-op="95">95%</button><button data-op="90">90%</button><button data-op="80">80%</button>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 搜索 -->
+                <div data-panel="search" hidden>
+                  <h4>快捷对话的联网搜索</h4>
+                  <div class="set-row">
+                    <div class="k">搜索轮次上限<span class="sub">每多一轮多消耗一次模型调用（宿主限制每分钟 8 次）</span></div>
+                    <input class="input" id="setRounds" type="number" min="0" max="5" style="width:5rem" />
+                  </div>
+                  <div class="set-row">
+                    <div class="k">自定义搜索端点<span class="sub">留空则用内置 DuckDuckGo</span></div>
+                    <input class="input" id="setEndpoint" style="width:14rem" placeholder="https://…" />
+                  </div>
+                  <div class="set-row">
+                    <div class="k">搜索 API Key<span class="sub" id="setKeyState">可选</span></div>
+                    <input class="input" id="setApiKey" type="password" style="width:14rem" placeholder="Bearer …" />
+                  </div>
+                </div>
+
+                <!-- 通用 -->
+                <div data-panel="gen" hidden>
+                  <h4>通用</h4>
+                  <div class="set-row">
+                    <div class="k">Agent 模式默认行为<span class="sub">新开：每次呼出从新会话开始</span></div>
+                    <div class="seg" id="startSeg">
+                      <button data-start="new" class="on">新开会话</button><button data-start="continue">接续上次</button>
+                    </div>
+                  </div>
+                  <div class="set-row">
+                    <div class="k">思考过程详略<span class="sub">跟随主窗口 PI-Desktop 的设置（只读）</span></div>
+                    <span class="state" id="thinkModeState">—</span>
+                  </div>
+                  <div class="set-row">
+                    <div class="k">呼出快捷键状态</div><span class="state" id="shortcutState">—</span>
+                  </div>
+                  <div class="set-row">
+                    <div class="k">插件版本<span class="sub">用于确认「到底加载的是哪个版本」</span></div>
+                    <span class="state" id="versionState">—</span>
+                  </div>
+                </div>
+              </div>
+              <div class="savebar">
+                <button class="btn primary" id="btnSave">保存</button>
+                <span class="state" id="saveState"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============ 历史侧栏 ============ -->
+        <div class="hist-overlay" id="histOverlay"></div>
+        <div class="hist-drawer" id="histDrawer" role="dialog" aria-label="对话历史">
+          <div class="hd-head">
+            <input class="input search" id="histSearch" placeholder="搜索对话…" aria-label="搜索对话" />
+            <button class="iconbtn" id="histClose" title="关闭"><svg><use href="#i-close" /></svg></button>
+          </div>
+          <div class="hist-list scroller" id="histList"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="toasts" id="toasts"></div>
+
+    <script>
+      (function () {
+        "use strict";
+        var bridge = window.pluginBridge;
+        function $(id) { return document.getElementById(id); }
+
+        var HEARTBEAT_MS = 2000;
+        var AGENT_POLL_MS = 1500;
+        var PROGRESS_POLL_MS = 500;
+
+        // 设计 §12.1 / 档位标签：选项里只放档位词，含义放 title。
+        var THINKING_ORDER = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+        var THINKING_LABELS = {
+          off: "无", minimal: "极简", low: "低", medium: "中",
+          high: "高", xhigh: "极高", max: "最高",
+        };
+        function sortLevels(levels) {
+          return (levels || []).slice().sort(function (a, b) {
+            var ia = THINKING_ORDER.indexOf(a); if (ia === -1) ia = 99;
+            var ib = THINKING_ORDER.indexOf(b); if (ib === -1) ib = 99;
+            return ia - ib;
+          });
+        }
+
+        var state = {
+          view: "chat",
+          roles: [], problems: [], defaultRoleId: "quick",
+          settings: {}, shortcut: null, thinkingDisplayMode: "compact", appDefaultModelKey: null,
+        };
+        var models = { list: [], selected: "", fromAppDefault: false };
+        var agent = { sessionId: "", sessions: [], quick: [], timer: null, transcript: null, lastCount: -1, lastChangeAt: 0 };
+        var history = [];
+        // 当前快捷对话的 id。插件按它把这一串问答存进「悬浮窗历史」——
+        // 快捷对话不是宿主会话，宿主的历史里看不到它。
+        var quickConvId = newQuickConvId();
+        function newQuickConvId() {
+          return "q" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+        }
+        var roleDraft = null;
+        var busy = false;
+        var editingRoleId = null;
+        var heartbeatTimer = null, progressTimer = null;
+
+        function invoke(channel, payload) {
+          if (!bridge || typeof bridge.invoke !== "function") {
+            return Promise.reject(new Error("pluginBridge unavailable"));
+          }
+          return bridge.invoke(channel, payload);
+        }
+        function el(tag, cls, text) {
+          var n = document.createElement(tag);
+          if (cls) n.className = cls;
+          if (text !== undefined && text !== null) n.textContent = text;
+          return n;
+        }
+        function icon(id) {
+          var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+          var use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+          use.setAttribute("href", "#" + id);
+          svg.appendChild(use);
+          return svg;
+        }
+        function roleById(id) {
+          for (var i = 0; i < state.roles.length; i++) {
+            if (state.roles[i].id === id) return state.roles[i];
+          }
+          return null;
+        }
+        function currentRole() {
+          return roleById(state.defaultRoleId) || { id: "quick", mode: "quick", tools: [] };
+        }
+        function isAgent() { return currentRole().mode === "agent"; }
+        function currentModel() {
+          for (var i = 0; i < models.list.length; i++) {
+            if (models.list[i].key === models.selected) return models.list[i];
+          }
+          return null;
+        }
+
+        function toast(text, kind) {
+          var box = el("div", "toast" + (kind ? " " + kind : ""));
+          box.appendChild(icon(kind === "fail" ? "i-warn" : "i-check"));
+          box.appendChild(el("span", null, text));
+          $("toasts").appendChild(box);
+          setTimeout(function () { box.classList.add("hide"); }, 2600);
+          setTimeout(function () { if (box.parentNode) box.parentNode.removeChild(box); }, 3200);
+        }
+
+        // ------------------------------------------------------------ 外观
+        function applyAppearance() {
+          var mode = state.settings.appearance || "system";
+          if (mode === "system") {
+            mode = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
+              ? "dark" : "light";
+          }
+          document.documentElement.setAttribute("data-theme", mode);
+          var px = state.settings.fontSize || 15;
+          document.documentElement.style.fontSize = px + "px";
+          var pct = state.settings.opacity == null ? 100 : state.settings.opacity;
+          var clamped = Math.max(0.5, Math.min(1, pct / 100));
+          $("win").style.opacity = String(clamped);
+        }
+
+        // ---------------------------------------------------------- Markdown
+        // 只创建 DOM 节点，绝不拼 innerHTML —— 模型输出是不可信内容。
+        function mdInline(text, parent) {
+          var re = /(`[^`]+`)|(\*\*[^*]+\*\*)|(__[^_]+__)|(\*[^*\n]+\*)|(_[^_\n]+_)|(\[[^\]]+\]\([^)\s]+\))|(https?:\/\/[^\s<>()]+)/g;
+          var last = 0, m;
+          while ((m = re.exec(text)) !== null) {
+            if (m.index > last) parent.appendChild(document.createTextNode(text.slice(last, m.index)));
+            var tok = m[0];
+            if (tok.charAt(0) === "`") {
+              parent.appendChild(el("code", null, tok.slice(1, -1)));
+            } else if (tok.slice(0, 2) === "**" || tok.slice(0, 2) === "__") {
+              parent.appendChild(el("strong", null, tok.slice(2, -2)));
+            } else if (tok.charAt(0) === "*" || tok.charAt(0) === "_") {
+              parent.appendChild(el("em", null, tok.slice(1, -1)));
+            } else if (tok.charAt(0) === "[") {
+              var close = tok.indexOf("]");
+              var label = tok.slice(1, close);
+              var url = tok.slice(close + 2, -1);
+              if (/^https?:\/\//i.test(url)) {
+                var a = el("a", null, label);
+                a.href = url; a.target = "_blank"; a.rel = "noreferrer noopener";
+                parent.appendChild(a);
+              } else {
+                parent.appendChild(document.createTextNode(tok));
+              }
+            } else {
+              var auto = el("a", null, tok);
+              auto.href = tok; auto.target = "_blank"; auto.rel = "noreferrer noopener";
+              parent.appendChild(auto);
+            }
+            last = m.index + tok.length;
+          }
+          if (last < text.length) parent.appendChild(document.createTextNode(text.slice(last)));
+        }
+        function renderMarkdown(text) {
+          var box = el("div", "md");
+          var lines = String(text || "").replace(/\r\n?/g, "\n").split("\n");
+          var i = 0, para = [];
+          function flush() {
+            if (!para.length) return;
+            var p = el("p");
+            para.forEach(function (line, idx) {
+              if (idx) p.appendChild(document.createElement("br"));
+              mdInline(line, p);
+            });
+            box.appendChild(p);
+            para = [];
+          }
+          while (i < lines.length) {
+            var line = lines[i];
+            if (/^\s*```/.test(line)) {
+              flush(); i++;
+              var code = [];
+              while (i < lines.length && !/^\s*```/.test(lines[i])) { code.push(lines[i]); i++; }
+              i++;
+              var pre = el("pre");
+              pre.appendChild(el("code", null, code.join("\n")));
+              box.appendChild(pre);
+              continue;
+            }
+            var h = /^(#{1,6})\s+(.*)$/.exec(line);
+            if (h) {
+              flush();
+              var hn = el("h" + Math.min(h[1].length, 4));
+              mdInline(h[2], hn);
+              box.appendChild(hn);
+              i++; continue;
+            }
+            if (/^\s*([-*_])\s*\1\s*\1[\s\-*_]*$/.test(line)) { flush(); box.appendChild(el("hr")); i++; continue; }
+            if (/^\s*>\s?/.test(line)) {
+              flush();
+              var quote = [];
+              while (i < lines.length && /^\s*>\s?/.test(lines[i])) {
+                quote.push(lines[i].replace(/^\s*>\s?/, "")); i++;
+              }
+              var bq = el("blockquote"), qp = el("p");
+              quote.forEach(function (q, idx) {
+                if (idx) qp.appendChild(document.createElement("br"));
+                mdInline(q, qp);
+              });
+              bq.appendChild(qp); box.appendChild(bq);
+              continue;
+            }
+            var isUl = /^\s*[-*+]\s+/.test(line);
+            var isOl = /^\s*\d+[.)]\s+/.test(line);
+            if (isUl || isOl) {
+              flush();
+              var ordered = isOl && !isUl;
+              var list = el(ordered ? "ol" : "ul");
+              while (i < lines.length) {
+                var mm = ordered ? /^\s*\d+[.)]\s+(.*)$/.exec(lines[i])
+                                 : /^\s*[-*+]\s+(.*)$/.exec(lines[i]);
+                if (!mm) break;
+                var li = el("li");
+                mdInline(mm[1], li);
+                list.appendChild(li);
+                i++;
+              }
+              box.appendChild(list);
+              continue;
+            }
+            if (/^\s*$/.test(line)) { flush(); i++; continue; }
+            para.push(line); i++;
+          }
+          flush();
+          return box;
+        }
+
+        // ------------------------------------------------------------ 菜单
+        var openMenu = null;
+        function closeMenu() {
+          if (openMenu && openMenu.parentNode) openMenu.parentNode.removeChild(openMenu);
+          openMenu = null;
+          var chips = document.querySelectorAll(".chip.open");
+          for (var i = 0; i < chips.length; i++) chips[i].classList.remove("open");
+        }
+        function showMenu(anchor, groups) {
+          if (openMenu) { var was = openMenu; closeMenu(); if (was.dataset.anchor === anchor.id) return; }
+          var menu = el("div", "popmenu");
+          menu.dataset.anchor = anchor.id;
+          groups.forEach(function (group) {
+            if (group.title) menu.appendChild(el("div", "group", group.title));
+            group.items.forEach(function (item) {
+              var row = el("button", "item" + (item.selected ? " sel" : ""));
+              row.type = "button";
+              row.appendChild(el("span", "nm", item.label));
+              if (item.note) row.appendChild(el("span", "sub", item.note));
+              row.addEventListener("click", function () {
+                closeMenu();
+                if (item.run) item.run();
+              });
+              menu.appendChild(row);
+            });
+          });
+          document.body.appendChild(menu);
+          var r = anchor.getBoundingClientRect();
+          var w = menu.offsetWidth;
+          var left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8));
+          menu.style.left = left + "px";
+          menu.style.top = Math.min(r.bottom + 4, window.innerHeight - menu.offsetHeight - 8) + "px";
+          menu.style.position = "fixed";
+          openMenu = menu;
+          anchor.classList.add("open");
+        }
+
+        // ------------------------------------------------------------ 视图
+        function showView(name) {
+          state.view = name;
+          ["chat", "set"].forEach(function (v) {
+            $("view-" + v).classList.toggle("on", v === name);
+          });
+          if (name === "chat") setTimeout(function () { $("chatInput").focus(); }, 30);
+        }
+
+        // -------------------------------------------------------- 状态行
+        function setStatus(text) {
+          $("statusline").hidden = !text;
+          if (text) $("statusText").textContent = text;
+        }
+        function stopProgress() {
+          // 快捷对话的状态行现在由 pollQuickTurn 全权负责（它每 400ms 读插件的
+          // 真实相位，并且在拿到结果时收尾），所以这里只剩一个幂等的收尾动作。
+          if (progressTimer) { clearInterval(progressTimer); progressTimer = null; }
+        }
+
+        /**
+         * 等待快捷对话那一轮结束。
+         *
+         * `sendQuick` 只回「已受理」，答案留在插件的 progress 里由页面取走 ——
+         * 因为宿主给每次面板调用定了 30 秒硬超时（PLUGIN_PANEL_TIMEOUT_MS），
+         * 而一轮问答要联网搜索 + 多次 agent.complete，同步等必然超时。
+         */
+        function pollQuickTurn(turnId) {
+          return new Promise(function (resolve) {
+            var deadline = Date.now() + 240000;
+            var timer = setInterval(function () {
+              if (Date.now() > deadline) {
+                clearInterval(timer);
+                resolve({ failed: true, message: "等待超时（4 分钟）" });
+                return;
+              }
+              invoke("summon.chat.progress", {}).then(function (res) {
+                var p = res && res.progress;
+                if (!p || p.turnId !== turnId) return;
+                if (p.inFlight) {
+                  if (p.detail) setStatus(p.detail);
+                  return;
+                }
+                clearInterval(timer);
+                // 用户按了停止：插件把这一轮标成 cancelled，结果会被丢弃。
+                if (p.phase === "cancelled") { resolve({ cancelled: true }); return; }
+                resolve(p.error ? { failed: true, message: p.error.message } : { result: p.result });
+              }).catch(function () {});
+            }, 400);
+          });
+        }
+
+        // -------------------------------------------------------- 消息渲染
+        function clearMessages() {
+          $("msgArea").innerHTML = "";
+        }
+        function emptyState() {
+          clearMessages();
+          var box = el("div", "center-block");
+          box.appendChild(icon("i-spark"));
+          box.appendChild(el("b", null, "开始对话"));
+          box.appendChild(el("span", null, "输入问题，Enter 发送"));
+          $("msgArea").appendChild(box);
+        }
+        // 只有用户本来就在底部时才自动跟到底。否则每 1.5s 一次的 transcript 轮询
+        // 会把想往上翻的人一直拽回底部（实测就是「无法往上滑动」）。
+        var stickBottom = true;
+        function atBottom(area) {
+          return area.scrollHeight - area.scrollTop - area.clientHeight < 40;
+        }
+        function scrollDown() {
+          if (!stickBottom) return;
+          var area = $("msgArea");
+          area.scrollTop = area.scrollHeight;
+        }
+        function addThinking(text) {
+          var compact = state.thinkingDisplayMode !== "detailed";
+          var shown = text, cut = false;
+          if (compact && text.length > 180) {
+            shown = text.slice(0, 180).replace(/\s+\S*$/, "") + "…";
+            cut = true;
+          }
+          var box = el("details", "think");
+          var sum = el("summary");
+          sum.appendChild(el("span", "arrow", "›"));
+          sum.appendChild(el("span", null, "思考过程" + (cut ? "（精简）" : "") + " · " + text.length + " 字"));
+          box.appendChild(sum);
+          box.appendChild(el("div", "body", shown));
+          if (cut) {
+            box.addEventListener("toggle", function () {
+              if (box.open) box.querySelector(".body").textContent = text;
+            });
+          }
+          return box;
+        }
+        /**
+         * 工具输出经常是一大坨原始 JSON / 报错堆栈（几十行）。默认只给一行摘要，
+         * 想看原文再展开 —— 否则整段对话都被淹没，也没法往上翻。
+         */
+        function renderToolRow(text) {
+          var raw = String(text == null ? "" : text);
+          var flat = raw.replace(/\s+/g, " ").trim();
+          var isLong = flat.length > 160 || raw.split("\n").length > 3;
+          if (!isLong) return el("div", "tool-line", flat);
+          var box = el("details", "think");
+          var sum = el("summary");
+          sum.appendChild(el("span", "arrow", "›"));
+          sum.appendChild(el("span", null, flat.slice(0, 120) + "…（" + flat.length + " 字，点击展开）"));
+          box.appendChild(sum);
+          var pre = el("pre", "tool-raw");
+          pre.textContent = raw;
+          box.appendChild(pre);
+          return box;
+        }
+
+        function addMessage(kind, payload) {
+          var center = $("msgArea").querySelector(".center-block");
+          if (center) center.parentNode.removeChild(center);
+          var msg = el("div", "msg" + (kind === "user" ? " msg-user" : ""));
+          if (kind === "user") {
+            msg.appendChild(el("div", "bubble", payload));
+          } else if (kind === "error") {
+            var e = el("div", "err-line");
+            e.appendChild(icon("i-warn"));
+            e.appendChild(el("span", null, payload));
+            msg.appendChild(e);
+          } else if (kind === "tool") {
+            msg.appendChild(renderToolRow(payload));
+          } else {
+            var body = el("div", "ai-body");
+            body.appendChild(renderMarkdown(payload));
+            msg.appendChild(body);
+          }
+          $("msgArea").appendChild(msg);
+          scrollDown();
+          return msg;
+        }
+        function addAssistantNode(node) {
+          var center = $("msgArea").querySelector(".center-block");
+          if (center) center.parentNode.removeChild(center);
+          var msg = el("div", "msg");
+          var body = el("div", "ai-body");
+          body.appendChild(node);
+          msg.appendChild(body);
+          $("msgArea").appendChild(msg);
+          scrollDown();
+          return msg;
+        }
+
+        // -------------------------------------------------------- 刻度条
+        function rebuildTicks() {
+          var ticks = $("ticks");
+          ticks.innerHTML = "";
+          var rows = $("msgArea").querySelectorAll(".msg-user");
+          for (var i = 0; i < rows.length; i++) {
+            (function (row, idx) {
+              var b = el("button", "tick");
+              b.type = "button";
+              b.title = "跳到第 " + (idx + 1) + " 条提问";
+              b.addEventListener("click", function () {
+                row.scrollIntoView({ block: "start", behavior: "smooth" });
+              });
+              ticks.appendChild(b);
+            })(rows[i], i);
+          }
+          highlightTicks();
+        }
+        function highlightTicks() {
+          var rows = $("msgArea").querySelectorAll(".msg-user");
+          var ticks = $("ticks").querySelectorAll(".tick");
+          if (!rows.length || !ticks.length) return;
+          var areaTop = $("msgArea").getBoundingClientRect().top;
+          var best = 0, bestDist = Infinity;
+          for (var i = 0; i < rows.length; i++) {
+            var d = Math.abs(rows[i].getBoundingClientRect().top - areaTop - 12);
+            if (d < bestDist) { bestDist = d; best = i; }
+          }
+          for (var j = 0; j < ticks.length; j++) ticks[j].classList.toggle("active", j === best);
+        }
+
+        // -------------------------------------------------------- 输入/发送
+        function autoGrow(ta) {
+          ta.style.height = "auto";
+          ta.style.height = Math.min(ta.scrollHeight, 130) + "px";
+        }
+        function refreshSendKey() {
+          // 忙时它是「停止」，必须可点；闲时按输入框是否为空决定。
+          $("sendKey").disabled = busy ? false : !$("chatInput").value.trim();
+        }
+
+        function setBusy(v) {
+          busy = v;
+          var key = $("sendKey");
+          // 忙时发送键变成停止键（设计里就有 .sendkey.stop / #i-stop）
+          key.classList.toggle("stop", v);
+          key.title = v ? "停止" : "发送";
+          $("sendIcon").setAttribute("href", v ? "#i-stop" : "#i-send");
+          $("compHint").textContent = v
+            ? (isAgent() ? "Enter 直接发送（引导正在跑的这一轮）" : "Enter 排队，本轮结束后自动发送")
+            : "Enter 发送 · Shift+Enter 换行";
+          refreshSendKey();
+          if (!v) { setStatus(""); stopProgress(); flushQueue(); }
+        }
+
+        function addStopped(text) {
+          var msg = el("div", "msg");
+          msg.appendChild(el("div", "stopped-tag", text));
+          $("msgArea").appendChild(msg);
+          scrollDown();
+        }
+
+        // 排队：快捷对话一轮只能跑一个，忙时按 Enter 先排队（Agent 模式改为直接
+        // 发送当引导，因为宿主接受往正在跑的会话里再投一条 prompt）。
+        var queued = [];
+        function renderQueue() {
+          var box = $("queueStrip");
+          box.innerHTML = "";
+          box.hidden = queued.length === 0;
+          queued.forEach(function (text, i) {
+            var chip = el("button", "chip");
+            chip.type = "button";
+            chip.title = isAgent() ? "立即发送（引导）" : "从队列移除";
+            chip.appendChild(icon(isAgent() ? "i-send" : "i-close"));
+            chip.appendChild(el("b", null, text.length > 24 ? text.slice(0, 24) + "…" : text));
+            chip.addEventListener("click", function () {
+              queued.splice(i, 1);
+              renderQueue();
+              if (isAgent()) send(text); // 引导：不等本轮结束
+            });
+            box.appendChild(chip);
+          });
+        }
+        function flushQueue() {
+          if (busy || !queued.length) return;
+          var next = queued.shift();
+          renderQueue();
+          send(next);
+        }
+
+        function stopCurrent() {
+          if (!busy) return;
+          if (isAgent()) {
+            if (!agent.sessionId) { setBusy(false); return; }
+            setStatus("正在停止…");
+            invoke("summon.chat.abortAgent", { sessionId: agent.sessionId }).then(function (res) {
+              if (!res || !res.ok) {
+                addMessage("error", "停止失败：" + ((res && (res.message || res.error)) || "未知错误"));
+              } else {
+                addStopped("已停止这一轮");
+              }
+              setBusy(false);
+              return refreshTranscript(false);
+            }).catch(function (err) {
+              addMessage("error", "停止失败：" + (err && err.message ? err.message : err));
+              setBusy(false);
+            });
+            return;
+          }
+          // 快捷对话：agent.complete 没有 AbortSignal，这一轮模型调用停不下来，
+          // 只能放弃等待并丢弃结果 —— 文案必须如实说明，不能假装停掉了。
+          invoke("summon.chat.cancelQuick", {}).then(function (res) {
+            if (!res || !res.ok) {
+              addMessage("error", (res && res.message) || "取消失败");
+            }
+            setBusy(false);
+          }).catch(function () { setBusy(false); });
+        }
+        function rememberModel(key) {
+          models.selected = key;
+          models.fromAppDefault = false;
+          invoke("summon.chat.setModelKey", { key: key }).catch(function () {});
+          renderChips();
+        }
+        function send(text) {
+          if (!text.trim()) return;
+          // Agent 模式允许忙时再发一条（引导），快捷对话一轮只能跑一个。
+          if (busy && !isAgent()) return;
+          var role = currentRole();
+          showView("chat");
+          $("chatInput").value = "";
+          autoGrow($("chatInput"));
+          addMessage("user", text);
+          rebuildTicks();
+          setBusy(true);
+
+          var done;
+          if (role.mode === "agent") {
+            setStatus(!agent.sessionId ? "正在新建会话…" : "正在发送…");
+            var slash = models.selected ? models.selected.indexOf("/") : -1;
+            var picking = !agent.sessionId;
+            done = invoke("summon.chat.sendAgent", {
+              sessionId: agent.sessionId,
+              text: text,
+              providerId: picking && slash > 0 ? models.selected.slice(0, slash) : undefined,
+              modelId: picking && slash > 0 ? models.selected.slice(slash + 1) : undefined,
+              thinkingLevel: picking && pendingThinking ? pendingThinking : undefined,
+            }).then(function (res) {
+              if (!res || !res.ok) {
+                addMessage("error", (res && res.message ? res.message : "发送失败") +
+                  (res && res.error ? "（" + res.error + "）" : ""));
+                return;
+              }
+              agent.sessionId = res.sessionId;
+              if (res.created) toast("已新建会话 " + res.sessionId);
+              loadSessions();
+              startAgentPolling();
+              return refreshTranscript(true);
+            });
+          } else {
+            // 状态行由 pollQuickTurn 负责更新（每 400ms 读插件的真实相位），
+            // 之前这里还有个 500ms 的进度轮询，两个轮询抢着写同一行，状态就
+            // 会「闪一下」。
+            setStatus("正在准备…");
+            var outgoing = history.slice();
+            done = invoke("summon.chat.sendQuick", {
+              roleId: role.id, text: text, history: outgoing,
+              conversationId: quickConvId,
+              modelKey: models.selected, thinkingLevel: pendingThinking || undefined,
+            }).then(function (ack) {
+              if (!ack || !ack.ok || ack.accepted !== true) {
+                addMessage("error", (ack && ack.message ? ack.message : "发送失败") +
+                  (ack && ack.error ? "（" + ack.error + "）" : ""));
+                return;
+              }
+              return pollQuickTurn(ack.turnId).then(function (fin) {
+                if (fin.cancelled) {
+                  addStopped("已停止等待（单次模型调用无法中断，本轮结果不再计入）");
+                  return;
+                }
+                if (fin.failed) {
+                  addMessage("error", "发送失败：" + fin.message);
+                  return;
+                }
+                var res = fin.result || {};
+                (res.trace || []).forEach(function (step) {
+                  addMessage("tool", step.ok
+                    ? "🔍 " + step.query + " → " + step.count + " 条（" + (step.provider || "?") + "）"
+                    : "🔍 " + step.query + " 失败：" + step.error);
+                });
+                if (res.ok) {
+                  history.push({ role: "user", content: text });
+                  history.push({ role: "assistant", content: res.text });
+                  if (history.length > 40) history = history.slice(-40);
+                  addMessage("assistant", res.text);
+                } else {
+                  addMessage("error", (res.message ? res.message : "调用失败") +
+                    (res.error ? "（" + res.error + "）" : ""));
+                }
+              });
+            });
+          }
+          done.catch(function (err) {
+            addMessage("error", "发送失败：" + (err && err.message ? err.message : err));
+          }).then(function () { setBusy(false); });
+        }
+        var pendingThinking = "";
+
+        // -------------------------------------------------------- 会话/记录
+        function loadSessions() {
+          return invoke("summon.chat.listSessions", {}).then(function (res) {
+            // quick 即使 ok:false 也会带回来（宿主会话列表失败不该让悬浮窗历史消失）
+            agent.sessions = (res && res.sessions) || [];
+            agent.quick = (res && res.quick) || [];
+            renderHistory();
+          }).catch(function () {});
+        }
+        function refreshTranscript(reportErrors) {
+          if (!agent.sessionId) return Promise.resolve();
+          return invoke("summon.chat.readTranscript", { sessionId: agent.sessionId, messageLimit: 40 })
+            .then(function (res) {
+              if (!res || !res.ok) {
+                if (reportErrors) {
+                  addMessage("error", "读取会话失败：" + ((res && (res.message || res.error)) || "未知错误"));
+                }
+                return;
+              }
+              agent.transcript = res.transcript;
+              // 记录「最后一次真的有变化」的时间：Agent 轮次卡住时用它给提示。
+              var count = res.transcript && res.transcript.messages ? res.transcript.messages.length : 0;
+              if (count !== agent.lastCount) {
+                agent.lastCount = count;
+                agent.lastChangeAt = Date.now();
+              }
+              renderTranscript(res.transcript);
+              var status = res.transcript && res.transcript.status;
+              if (status === "running") {
+                // 悬浮窗看不到也答不了宿主的授权卡片（插件事件目录里没有权限事件，
+                // 也没有「列出待批请求」的操作），所以长时间没变化时明确告诉用户
+                // 该去哪儿处理，而不是让它看起来只是卡住了。
+                var stalled = Date.now() - (agent.lastChangeAt || Date.now());
+                setStatus(stalled > 45000
+                  ? "仍在进行。若长时间无变化，可能在等主窗口的授权卡片 —— 可在 ☰ 里把「权限模式」改成「允许编辑」或「全自动」"
+                  : "正在思考…");
+              } else if (!busy) setStatus("");
+            })
+            .catch(function () {});
+        }
+        function renderTranscript(t) {
+          // 整段重绘会丢掉滚动位置（轮询每 1.5s 一次，用户根本没法往上翻）。
+          // 所以先记下位置，画完再还原；本来贴着底部就继续贴底。
+          var area = $("msgArea");
+          var prevTop = area.scrollTop;
+          var wasSticky = stickBottom;
+          clearMessages();
+          var msgs = (t && t.messages) || [];
+          if (!msgs.length) { emptyState(); rebuildTicks(); return; }
+          msgs.forEach(function (m) {
+            if (m.thinking) {
+              var holder = el("div", "msg");
+              var b = el("div", "ai-body");
+              b.appendChild(addThinking(m.thinking));
+              holder.appendChild(b);
+              $("msgArea").appendChild(holder);
+            }
+            if (m.error) {
+              addMessage("error", "出错" + (m.error.code ? "（" + m.error.code + "）" : "") +
+                (m.error.message ? "：" + m.error.message : ""));
+              return;
+            }
+            if (!m.text) return;
+            if (m.role === "tool") addMessage("tool", m.text);
+            else if (m.role === "user") addMessage("user", m.text);
+            else if (m.role === "system") addMessage("assistant", m.text);
+            else addMessage("assistant", m.text);
+          });
+          rebuildTicks();
+          area.scrollTop = wasSticky ? area.scrollHeight : prevTop;
+        }
+        function startAgentPolling() {
+          if (agent.timer) return;
+          agent.timer = setInterval(function () {
+            if (!document.hidden) refreshTranscript(false);
+          }, AGENT_POLL_MS);
+        }
+        function stopAgentPolling() {
+          if (agent.timer) { clearInterval(agent.timer); agent.timer = null; }
+        }
+
+        function openQuickConversation(conv) {
+          stopAgentPolling();
+          agent.sessionId = "";
+          agent.transcript = null;
+          quickConvId = conv.id;
+          history = [];
+          pendingThinking = "";
+          closeHistory();
+          clearMessages();
+          (conv.messages || []).forEach(function (m) {
+            if (m.role === "user") addMessage("user", m.text);
+            else addMessage("assistant", m.text);
+          });
+          rebuildTicks();
+          showView("chat");
+          toast("已载入悬浮窗对话");
+        }
+
+        function historyRow(title, sub, time, isCur, onPick) {
+          var item = el("div", "hist-item" + (isCur ? " cur" : ""));
+          var row = el("div", "hi-row");
+          var grow = el("div", "grow");
+          var t = el("div", "hi-t");
+          if (isCur) t.appendChild(el("span", "cur", "● "));
+          t.appendChild(el("span", null, title));
+          grow.appendChild(t);
+          grow.appendChild(el("div", "hi-sub", sub));
+          row.appendChild(grow);
+          item.appendChild(row);
+          item.appendChild(el("div", "hi-time", time));
+          item.addEventListener("click", onPick);
+          return item;
+        }
+
+        function renderHistory() {
+          var list = $("histList");
+          var q = ($("histSearch").value || "").trim().toLowerCase();
+          list.innerHTML = "";
+          var match = function (title) {
+            return !q || String(title || "").toLowerCase().indexOf(q) !== -1;
+          };
+          var quick = (agent.quick || []).filter(function (c) { return match(c.title); });
+          var sessions = (agent.sessions || []).filter(function (s) { return match(s.title) || match(s.id); });
+
+          if (!quick.length && !sessions.length) {
+            list.appendChild(el("div", "hist-empty", q ? "没有匹配的对话" : "还没有对话"));
+            return;
+          }
+
+          // 快捷对话不是宿主会话，`session/list` 里根本没有它，所以分两组显示。
+          if (quick.length) {
+            list.appendChild(el("div", "hist-group", "悬浮窗对话（快捷模式 · 只存在本插件）"));
+            quick.forEach(function (c) {
+              list.appendChild(historyRow(
+                c.title || "未命名对话",
+                [c.roleName, (c.messages || []).length + " 条消息"].filter(Boolean).join(" · "),
+                c.at ? new Date(c.at).toISOString().slice(0, 16).replace("T", " ") : "",
+                c.id === quickConvId,
+                function () { openQuickConversation(c); },
+              ));
+            });
+          }
+
+          if (sessions.length) {
+            list.appendChild(el("div", "hist-group", "宿主会话（Agent 模式 · 与主窗口共用）"));
+            sessions.forEach(function (s) {
+              list.appendChild(historyRow(
+                s.title || s.id,
+                [s.status, s.modelKey].filter(Boolean).join(" · ") || s.id,
+                s.updatedAt ? String(s.updatedAt).slice(0, 16) : "",
+                s.id === agent.sessionId,
+                function () {
+                  agent.sessionId = s.id;
+                  closeHistory();
+                  stopAgentPolling();
+                  refreshTranscript(true).then(startAgentPolling);
+                },
+              ));
+            });
+          }
+        }
+        function openHistory() {
+          $("histOverlay").classList.add("show");
+          $("histDrawer").classList.add("show");
+          loadSessions();
+          setTimeout(function () { $("histSearch").focus(); }, 260);
+        }
+        function closeHistory() {
+          $("histOverlay").classList.remove("show");
+          $("histDrawer").classList.remove("show");
+        }
+
+        // -------------------------------------------------------- 设置面板
+        function showPanel(name) {
+          var navs = $("setNav").querySelectorAll("button");
+          for (var i = 0; i < navs.length; i++) navs[i].classList.toggle("on", navs[i].dataset.p === name);
+          var panels = $("setPanel").querySelectorAll("[data-panel]");
+          for (var j = 0; j < panels.length; j++) panels[j].hidden = panels[j].dataset.panel !== name;
+        }
+        function markSeg(segId, attr, value) {
+          var btns = $(segId).querySelectorAll("button");
+          for (var i = 0; i < btns.length; i++) {
+            btns[i].classList.toggle("on", btns[i].getAttribute(attr) === String(value));
+          }
+        }
+        function renderSettings() {
+          $("hkMain").textContent = state.settings.accelerator || "未设置";
+          markSeg("themeSeg", "data-theme", state.settings.appearance || "system");
+          markSeg("fontSeg", "data-fs", state.settings.fontSize || 15);
+          markSeg("opacitySeg", "data-op", state.settings.opacity == null ? 100 : state.settings.opacity);
+          markSeg("startSeg", "data-start", state.settings.agentStartMode || "new");
+          $("setRounds").value = String(state.settings.maxToolRounds == null ? 3 : state.settings.maxToolRounds);
+          $("setEndpoint").value = state.settings.searchEndpoint || "";
+          $("setApiKey").value = "";
+          $("setKeyState").textContent = state.settings.hasApiKey ? "已保存（留空则不修改）" : "可选";
+          $("thinkModeState").textContent = state.thinkingDisplayMode === "detailed" ? "详细（跟随主窗口）" : "精简（跟随主窗口）";
+          var sc = state.shortcut;
+          $("shortcutState").textContent = sc && sc.registered ? "生效中：" + sc.active : "未生效" + (sc && sc.error ? "（" + sc.error + "）" : "");
+          $("hkWarn").hidden = !(sc && !sc.registered);
+          if (sc && !sc.registered) $("hkWarnTxt").textContent = "快捷键未生效：" + (sc.error || "未知");
+        }
+        function renderRoleList() {
+          var list = $("roleList");
+          list.innerHTML = "";
+          state.roles.forEach(function (role) {
+            var item = el("div", "role-item" + (role.id === state.defaultRoleId ? " cur" : ""));
+            item.setAttribute("role", "button");
+            item.tabIndex = 0;
+            var rt = el("div", "rt");
+            rt.appendChild(el("b", null, role.name));
+            rt.appendChild(el("span", "sub", (role.mode === "agent" ? "Agent 模式" : "快捷对话") +
+              (role.builtin ? " · 内置" : "") +
+              (role.id === state.defaultRoleId ? " · 默认" : "")));
+            item.appendChild(rt);
+            var acts = el("div", "fieldrow");
+            if (role.id !== state.defaultRoleId) {
+              var useBtn = el("button", "btn ghost", "设为默认");
+              useBtn.type = "button";
+              useBtn.addEventListener("click", function (ev) {
+                ev.stopPropagation();
+                invoke("summon.chat.setDefaultRole", { id: role.id }).then(function (res) {
+                  if (res && res.ok) {
+                    state.defaultRoleId = res.defaultRoleId;
+                    renderRoleList(); renderChips();
+                    toast("默认角色已切换");
+                  }
+                });
+              });
+              acts.appendChild(useBtn);
+            }
+            var editBtn = el("button", "btn ghost", "编辑");
+            editBtn.type = "button";
+            editBtn.addEventListener("click", function (ev) { ev.stopPropagation(); openRoleEditor(role.id); });
+            acts.appendChild(editBtn);
+            if (!role.builtin) {
+              var delBtn = el("button", "btn ghost danger", "删除");
+              delBtn.type = "button";
+              delBtn.addEventListener("click", function (ev) {
+                ev.stopPropagation();
+                persistRoles(state.roles.filter(function (r) { return r.id !== role.id; }), null, "已删除「" + role.name + "」");
+              });
+              acts.appendChild(delBtn);
+            }
+            item.appendChild(acts);
+            item.addEventListener("click", function () { openRoleEditor(role.id); });
+            list.appendChild(item);
+          });
+        }
+        function openRoleEditor(id) {
+          var role = roleById(id);
+          if (!role) return;
+          editingRoleId = id;
+          $("roleEditor").hidden = false;
+          $("roleName").value = role.name;
+          $("rolePrompt").value = role.system || "";
+          $("roleToolWrap").classList.toggle("on", (role.tools || []).indexOf("web_search") !== -1);
+          $("roleState").textContent = role.builtin ? "内置角色不可删除" : "";
+        }
+        function closeRoleEditor() {
+          editingRoleId = null;
+          $("roleEditor").hidden = true;
+        }
+        function persistRoles(nextRoles, selectId, note) {
+          invoke("summon.chat.saveRoles", { roles: nextRoles }).then(function (res) {
+            if (!res || !res.ok) {
+              $("sfBanner").hidden = false;
+              $("sfBannerTxt").textContent = "角色保存失败：" + ((res && res.message) || "未知错误");
+              return;
+            }
+            state.roles = res.roles;
+            state.problems = res.problems || [];
+            state.defaultRoleId = res.defaultRoleId || state.defaultRoleId;
+            renderRoleList(); renderChips();
+            if (note) toast(note);
+            if (selectId) openRoleEditor(selectId);
+          }).catch(function (err) {
+            $("sfBanner").hidden = false;
+            $("sfBannerTxt").textContent = "角色保存失败：" + (err && err.message ? err.message : err);
+          });
+        }
+
+        function saveSettings() {
+          var patch = {
+            accelerator: $("hkMain").textContent.trim(),
+            appearance: state.settings.appearance || "system",
+            fontSize: Number(state.settings.fontSize || 15),
+            opacity: Number(state.settings.opacity == null ? 100 : state.settings.opacity),
+            agentStartMode: state.settings.agentStartMode || "new",
+            maxToolRounds: Number($("setRounds").value),
+            searchEndpoint: $("setEndpoint").value.trim(),
+          };
+          if ($("setApiKey").value) patch.searchApiKey = $("setApiKey").value;
+          invoke("summon.chat.saveSettings", patch).then(function (res) {
+            if (!res || !res.ok) {
+              $("sfBanner").hidden = false;
+              $("sfBannerTxt").textContent = "保存失败：" + ((res && res.message) || "未知错误");
+              $("saveState").textContent = "失败";
+              return;
+            }
+            state.settings = res.settings;
+            state.shortcut = res.shortcut;
+            applyAppearance();
+            renderSettings();
+            $("sfBanner").hidden = true;
+            $("saveState").textContent = "已保存";
+            $("saveState").classList.add("ok");
+            setTimeout(function () { $("saveState").textContent = ""; $("saveState").classList.remove("ok"); }, 2200);
+            toast("设置已保存");
+          }).catch(function (err) {
+            $("sfBanner").hidden = false;
+            $("sfBannerTxt").textContent = "保存失败：" + (err && err.message ? err.message : err);
+          });
+        }
+
+        // ------------------------------------------------------------ 芯片
+        function renderChips() {
+          var role = currentRole();
+          var roleLabel = role.name || role.id;
+          var modelLabel = (currentModel() && (currentModel().label || currentModel().key)) || models.selected || "无模型";
+          $("cRole").querySelector("b").textContent = roleLabel;
+          $("cModel").querySelector("b").textContent = modelLabel;
+          $("cModel").title = "模型：" + modelLabel + (models.fromAppDefault ? "（与主窗口一致）" : "");
+        }
+        function roleMenuItems() {
+          return state.roles.map(function (role) {
+            return {
+              label: role.name,
+              note: role.mode === "agent" ? "Agent 模式" : "快捷对话",
+              selected: role.id === state.defaultRoleId,
+              run: function () {
+                state.defaultRoleId = role.id;
+                invoke("summon.chat.setDefaultRole", { id: role.id }).catch(function () {});
+                stopAgentPolling();
+                agent.sessionId = "";
+                agent.transcript = null;
+                history = [];
+                pendingThinking = "";
+                renderChips();
+                emptyState();
+                rebuildTicks();
+                toast("角色：" + role.name);
+              },
+            };
+          }).concat([{
+            label: "管理角色…",
+            run: function () { showView("set"); showPanel("roles"); },
+          }]);
+        }
+        function modelMenuGroups() {
+          var groups = [];
+          if (models.list.length) {
+            groups.push({
+              title: "模型",
+              items: models.list.map(function (m) {
+                return {
+                  label: m.label || m.key,
+                  note: m.supportsReasoning ? "支持思考" : "",
+                  selected: m.key === models.selected,
+                  run: function () { modelMenuRun(m.key); },
+                };
+              }),
+            });
+          } else {
+            groups.push({ title: "模型", items: [{ label: "没有可用模型", run: function () {} }] });
+          }
+          var levels = sortLevels(isAgent() && agent.transcript && (agent.transcript.supportedThinkingLevels || []).length
+            ? agent.transcript.supportedThinkingLevels
+            : (currentModel() ? currentModel().thinkingLevels : []));
+          if (levels.length) {
+            groups.push({
+              title: "思考深度",
+              items: levels.map(function (lv) {
+                var cur = isAgent() && agent.transcript
+                  ? agent.transcript.thinkingLevel
+                  : (pendingThinking || (currentModel() && currentModel().defaultThinkingLevel));
+                return {
+                  label: THINKING_LABELS[lv] || lv,
+                  note: lv,
+                  selected: lv === cur,
+                  run: function () {
+                    pendingThinking = lv;
+                    if (isAgent() && agent.sessionId) applySessionConfig({ thinkingLevel: lv });
+                  },
+                };
+              }),
+            });
+          }
+          return groups;
+        }
+        function applySessionConfig(patch) {
+          var t = agent.transcript;
+          if (!agent.sessionId || !t || !t.session || !t.session.mode) {
+            if (agent.sessionId && (!t || !t.session || !t.session.mode)) {
+              toast("该会话没返回 mode，改不了（请去主窗口改）", "fail");
+            }
+            return;
+          }
+          var config = { mode: t.session.mode };
+          if (patch.providerId) config.providerId = patch.providerId;
+          if (patch.modelId) config.modelId = patch.modelId;
+          if (patch.thinkingLevel) config.thinkingLevel = patch.thinkingLevel;
+          if (patch.permissionMode) config.permissionMode = patch.permissionMode;
+          toast("宿主会弹出确认框，请确认");
+          invoke("summon.chat.configureSession", { sessionId: agent.sessionId, config: config })
+            .then(function (res) {
+              if (!res || !res.ok) {
+                addMessage("error", "改配置失败：" + ((res && (res.message || res.error)) || "未知错误"));
+                return;
+              }
+              return refreshTranscript(true);
+            }).catch(function () {});
+        }
+        function modelMenuRun(key) {
+          var slash = key.indexOf("/");
+          rememberModel(key);
+          if (isAgent() && agent.sessionId) {
+            applySessionConfig({
+              providerId: slash > 0 ? key.slice(0, slash) : "",
+              modelId: slash > 0 ? key.slice(slash + 1) : "",
+            });
+          }
+        }
+
+        // ------------------------------------------------------------ 启动
+        function bootstrap() {
+          return invoke("summon.chat.bootstrap", {}).then(function (res) {
+            if (!res || !res.ok) throw new Error("bootstrap failed");
+            state.roles = res.roles || [];
+            state.problems = res.problems || [];
+            state.defaultRoleId = res.defaultRoleId || "quick";
+            state.settings = res.settings || {};
+            state.shortcut = res.shortcut || null;
+            state.thinkingDisplayMode = res.thinkingDisplayMode || "compact";
+            state.appDefaultModelKey = res.appDefaultModelKey || null;
+            applyAppearance();
+            renderSettings();
+            renderRoleList();
+            renderChips();
+            emptyState();
+            $("versionState").textContent = res.version || "未知";
+            if (res.resumeSessionId) {
+              agent.sessionId = res.resumeSessionId;
+              showView("chat");
+              refreshTranscript(true).then(startAgentPolling);
+            }
+            return Promise.all([loadSessions(), loadModels()]);
+          }).catch(function (err) {
+            clearMessages();
+            addMessage("error", "加载失败：" + (err && err.message ? err.message : err));
+          });
+        }
+        function loadModels() {
+          return invoke("summon.chat.listModels", {}).then(function (res) {
+            models.list = (res && res.models) || [];
+            models.selected = (res && res.selected) || "";
+            models.fromAppDefault = !!(res && res.fromAppDefault);
+            renderChips();
+          }).catch(function () {});
+        }
+
+        function fail(message) {
+          document.body.innerHTML = "";
+          var box = el("div", "center-block", message);
+          document.body.appendChild(box);
+        }
+        if (!bridge || typeof bridge.invoke !== "function") {
+          fail("pluginBridge 不可用：请从 PI-Desktop 打开这个窗口。");
+          return;
+        }
+
+        // ---------------------------------------------------------- 事件绑定
+        $("btnClose").addEventListener("click", function () { invoke("summon.chat.dismiss", {}).catch(function () {}); });
+        $("btnSettings").addEventListener("click", function () { closeMenu(); showView("set"); });
+        $("btnBack").addEventListener("click", function () { showView("chat"); });
+        $("btnNewChat").addEventListener("click", function () {
+          closeMenu(); stopAgentPolling();
+          agent.sessionId = ""; agent.transcript = null; history = []; pendingThinking = "";
+          quickConvId = newQuickConvId();
+          emptyState(); rebuildTicks(); showView("chat"); renderChips();
+          toast("已开新对话");
+        });
+        $("btnHist").addEventListener("click", function () { closeMenu(); openHistory(); });
+        $("histClose").addEventListener("click", closeHistory);
+        $("histOverlay").addEventListener("click", closeHistory);
+        $("histSearch").addEventListener("input", renderHistory);
+        // 权限模式取自 session/configure 的 enum，文案对齐主窗口的下拉。
+        var PERMISSION_MODES = ["inherit", "ask", "accept-edits", "auto"];
+        var PERMISSION_LABELS = {
+          inherit: "跟随默认", ask: "每次询问", "accept-edits": "允许编辑", auto: "全自动",
+        };
+        function moreMenuGroups() {
+          var groups = [{
+            title: "更多",
+            items: [
+              { label: "在主窗口打开当前会话", run: function () {
+                  if (!agent.sessionId) { toast("当前没有会话", "fail"); return; }
+                  invoke("summon.chat.openSession", { sessionId: agent.sessionId }).then(function (r) {
+                    if (!r || !r.ok) toast("打开失败", "fail");
+                  }).catch(function () {});
+                } },
+              { label: "重新加载会话列表", run: function () { loadSessions(); toast("已刷新"); } },
+              { label: "打开设置", run: function () { showView("set"); } },
+            ],
+          }];
+          // 权限模式是会话级设置，只有真的有会话时才给。
+          if (isAgent() && agent.sessionId && agent.transcript && agent.transcript.session) {
+            var cur = agent.transcript.permissionMode || "";
+            groups.push({
+              title: "权限模式（改动会弹宿主确认框）",
+              items: PERMISSION_MODES.map(function (m) {
+                return {
+                  label: PERMISSION_LABELS[m],
+                  note: m,
+                  selected: m === cur,
+                  run: function () { applySessionConfig({ permissionMode: m }); },
+                };
+              }),
+            });
+          }
+          return groups;
+        }
+
+        $("btnMore").addEventListener("click", function () {
+          showMenu($("btnMore"), moreMenuGroups());
+        });
+        $("cModel").addEventListener("click", function () { showMenu($("cModel"), modelMenuGroups()); });
+        $("cRole").addEventListener("click", function () { showMenu($("cRole"), [{ title: "角色", items: roleMenuItems() }]); });
+
+        $("sendKey").addEventListener("click", function () {
+          if (busy) { stopCurrent(); return; }
+          send($("chatInput").value);
+        });
+
+        // 「增强提示词」：把草稿交给宿主配置的模型改写（prompt/enhance，write 级，不弹确认框）。
+        $("btnEnhance").addEventListener("click", function () {
+          var draft = $("chatInput").value.trim();
+          if (!draft) { toast("先写点内容再增强", "fail"); return; }
+          if (draft.charAt(0) === "/") { toast("斜杠命令不能增强", "fail"); return; }
+          var btn = $("btnEnhance");
+          btn.disabled = true;
+          invoke("summon.chat.enhancePrompt", {
+            draft: draft,
+            sessionId: isAgent() && agent.sessionId ? agent.sessionId : "",
+          }).then(function (res) {
+            if (!res || !res.ok || !res.text) {
+              toast("增强失败：" + ((res && (res.message || res.error)) || "未知错误"), "fail");
+              return;
+            }
+            $("chatInput").value = res.text;
+            autoGrow($("chatInput"));
+            refreshSendKey();
+            toast("已增强");
+          }).catch(function (err) {
+            toast("增强失败：" + (err && err.message ? err.message : err), "fail");
+          }).then(function () { btn.disabled = false; });
+        });
+        $("chatInput").addEventListener("input", function () {
+          autoGrow($("chatInput"));
+          refreshSendKey();
+        });
+        $("chatInput").addEventListener("keydown", function (e) {
+          if (e.key !== "Enter" || e.shiftKey) return;
+          e.preventDefault();
+          var text = $("chatInput").value;
+          if (!text.trim()) return;
+          $("chatInput").value = "";
+          autoGrow($("chatInput"));
+          refreshSendKey();
+          if (!busy) { send(text); return; }
+          // 忙时：Agent 模式直接发送当引导（宿主接受往正在跑的会话再投一条），
+          // 快捷对话一轮只能跑一个，所以排队。
+          if (isAgent()) { send(text); return; }
+          queued.push(text);
+          renderQueue();
+        });
+        $("msgArea").addEventListener("scroll", function () {
+          highlightTicks();
+          var area = $("msgArea");
+          stickBottom = atBottom(area);
+          area.classList.add("show");
+          clearTimeout(area._t);
+          area._t = setTimeout(function () { area.classList.remove("show"); }, 1000);
+        });
+
+        $("setNav").addEventListener("click", function (e) {
+          var b = e.target.closest ? e.target.closest("button[data-p]") : null;
+          if (b) showPanel(b.dataset.p);
+        });
+        $("btnSave").addEventListener("click", saveSettings);
+        $("btnNewRole").addEventListener("click", function () {
+          var used = {};
+          state.roles.forEach(function (r) { used[r.id] = true; });
+          var n = 1; while (used["role-" + n]) n++;
+          var fresh = { id: "role-" + n, name: "新角色 " + n, builtin: false, mode: "quick", system: "", tools: [], skills: [] };
+          persistRoles(state.roles.concat([fresh]), fresh.id, "已新建「" + fresh.name + "」");
+        });
+        $("roleCancel").addEventListener("click", closeRoleEditor);
+        $("roleToolWrap").addEventListener("click", function () { this.classList.toggle("on"); });
+        $("roleSave").addEventListener("click", function () {
+          var role = roleById(editingRoleId);
+          if (!role) return;
+          role.name = $("roleName").value.trim() || role.id;
+          role.system = $("rolePrompt").value;
+          // skills 已移除：快捷对话只支持联网搜索，技能由 Agent 模式的宿主会话负责。
+          delete role.skills;
+          var on = $("roleToolWrap").classList.contains("on");
+          var tools = role.tools || [];
+          var at = tools.indexOf("web_search");
+          if (on && at === -1) tools.push("web_search");
+          if (!on && at !== -1) tools.splice(at, 1);
+          role.tools = tools;
+          persistRoles(state.roles, null, "已保存角色");
+        });
+
+        $("themeSeg").addEventListener("click", function (e) {
+          var b = e.target.closest("button[data-theme]"); if (!b) return;
+          state.settings.appearance = b.getAttribute("data-theme");
+          markSeg("themeSeg", "data-theme", state.settings.appearance);
+          applyAppearance();
+        });
+        $("fontSeg").addEventListener("click", function (e) {
+          var b = e.target.closest("button[data-fs]"); if (!b) return;
+          state.settings.fontSize = Number(b.getAttribute("data-fs"));
+          markSeg("fontSeg", "data-fs", state.settings.fontSize);
+          applyAppearance();
+        });
+        $("opacitySeg").addEventListener("click", function (e) {
+          var b = e.target.closest("button[data-op]"); if (!b) return;
+          state.settings.opacity = Number(b.getAttribute("data-op"));
+          markSeg("opacitySeg", "data-op", state.settings.opacity);
+          applyAppearance();
+        });
+        $("startSeg").addEventListener("click", function (e) {
+          var b = e.target.closest("button[data-start]"); if (!b) return;
+          state.settings.agentStartMode = b.getAttribute("data-start");
+          markSeg("startSeg", "data-start", state.settings.agentStartMode);
+        });
+
+        // 快捷键录制：点击 kbd.rec 后捕获按键，语法与宿主一致
+        var capturing = false;
+        $("hkMain").addEventListener("click", function () {
+          capturing = true;
+          $("hkMain").classList.add("conflict");
+          $("hkMain").textContent = "按下组合键…（Esc 取消）";
+          $("hkState").textContent = "录制中";
+        });
+        document.addEventListener("keydown", function (e) {
+          if (capturing) {
+            e.preventDefault(); e.stopPropagation();
+            if (e.key === "Escape") {
+              capturing = false;
+              $("hkMain").classList.remove("conflict");
+              $("hkMain").textContent = state.settings.accelerator || "未设置";
+              $("hkState").textContent = "";
+              return;
+            }
+            var mods = [];
+            if (e.ctrlKey) mods.push("Control");
+            if (e.altKey) mods.push("Alt");
+            if (e.shiftKey) mods.push("Shift");
+            if (e.metaKey) mods.push("Meta");
+            if (["Control", "Alt", "Shift", "Meta"].indexOf(e.key) !== -1) {
+              $("hkMain").textContent = mods.join("+") + "+…";
+              return;
+            }
+            var key = e.key.length === 1 ? e.key.toUpperCase() : e.key;
+            if (key === " ") key = "Space";
+            $("hkMain").textContent = mods.concat([key]).join("+");
+            capturing = false;
+            $("hkMain").classList.remove("conflict");
+            $("hkState").textContent = "点「保存」生效";
+            return;
+          }
+          if (e.key !== "Escape") return;
+          if (openMenu) { closeMenu(); return; }
+          if ($("histDrawer").classList.contains("show")) { closeHistory(); return; }
+          if (state.view === "set") { showView("chat"); return; }
+          invoke("summon.chat.dismiss", {}).catch(function () {});
+        });
+        document.addEventListener("click", function (e) {
+          if (!openMenu) return;
+          if (openMenu.contains(e.target)) return;
+          if (e.target.closest && e.target.closest(".chip")) return;
+          closeMenu();
+        });
+        if (window.matchMedia) {
+          window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", function () {
+            if ((state.settings.appearance || "system") === "system") applyAppearance();
+          });
+        }
+        window.addEventListener("pagehide", function () {
+          if (heartbeatTimer) clearInterval(heartbeatTimer);
+          stopAgentPolling(); stopProgress();
+          try { bridge.invoke("summon.chat.closed", {}); } catch (err) { /* teardown */ }
+        });
+
+        heartbeatTimer = setInterval(function () {
+          invoke("summon.chat.heartbeat", {}).catch(function () {});
+        }, HEARTBEAT_MS);
+
+        showPanel("roles");
+        showView("chat");
+        bootstrap();
+      })();
+    </script>
+  </body>
+</html>
