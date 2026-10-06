@@ -548,6 +548,12 @@ body { overflow: hidden; }
    它只会水平居中，所以之前那块提示贴在顶部。 */
 .msg-area.is-empty { display: flex; align-items: center; justify-content: center; }
 
+/* 让模糊过渡带贴住输入的**第一行**：composer 的上内边距压到最小，把首行顶到
+   模糊带下沿；同时把过渡带收紧，模糊集中在下沿，而不是散在上方一大片。 */
+.composer { padding-top: .25rem; }
+.fade-band { height: 3rem; }
+.fade-band .blurpart { height: 2rem; }
+
 /* 新增的项目/权限按钮默认隐藏，由 JS 按模式切换 */
 .iconbtn[hidden] { display: none; }
 
@@ -1405,6 +1411,7 @@ details.think > .body {
               providerId: picking && slash > 0 ? models.selected.slice(0, slash) : undefined,
               modelId: picking && slash > 0 ? models.selected.slice(slash + 1) : undefined,
               thinkingLevel: picking && pendingThinking ? pendingThinking : undefined,
+              permissionMode: picking && pendingPermissionMode ? pendingPermissionMode : undefined,
             }).then(function (res) {
               if (!res || !res.ok) {
                 addMessage("error", (res && res.message ? res.message : "发送失败") +
@@ -1465,6 +1472,8 @@ details.think > .body {
           }).then(function () { setBusy(false); });
         }
         var pendingThinking = "";
+        // 新会话的权限模式：还没有会话时也能先选，发送时交给 session/create。
+        var pendingPermissionMode = "";
 
         // -------------------------------------------------------- 会话/记录
         function loadSessions() {
@@ -1486,6 +1495,19 @@ details.think > .body {
                 return;
               }
               agent.transcript = res.transcript;
+              // 新会话建立时把 pendingPermissionMode 交给了 session/create —— 但宿主的
+              // tool schema 里没有这一项，所以这里校验它到底认没认，没认就如实说，
+              // 而不是让用户以为权限已经设好了。
+              if (
+                pendingPermissionMode &&
+                res.transcript && res.transcript.session &&
+                agent.permCheckedFor !== agent.sessionId
+              ) {
+                agent.permCheckedFor = agent.sessionId;
+                if (res.transcript.permissionMode !== pendingPermissionMode) {
+                  toast("权限模式没随新会话生效，点 🔑 再设一次（那次会弹宿主确认框）", "fail");
+                }
+              }
               // 记录「最后一次真的有变化」的时间：Agent 轮次卡住时用它给提示。
               var count = res.transcript && res.transcript.messages ? res.transcript.messages.length : 0;
               if (count !== agent.lastCount) {
@@ -1988,20 +2010,34 @@ details.think > .body {
           return groups;
         }
 
-        /** 权限模式分组。☰ 菜单与输入框旁的按钮共用这一份。 */
+        /**
+         * 权限模式分组。☰ 菜单与输入框旁的按钮共用这一份。
+         *
+         * **没有会话时也能选** —— 主窗口在新对话里就能直接改权限，悬浮窗没理由不行。
+         * 没会话时只是记在本地，发送第一条消息建立会话时交给 `session/create`；
+         * 已经有会话才走 `session/configure`（那次会弹宿主确认框）。
+         */
         function permissionMenuGroup() {
-          if (!isAgent() || !agent.sessionId || !agent.transcript || !agent.transcript.session) {
-            return null;
-          }
-          var cur = agent.transcript.permissionMode || "";
+          if (!isAgent()) return null;
+          var live = agent.transcript && agent.transcript.session
+            ? (agent.transcript.permissionMode || "")
+            : "";
+          var cur = live || pendingPermissionMode;
           return {
-            title: "权限模式（改动会弹宿主确认框）",
+            title: live ? "权限模式（改动会弹宿主确认框）" : "权限模式（新会话建立时生效）",
             items: PERMISSION_MODES.map(function (m) {
               return {
                 label: PERMISSION_LABELS[m],
-                note: m,
+                note: live ? m : (m === pendingPermissionMode ? m + " · 新会话" : m),
                 selected: m === cur,
-                run: function () { applySessionConfig({ permissionMode: m }); },
+                run: function () {
+                  pendingPermissionMode = m;
+                  if (live) {
+                    applySessionConfig({ permissionMode: m });
+                  } else {
+                    toast("新会话将使用「" + PERMISSION_LABELS[m] + "」");
+                  }
+                },
               };
             }),
           };
@@ -2088,10 +2124,7 @@ details.think > .body {
 
         $("btnPerm").addEventListener("click", function () {
           var group = permissionMenuGroup();
-          if (!group) {
-            toast("先发一条消息建立会话，才能改权限模式", "fail");
-            return;
-          }
+          if (!group) { toast("快捷对话没有权限模式", "fail"); return; }
           showMenu($("btnPerm"), [group]);
         });
         $("chatInput").addEventListener("input", function () {

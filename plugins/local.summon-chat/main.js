@@ -48,7 +48,7 @@ const DEFAULT_MAX_TOOL_ROUNDS = 3;
  * 与 manifest.json 的 version 保持一致（smoke 测试会断言两者相等，防止漂移）。
  * 暴露给界面显示：判断「到底加载的是哪个版本」时，这是最直接的证据。
  */
-const PLUGIN_VERSION = "0.16.0";
+const PLUGIN_VERSION = "0.17.0";
 /** Keep the wire prompt well inside the host's 200k combined-character cap. */
 const MAX_HISTORY_MESSAGES = 20;
 const SEARCH_RESULT_LIMIT = 5;
@@ -1447,7 +1447,20 @@ async function createAgentSession(config) {
   if (cfg.thinkingLevel) input.thinkingLevel = cfg.thinkingLevel;
   if (cfg.mode) input.mode = cfg.mode;
 
-  const result = await desktopInvoke("session/create", [input]);
+  // 新会话的权限模式。`session/create` 的 MCP tool schema 里**没有**这一项，但：
+  //   · 控制面只校验 required 字段（assertRequiredFields），stripSecretMaterial 也不做
+  //     白名单，所以额外字段能透传到 IPC；
+  //   · 宿主 IPC 的 session.create 是把 input 原样交给 host-core 的。
+  // 所以先按「直接带上」试一次；万一宿主不认而报错，就退回不带它再建一次 ——
+  // 绝不能因为一个未文档化字段让发送失败。是否真的生效由界面读 transcript 校验。
+  if (cfg.permissionMode) input.permissionMode = cfg.permissionMode;
+
+  let result = await desktopInvoke("session/create", [input]);
+  if (!result.ok && input.permissionMode) {
+    const withoutPermission = Object.assign({}, input);
+    delete withoutPermission.permissionMode;
+    result = await desktopInvoke("session/create", [withoutPermission]);
+  }
   if (!result.ok) return result;
 
   const value = result.value || {};
@@ -1528,6 +1541,9 @@ async function sendAgent(input) {
       providerId: payload.providerId,
       modelId: payload.modelId,
       thinkingLevel: payload.thinkingLevel,
+      // 让新会话直接带上用户在悬浮窗选的权限模式，而不是建好之后再改
+      // （那样每次都要弹一次宿主确认框）。
+      permissionMode: payload.permissionMode,
     });
     if (!made.ok) return made;
     sessionId = made.sessionId;

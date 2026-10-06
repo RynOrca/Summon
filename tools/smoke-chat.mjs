@@ -1675,6 +1675,51 @@ console.log("\n=== project folder: list / get / set / clear ===");
   check("且项目为空", l3.projects, []);
 }
 
+// ======================= 新会话的权限模式
+console.log("\n=== a new Agent session is born with the picked permission mode ===");
+{
+  const mk = (responses) =>
+    makeHost({
+      settings: {
+        defaultModelKey: "prov/model-a",
+        roles: { roles: [{ id: "ag", mode: "agent", tools: [] }] },
+      },
+      desktop: responses,
+    });
+
+  // 正常路径：permissionMode 随 session/create 一起交出去
+  const happy = mk([{ id: "s1" }, { ok: true }]);
+  const m1 = load(happy.host);
+  await m1.onLoad();
+  await m1.onPanelInvoke("summon.chat.sendAgent", {
+    sessionId: "",
+    text: "hi",
+    permissionMode: "accept-edits",
+  });
+  const createCall = happy.calls.desktopInvokes.filter((c) => c.operation === "session/create")[0];
+  ok("调用了 session/create", !!createCall);
+  if (createCall) {
+    check("带上 permissionMode", createCall.args[0].permissionMode, "accept-edits");
+    check("标题取首条消息", createCall.args[0].title, "hi");
+  }
+
+  // 宿主不认这个未文档化字段：必须退回不带它再建一次，而不是让发送失败
+  const retry = mk([new Error("unexpected property"), { id: "s2" }, { ok: true }]);
+  const m2 = load(retry.host);
+  await m2.onLoad();
+  const sent = await m2.onPanelInvoke("summon.chat.sendAgent", {
+    sessionId: "",
+    text: "hi",
+    permissionMode: "auto",
+  });
+  const creates = retry.calls.desktopInvokes.filter((c) => c.operation === "session/create");
+  check("先带、失败后不带，共建了两次", creates.length, 2);
+  check("第一次带 permissionMode", creates[0].args[0].permissionMode, "auto");
+  ok("第二次不带 permissionMode", creates[1] && creates[1].args[0].permissionMode === undefined);
+  check("重试后发送仍然成功", sent.ok, true);
+  check("用的是重试出来的会话", sent.sessionId, "s2");
+}
+
 // ============================================================= cleanup
 console.log("\n=== onUnload cleans up ===");
 {
