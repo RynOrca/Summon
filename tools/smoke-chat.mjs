@@ -1623,6 +1623,58 @@ console.log("\n=== prompt enhancement and permission mode ===");
   }
 }
 
+// ======================= 项目文件夹
+console.log("\n=== project folder: list / get / set / clear ===");
+{
+  const h = makeHost({
+    desktop: [
+      [{ path: "C:\\a", name: "A" }, { path: "C:\\b", name: "B" }], // project/list
+      { path: "C:\\a" }, // project/get
+      { ok: true }, // project/set
+      { ok: true }, // project/clear
+    ],
+  });
+  const m = load(h.host);
+  await m.onLoad();
+
+  const listed = await m.onPanelInvoke("summon.chat.listProjects", {});
+  check("先 project/list", h.calls.desktopInvokes[0].operation, "project/list");
+  check("再 project/get", h.calls.desktopInvokes[1].operation, "project/get");
+  check("项目路径", listed.projects.map((p) => p.path), ["C:\\a", "C:\\b"]);
+  check("项目名称", listed.projects.map((p) => p.name), ["A", "B"]);
+  check("当前项目", listed.currentPath, "C:\\a");
+
+  const set = await m.onPanelInvoke("summon.chat.setProject", { path: "C:\\b" });
+  const setCall = h.calls.desktopInvokes.filter((c) => c.operation === "project/set")[0];
+  ok("调用了 project/set", !!setCall);
+  if (setCall) {
+    check("入参形状是 [path]", setCall.args, ["C:\\b"]);
+    check("write 级不要求 confirm", setCall.confirm, undefined);
+  }
+  check("ok", set.ok, true);
+
+  await m.onPanelInvoke("summon.chat.setProject", { path: "  " });
+  check("空路径走 project/clear",
+    h.calls.desktopInvokes.filter((c) => c.operation === "project/clear").length, 1);
+
+  // 返回形状没有公开契约：字符串数组 / 裸字符串都要能认
+  const h2 = makeHost({ desktop: [["C:\\x"], "C:\\x"] });
+  const m2 = load(h2.host);
+  await m2.onLoad();
+  const l2 = await m2.onPanelInvoke("summon.chat.listProjects", {});
+  check("字符串数组也认", l2.projects.map((p) => p.path), ["C:\\x"]);
+  check("裸字符串当前项目也认", l2.currentPath, "C:\\x");
+
+  // 宿主失败时不能崩，也不能假装成功
+  const h3 = makeHost({ desktop: [new Error("nope"), new Error("nope")] });
+  const m3 = load(h3.host);
+  await m3.onLoad();
+  const l3 = await m3.onPanelInvoke("summon.chat.listProjects", {});
+  check("列表失败仍是 ok:true（界面要能渲染）", l3.ok, true);
+  ok("但带上了 error", typeof l3.error === "string");
+  check("且项目为空", l3.projects, []);
+}
+
 // ============================================================= cleanup
 console.log("\n=== onUnload cleans up ===");
 {

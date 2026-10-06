@@ -57,6 +57,46 @@ body { overflow: hidden; }
    多行时仍由 autoGrow 撑高，上限沿用设计的 max-height。 */
 .bare-input.comp { min-height: 3.75rem; }
 
+/* ---- 一律去掉外框与底色 ----
+   设计基座里 .chip / .btn / .sendkey 都带实心底色与 1px 边框，在悬浮窗里显得很重。
+   这里统一对齐 .iconbtn（设置按钮）的做法：默认全透明，只在悬停时给 surface-2；
+   主/危险动作改用**文字颜色**区分，不再靠色块。 */
+.chip,
+.btn,
+.btn.primary,
+.btn.danger,
+.btn:disabled,
+.btn.primary:disabled,
+.sendkey,
+.sendkey.stop {
+  background: transparent;
+  border-color: transparent;
+}
+.chip:hover,
+.btn:hover,
+.btn.primary:hover,
+.btn.danger:hover,
+.sendkey:hover,
+.sendkey.stop:hover {
+  background: var(--surface-2);
+}
+.chip.open { border-color: transparent; color: var(--accent); }
+.btn.primary { color: var(--accent-fill); }
+.btn.primary:hover { color: var(--accent-hover); }
+.btn.danger { color: var(--error); }
+.btn:disabled,
+.btn.primary:disabled { color: var(--text-disabled); }
+.sendkey { color: var(--accent-fill); }
+.sendkey:disabled { color: var(--text-disabled); }
+.sendkey.stop { color: var(--text-primary); }
+
+/* 空状态垂直居中。.center-block 自带 margin:auto，但 .msg-area 是普通块级容器，
+   它只会水平居中，所以之前那块提示贴在顶部。 */
+.msg-area.is-empty { display: flex; align-items: center; justify-content: center; }
+
+/* 新增的项目/权限按钮默认隐藏，由 JS 按模式切换 */
+.iconbtn[hidden] { display: none; }
+
 /* 消息：用户气泡右对齐；助手区承载 Markdown */
 .msg-user { display: flex; flex-direction: column; align-items: flex-end; }
 .ai-body > .md { white-space: normal; }
@@ -150,6 +190,8 @@ details.think > .body {
     <!-- 设计系统图标 sprite（由 tools/build-renderer.mjs 注入，22 个 symbol） -->
     <svg hidden aria-hidden="true">
 __ICONS__
+      <!-- 本插件自绘：设计源包的 22 个图标里没有文件夹，所以这一个不属于设计系统。 -->
+      <symbol id="i-folder" viewBox="0 0 16 16"><path fill="currentColor" d="M2 4.25C2 3.56 2.56 3 3.25 3h2.14c.4 0 .78.19 1.02.51l.72.99h5.62c.69 0 1.25.56 1.25 1.25v5.5c0 .69-.56 1.25-1.25 1.25H3.25C2.56 12.5 2 11.94 2 11.25V4.25Z"/></symbol>
     </svg>
 
     <div class="win" id="win">
@@ -190,6 +232,8 @@ __ICONS__
           <div class="composer" data-pi-plugin-no-drag>
             <div class="cinbox">
               <textarea class="bare-input comp" id="chatInput" rows="1" placeholder="问点什么…" aria-label="提问输入框"></textarea>
+              <button class="iconbtn" id="btnProject" title="项目文件夹" hidden><svg><use href="#i-folder" /></svg></button>
+              <button class="iconbtn" id="btnPerm" title="权限模式" hidden><svg><use href="#i-key" /></svg></button>
               <button class="iconbtn" id="btnEnhance" title="增强提示词"><svg><use href="#i-spark" /></svg></button>
               <button class="sendkey" id="sendKey" title="发送" disabled><svg><use id="sendIcon" href="#i-send" /></svg></button>
             </div>
@@ -642,6 +686,7 @@ __ICONS__
         }
         function emptyState() {
           clearMessages();
+          $("msgArea").classList.add("is-empty");
           var box = el("div", "center-block");
           box.appendChild(icon("i-spark"));
           box.appendChild(el("b", null, "开始对话"));
@@ -702,6 +747,7 @@ __ICONS__
         function addMessage(kind, payload) {
           var center = $("msgArea").querySelector(".center-block");
           if (center) center.parentNode.removeChild(center);
+          $("msgArea").classList.remove("is-empty");
           var msg = el("div", "msg" + (kind === "user" ? " msg-user" : ""));
           if (kind === "user") {
             msg.appendChild(el("div", "bubble", payload));
@@ -724,6 +770,7 @@ __ICONS__
         function addAssistantNode(node) {
           var center = $("msgArea").querySelector(".center-block");
           if (center) center.parentNode.removeChild(center);
+          $("msgArea").classList.remove("is-empty");
           var msg = el("div", "msg");
           var body = el("div", "ai-body");
           body.appendChild(node);
@@ -1266,6 +1313,17 @@ __ICONS__
           $("cRole").querySelector("b").textContent = roleLabel;
           $("cModel").querySelector("b").textContent = modelLabel;
           $("cModel").title = "模型：" + modelLabel + (models.fromAppDefault ? "（与主窗口一致）" : "");
+          renderAgentControls();
+        }
+
+        /**
+         * 项目文件夹与权限模式是**会话级**的东西，只有 Agent 模式才有意义，
+         * 所以这两个按钮在快捷对话下隐藏。
+         */
+        function renderAgentControls() {
+          var agentMode = isAgent();
+          $("btnProject").hidden = !agentMode;
+          $("btnPerm").hidden = !agentMode;
         }
         function roleMenuItems() {
           return state.roles.map(function (role) {
@@ -1449,21 +1507,28 @@ __ICONS__
             ],
           }];
           // 权限模式是会话级设置，只有真的有会话时才给。
-          if (isAgent() && agent.sessionId && agent.transcript && agent.transcript.session) {
-            var cur = agent.transcript.permissionMode || "";
-            groups.push({
-              title: "权限模式（改动会弹宿主确认框）",
-              items: PERMISSION_MODES.map(function (m) {
-                return {
-                  label: PERMISSION_LABELS[m],
-                  note: m,
-                  selected: m === cur,
-                  run: function () { applySessionConfig({ permissionMode: m }); },
-                };
-              }),
-            });
-          }
+          var permGroup = permissionMenuGroup();
+          if (permGroup) groups.push(permGroup);
           return groups;
+        }
+
+        /** 权限模式分组。☰ 菜单与输入框旁的按钮共用这一份。 */
+        function permissionMenuGroup() {
+          if (!isAgent() || !agent.sessionId || !agent.transcript || !agent.transcript.session) {
+            return null;
+          }
+          var cur = agent.transcript.permissionMode || "";
+          return {
+            title: "权限模式（改动会弹宿主确认框）",
+            items: PERMISSION_MODES.map(function (m) {
+              return {
+                label: PERMISSION_LABELS[m],
+                note: m,
+                selected: m === cur,
+                run: function () { applySessionConfig({ permissionMode: m }); },
+              };
+            }),
+          };
         }
 
         $("btnMore").addEventListener("click", function () {
@@ -1499,6 +1564,59 @@ __ICONS__
           }).catch(function (err) {
             toast("增强失败：" + (err && err.message ? err.message : err), "fail");
           }).then(function () { btn.disabled = false; });
+        });
+
+        /**
+         * 项目文件夹。宿主目录里有 project/list、project/get、project/set、project/clear，
+         * 都是 write/read 级，不弹确认框。插件拿不到原生目录选择器，所以列已保存的项目
+         * 让用户选，而不是让人手打路径。
+         */
+        function setProject(path) {
+          invoke("summon.chat.setProject", { path: path }).then(function (res) {
+            if (!res || !res.ok) {
+              toast("切换项目失败：" + ((res && (res.message || res.error)) || "未知错误"), "fail");
+              return;
+            }
+            toast(path ? "项目已切换" : "已清除项目");
+          }).catch(function (err) {
+            toast("切换项目失败：" + (err && err.message ? err.message : err), "fail");
+          });
+        }
+
+        $("btnProject").addEventListener("click", function () {
+          invoke("summon.chat.listProjects", {}).then(function (res) {
+            var projects = (res && res.projects) || [];
+            var currentPath = (res && res.currentPath) || "";
+            var items = projects.map(function (p) {
+              return {
+                label: p.name,
+                note: p.path,
+                selected: p.path === currentPath,
+                run: function () { setProject(p.path); },
+              };
+            });
+            if (!items.length) {
+              items.push({
+                label: res && res.error ? "读取项目列表失败（" + res.error + "）" : "没有已保存的项目",
+                run: function () {},
+              });
+            }
+            if (currentPath) {
+              items.push({ label: "清除当前项目", run: function () { setProject(""); } });
+            }
+            showMenu($("btnProject"), [{ title: "项目文件夹", items: items }]);
+          }).catch(function (err) {
+            toast("读取项目失败：" + (err && err.message ? err.message : err), "fail");
+          });
+        });
+
+        $("btnPerm").addEventListener("click", function () {
+          var group = permissionMenuGroup();
+          if (!group) {
+            toast("先发一条消息建立会话，才能改权限模式", "fail");
+            return;
+          }
+          showMenu($("btnPerm"), [group]);
         });
         $("chatInput").addEventListener("input", function () {
           autoGrow($("chatInput"));

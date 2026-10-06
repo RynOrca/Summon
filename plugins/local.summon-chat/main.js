@@ -48,7 +48,7 @@ const DEFAULT_MAX_TOOL_ROUNDS = 3;
  * 与 manifest.json 的 version 保持一致（smoke 测试会断言两者相等，防止漂移）。
  * 暴露给界面显示：判断「到底加载的是哪个版本」时，这是最直接的证据。
  */
-const PLUGIN_VERSION = "0.15.1";
+const PLUGIN_VERSION = "0.16.0";
 /** Keep the wire prompt well inside the host's 200k combined-character cap. */
 const MAX_HISTORY_MESSAGES = 20;
 const SEARCH_RESULT_LIMIT = 5;
@@ -727,6 +727,48 @@ function extractToolCall(text) {
     return parsed;
   }
   return null;
+}
+
+/**
+ * `project/*` 的返回形状没有公开契约，所以路径与项目列表都按几种可能形状解析；
+ * 解析不出来就返回空，绝不让界面崩掉。
+ */
+function readProjectPath(value) {
+  if (typeof value === "string") return value;
+  if (!value || typeof value !== "object") return "";
+  return (
+    firstNonEmptyString(
+      value.path,
+      value.projectPath,
+      value.root,
+      value.dir,
+      value.project && value.project.path,
+      value.workspace && value.workspace.path,
+    ) || ""
+  );
+}
+
+function normalizeProjects(value) {
+  const rows = Array.isArray(value)
+    ? value
+    : value && Array.isArray(value.projects)
+      ? value.projects
+      : [];
+  const out = [];
+  for (const row of rows) {
+    if (typeof row === "string") {
+      if (row.trim()) out.push({ path: row, name: row });
+      continue;
+    }
+    if (!row || typeof row !== "object") continue;
+    const projectPath = readProjectPath(row);
+    if (!projectPath) continue;
+    out.push({
+      path: projectPath,
+      name: firstNonEmptyString(row.name, row.title, row.label) || projectPath,
+    });
+  }
+  return out;
 }
 
 /**
@@ -1841,6 +1883,29 @@ async function onPanelInvoke(channel, payload) {
     /** `session/configure` is `dangerous`: the host asks the user every time. */
     case "summon.chat.configureSession":
       return await configureSession(payload && payload.sessionId, payload && payload.config);
+
+    /**
+     * 项目文件夹。宿主目录里有整套：
+     * `project/list`（read）/ `project/get`（read）/ `project/set`（write, ["path"]）/ `project/clear`（write）。
+     * 都不弹确认框。返回形状没有公开契约，所以几种形状都兜住。
+     */
+    case "summon.chat.listProjects": {
+      const listed = await desktopInvoke("project/list", []);
+      const current = await desktopInvoke("project/get", []);
+      return {
+        ok: true,
+        projects: listed.ok ? normalizeProjects(listed.value) : [],
+        currentPath: current.ok ? readProjectPath(current.value) : "",
+        error: listed.ok ? null : listed.error || "PROJECT_LIST_FAILED",
+      };
+    }
+
+    case "summon.chat.setProject": {
+      const projectPath = payload && typeof payload.path === "string" ? payload.path.trim() : "";
+      // 空路径 = 清除当前项目（project/clear）。
+      if (!projectPath) return await desktopInvoke("project/clear", []);
+      return await desktopInvoke("project/set", [projectPath]);
+    }
 
     /**
      * 「增强提示词」按钮。宿主目录里有这个操作：
