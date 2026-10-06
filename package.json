@@ -1,8 +1,8 @@
 {
   "name": "summon-4-pi",
   "version": "0.2.0",
-  "private": true,
-  "description": "PI-Desktop plugin: a transparent floating orb summoned by a system-wide hotkey.",
+  "private": false,
+  "description": "PI-Desktop plugins: a hotkey-summoned chat widget (Agent mode on a real host session, or a quick chat with built-in web search) and a transparent floating orb.",
   "license": "MIT",
   "scripts": {
     "test": "node tools/smoke-test.mjs && node tools/smoke-chat.mjs",
