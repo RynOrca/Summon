@@ -693,11 +693,6 @@ body { overflow: hidden; }
 }
 .attach .ax:hover { color: var(--text-primary); }
 .attach.bad { border-color: var(--error); }
-.attach-note {
-  margin-top: .3rem; font-size: .6875rem; line-height: 1.45;
-  color: var(--text-disabled);
-}
-.attach-note[hidden] { display: none; }
 /* 输入框下面那一行：左边「当前项目文件夹」，右边四个按钮。
    一行放不下时项目名先截断（它有 title 提示，按钮没有替代品）。 */
 .composer-foot {
@@ -2904,10 +2899,8 @@ window.PiCurve = { create: create };
             <div class="cinbox">
               <textarea class="bare-input comp" id="chatInput" rows="2" placeholder="问点什么…" aria-label="提问输入框"></textarea>
             </div>
-            <!-- 贴了图片时的如实提示（快捷对话看不了图，见 renderAttachNote）。
-                 放在输入区**下面、按钮行上面**：这是布局上的从属关系 ——
-                 它说的是上面那坨内容，不是底下那排按钮。 -->
-            <div class="attach-note" id="attachNote" hidden></div>
+            <!-- 贴了图片时的提示条**删掉了**：用户说它太占位置。
+                 这条限制写在 README 里，不再占界面。 -->
             <!-- 最底下**一行**：左边当前项目文件夹，右边四个按钮。
                  用户要的就是这个形状 —— 项目名和按钮都在最底下、同一行，
                  而不是「项目名一行、按钮另一行」。 -->
@@ -5197,31 +5190,6 @@ window.PiCurve = { create: create };
           $("chatInput").placeholder = attachments.length
             ? "说说想让我用它做什么…"
             : "问点什么…";
-          renderAttachNote();
-        }
-
-        /**
-         * 快捷对话里贴了图片时的一条**如实提示**。
-         *
-         * 原因（已查证，见 README 的「附件」一节）：`pi.agent.complete` 的入参是纯文本
-         * （`messages: {role, content: string}[]`，没有图片字段），插件也没有任何
-         * 「往消息里放附件」的通道。所以哪怕当前模型支持图片，快捷对话也**没有一条路**
-         * 把像素交过去 —— 这一条与模型无关，只与接口有关。
-         *
-         * 不说清楚的话，用户会以为模型「看了图但不准」，而不是「根本没收到图」。
-         */
-        function renderAttachNote() {
-          var note = $("attachNote");
-          if (!note) return;
-          var hasImage = attachments.some(function (a) { return a.isImage; });
-          if (!hasImage) { note.hidden = true; note.textContent = ""; return; }
-          var model = currentModel();
-          var key = model && (model.label || model.key) || models.selected || "当前模型";
-          note.hidden = false;
-          note.textContent = isAgent()
-            ? "图片无法直接交给模型（接口只收文本），已存成文件并把路径写进消息，Agent 会自己去读。"
-            : "快捷对话无法把图片交给模型（接口只收文本）：" + key +
-              " 收不到这张图。换成 Agent 模式才能真正看图。";
         }
 
         function send(text) {
