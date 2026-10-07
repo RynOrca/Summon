@@ -1453,13 +1453,13 @@ console.log("\n=== a 429 from search is surfaced, not hidden ===");
   check("用户仍拿到回答", res.text, "answered anyway");
 }
 
-console.log("\n=== read_file：快捷对话能读本机文件（不需要联网） ===");
+console.log("\n=== read：快捷对话能读本机文件（不需要联网） ===");
 {
   const md = "# 国庆快乐\n\n国泰民安，阖家团圆。\n";
   const { host, calls } = makeHost({
     // 这个角色没有任何联网工具，只有读文件 —— 它必须照样能用。
     settings: { ...MODEL, roles: { roles: [{ id: "reader", mode: "quick", tools: [] }] } },
-    completions: ['{"tool":"read_file","path":"docs/README.md"}', "文件里写的是国庆祝福。"],
+    completions: ['{"tool":"read","path":"docs/README.md"}', "文件里写的是国庆祝福。"],
     files: { "docs/README.md": md },
   });
   const mod = load(host);
@@ -1469,15 +1469,31 @@ console.log("\n=== read_file：快捷对话能读本机文件（不需要联网�
   check("读到了", res.ok, true);
   check("没有发任何网络请求", calls.fetches.length, 0);
   check("读了那个路径", calls.fsReads[0].path, "docs/README.md");
-  check("trace 记了 read_file", res.trace[0].tool, "read_file");
+  check("trace 记了 read", res.trace[0].tool, "read");
   check("trace 是本地来源", res.trace[0].provider, "local");
   check("trace 成功", res.trace[0].ok, true);
   // 文件内容必须回灌给模型，否则它只能猜。
   const fed = calls.completeInputs[1].messages.at(-1);
   check("内容作为 user 消息回灌", fed.role, "user");
   check("回灌里有文件正文", fed.content.indexOf("国泰民安") !== -1, true);
-  check("系统提示词声明了 read_file", calls.completeInputs[0].system.indexOf("read_file") !== -1, true);
+  check("系统提示词声明了 read", calls.completeInputs[0].system.indexOf("read ——") !== -1, true);
   check("没开联网就不提 web_search", calls.completeInputs[0].system.indexOf("web_search") === -1, true);
+}
+
+console.log("\n=== read_file 仍然能用（0.21.0 的旧名字是别名） ===");
+{
+  const { host, calls } = makeHost({
+    settings: { ...MODEL, roles: { roles: [{ id: "reader", mode: "quick", tools: [] }] } },
+    completions: ['{"tool":"read_file","path":"a.txt"}', "读到了"],
+    files: { "a.txt": "hello" },
+  });
+  const mod = load(host);
+  await mod.onLoad();
+  const res = await mod.onPanelInvoke("summon.chat.sendQuick", { roleId: "reader", text: "读 a.txt" });
+  check("旧名字照样执行", calls.fsReads[0].path, "a.txt");
+  // trace 里统一记正式名，界面与测试只认一个。
+  check("trace 归一成 read", res.trace[0].tool, "read");
+  check("内容回灌", calls.completeInputs[1].messages.at(-1).content.indexOf("hello") !== -1, true);
 }
 
 console.log("\n=== read_file 的失败与截断都要如实说 ===");

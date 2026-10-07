@@ -164,10 +164,10 @@ const TOOL_DIRECTIVE = function (allowSearch) {
     "## 可用工具",
     "current_time —— 读取当前日期时间。回答任何与「今天 / 现在 / 最新 / 今年 /",
     "这周」相关的问题之前，**先调用它**：你不知道今天是哪一天，训练数据里的年份是过期的。",
-    "read_file —— 读取用户项目里的文本文件（代码、md、json、日志…）。",
+    "read —— 读取用户项目里的文本文件（代码、md、json、日志…）。参数 `path`。",
     "read_image —— 读取用户项目里的图片（png/jpg/gif/webp/bmp）。**你无法看图**，",
     "它只回报路径、尺寸与大小；需要图片内容时请把路径告诉用户，或说明你看不到图。",
-    "用户消息里出现 `@路径` 时，就用 read_file 去读那个路径。",
+    "用户消息里出现 `@路径` 时，就用 read 去读那个路径。",
   ];
   if (allowSearch) {
     lines.push(
@@ -179,15 +179,28 @@ const TOOL_DIRECTIVE = function (allowSearch) {
     "",
     "要使用工具时，**只输出一行 JSON，不要有其他任何文字**：",
     '{"tool":"current_time"}',
-    '{"tool":"read_file","path":"相对或绝对路径"}',
+    '{"tool":"read","path":"相对或绝对路径"}',
   );
   if (allowSearch) lines.push('{"tool":"web_search","query":"搜索关键词"}');
   lines.push("", "拿到工具结果后，用中文直接给出最终回答，不要再输出 JSON。");
   return lines.join("\n");
 };
 
-/** 模型可以申请的**全部**工具（界面只展示、执行在工具循环里）。 */
-const TOOL_IDS = ["current_time", "read_file", "read_image", "web_search"];
+/**
+ * 模型可以申请的**全部**工具名 —— 允许别名，所以这里比 `TOOLS` 宽。
+ *
+ * `read` 是正式名字（和 Agent 模式里宿主那个 read 工具同名，用户也这么叫）；
+ * `read_file` 是**别名**，保留着是因为 0.21.0 已经把它写进过提示词，
+ * 换名字不该让旧的一轮对话突然失效。两者解析到同一个工具。
+ */
+const TOOL_IDS = ["current_time", "read", "read_file", "read_image", "web_search"];
+
+/** 别名 → 正式名。 */
+const TOOL_ALIASES = { read_file: "read" };
+
+function canonicalTool(name) {
+  return TOOL_ALIASES[name] || name;
+}
 
 /**
  * 能读进上下文的文本上限。宿主 `agent.complete` 的 system 上限是 32 KiB，
@@ -1738,15 +1751,18 @@ async function runQuickChat(input) {
     const call = extractToolCall(answer);
     if (!call) break; // 不是工具调用 → 这就是最终回答
 
+    // 别名先归一：`read_file`（0.21.0 的名字）与 `read` 是同一个工具。
+    const tool = canonicalTool(call.tool);
+
     /**
      * 读文件。和时钟一样**不占搜索的轮次额度**（`maxRounds` 是用户为「联网搜索」
      * 设的预算，读本地文件不该花它），但仍受 `MAX_TOOL_CALLS` 兜底。
      */
-    if (call.tool === "read_file" || call.tool === "read_image") {
+    if (tool === "read" || tool === "read_image") {
       if (rounds >= MAX_TOOL_CALLS) break;
       rounds++;
       const wantPath = typeof call.path === "string" ? call.path.trim() : "";
-      const isImage = call.tool === "read_image";
+      const isImage = tool === "read_image";
       const stepAt = setProgress("tool", "正在读取" + (wantPath || "文件") + "…", rounds, {
         kind: "tool",
         phase: "tool",
@@ -1758,7 +1774,8 @@ async function runQuickChat(input) {
       const read = isImage ? await readImageFile(wantPath) : await readTextFile(wantPath);
       trace.push({
         round: rounds,
-        tool: call.tool,
+        // trace 里记**正式名**，界面与测试都只需要认一个。
+        tool: tool,
         ok: read.ok,
         provider: "local",
         count: 0,

@@ -335,7 +335,7 @@ npm run renderer:check   # 校验产物是否与模板/设计基座一致（已�
 
 于是走宿主本来就支持的那条路：**把文件放进工作区，把路径写进消息**。
 Agent 模式下由 Agent 自己的 `read` 工具读（多模态识别由 Agent 那边的模型完成）；
-快捷对话由下面的 `read_file` / `read_image` 读。
+快捷对话由下面的 `read` / `read_image` 读。
 
 ### 文件怎么落盘
 
@@ -373,7 +373,7 @@ Agent 模式下由 Agent 自己的 `read` 工具读（多模态识别由 Agent �
 
 **要看图就走 Agent 模式** —— 那边是宿主的真实会话，Agent 自己的 `read` 工具能出图。
 
-## 工具：`current_time`、`read_file`、`read_image` 与 `web_search`
+## 工具：`current_time`、`read`、`read_image` 与 `web_search`
 
 宿主给插件的 `agent.complete` 是 `tools: []` —— **没有函数调用**。所以工具循环是**约定**做的：
 模型输出一行 JSON 申请工具，插件执行，把结果当成一条 user 消息回灌。四个工具：
@@ -381,13 +381,19 @@ Agent 模式下由 Agent 自己的 `read` 工具读（多模态识别由 Agent �
 | 工具 | 什么时候可用 | 是什么 |
 |---|---|---|
 | `current_time` | **始终可用** | 本地读时钟 + 时区/UTC 偏移/星期，不走网、不花钱 |
-| `read_file` | **始终可用** | 读工作区里的文本文件（代码、md、json、日志） |
+| `read` | **始终可用** | 读工作区里的文本文件（代码、md、json、日志）。`read_file` 是它的别名 |
 | `read_image` | **始终可用** | 只回报路径/尺寸/格式，**明确告诉模型它看不到画面** |
 | `web_search` | 角色的「联网搜索」打开时 | 见下面「搜索」一节 |
 
-`read_file` 一次最多 24000 字符，截断时会**明确告诉模型「后面还有内容」**，
+`read` 一次最多 24000 字符，截断时会**明确告诉模型「后面还有内容」**，
 而不是悄悄给半截让它以为读完了。越界（`../secret`）由宿主报 `PERMISSION_DENIED`，
 错误原文回灌给模型，它必须如实说读不到。
+
+> **为什么叫 `read` 而不是 `read_file`**：用户就管它叫 read，而且 Agent 模式里宿主那个
+> 内置工具也叫 `read` —— 两个模式里同一个词，心智负担最小。**不会冲突**：宿主给插件工具
+> 加命名空间（`pluginToolName` → `plugin_local_summon-chat_read`），内置的 `read` 是另一个名字。
+> `read_file` 保留为别名（0.21.0 曾把它写进提示词，换名字不该让旧的一轮对话失效），
+> 两条路径解析到同一个工具，trace 里统一记 `read`。
 
 `read_image` 是个**诚实**的工具：接口给不了像素，所以它回报元信息并明确要求模型
 「不要编造画面内容」。要真正看图，用 Agent 模式（那边的 `read` 工具能出图），
@@ -690,7 +696,7 @@ Agent 模式的工具行以前把**结果原文**压成一行截断显示，于�
 | `desktop.control` | high | Agent 模式 |
 | `net.fetch` / `net.anyHost` | high | 联网搜索（后者允许自填端点） |
 | `clipboard.read` | medium | 读剪贴板历史（粘贴图片用） |
-| `fs.read` | medium | `read_file` / `read_image`，以及拖入文件的字节 |
+| `fs.read` | medium | `read` / `read_image`，以及拖入文件的字节 |
 
 `manifest.fs.read` 是 `{ root: "workspace", scope: ["**/*"] }` —— 只读工作区。
 写权限**没有**声明也不需要：附件落盘用的是插件进程里的 `node:fs`（见「附件」一节）。
