@@ -1682,6 +1682,9 @@ function normalizeSessionSummary(row) {
     status: firstNonEmptyString(item.status, item.state),
     mode: firstNonEmptyString(item.mode) || null,
     permissionMode: firstNonEmptyString(item.permissionMode) || null,
+    // 会话绑定的项目目录。界面用它显示「当前项目文件夹」——用户在一个项目里
+    // 建了会话却看不到自己在哪个项目，是这个插件最容易被误解的地方之一。
+    projectPath: firstNonEmptyString(item.projectPath, item.project && item.project.path) || null,
     providerId: providerId || null,
     modelId: modelId || null,
     modelKey: providerId && modelId ? providerId + "/" + modelId : null,
@@ -2050,6 +2053,12 @@ async function createAgentSession(config) {
   if (cfg.modelId) input.modelId = cfg.modelId;
   if (cfg.thinkingLevel) input.thinkingLevel = cfg.thinkingLevel;
   if (cfg.mode) input.mode = cfg.mode;
+  // ⚠️ 这一项以前漏了：`session/create` 的 schema 里**有** `projectPath`
+  // （mcp-control.ts 的 pi_session_create），而插件的建会话请求从来没带上它。
+  // 后果就是用户「选了项目文件夹但没用」—— 新建的会话落在宿主的默认/活动项目下，
+  // 悬浮窗里也看不出自己在哪个项目。会话自己的 projectPath 才是决定工作目录的那一条
+  // （session-launch.ts 用 `session.projectPath` 定 cwd 与项目指令）。
+  if (cfg.projectPath) input.projectPath = String(cfg.projectPath);
 
   // 新会话的权限模式。`session/create` 的 MCP tool schema 里**没有**这一项，但：
   //   · 控制面只校验 required 字段（assertRequiredFields），stripSecretMaterial 也不做
@@ -2129,6 +2138,61 @@ async function readTranscript(sessionId, messageLimit) {
   return { ok: true, transcript: normalizeTranscript(result.value) };
 }
 
+/**
+ * 当前的工作目录（Agent 模式）。
+ *
+ * 项目其实有两个来源，顺序不能反：
+ *   1. **会话自己绑定的** `projectPath`（`session/get` 的 summary 里就有）——
+ *      这才是决定 cwd、项目指令、记忆的那一条；
+ *   2. 还没有会话时，用用户在悬浮窗里选的那个（发第一条消息时交给 `session/create`）。
+ * 之前界面一个都不显示，用户「选了项目却看不出生效没有」。
+ */
+async function currentProject(sessionId, pendingPath) {
+  const wanted = String(pendingPath || "").trim();
+  const id = String(sessionId || "").trim();
+  if (id) {
+    const result = await desktopInvoke("session/get", [{ id: id, messageLimit: 1 }]);
+    if (result.ok) {
+      const t = normalizeTranscript(result.value);
+      if (t.session && t.session.projectPath) {
+        return { ok: true, path: t.session.projectPath, source: "session" };
+      }
+    }
+  }
+  if (wanted) return { ok: true, path: wanted, source: "pending" };
+  return { ok: true, path: "", source: "none" };
+}
+
+/**
+ * 把已有会话挪到用户选的项目下。
+ *
+ * `session/moveProject` 的 spec 是 `["input"]`、风险 `write`（不弹确认框），宿主 IPC 收
+ * `{ sessionId, projectPath }`（session-ipc.ts:385）—— 但**只对空闲会话有效**
+ * （`MoveSessionProjectResult::Busy`），所以跑着的时候如实说「下一轮再切」，
+ * 不要假装已经切了。
+ */
+async function moveSessionProject(sessionId, projectPath) {
+  const id = String(sessionId || "").trim();
+  const path = String(projectPath || "").trim();
+  if (!id || !path) return { ok: false, error: "INVALID_ARGUMENT", message: "缺少会话或项目路径" };
+
+  const current = await currentProject(id, "");
+  if (current.path === path) return { ok: true, sessionId: id, projectPath: path, unchanged: true };
+
+  const result = await desktopInvoke("session/moveProject", [{ sessionId: id, projectPath: path }]);
+  if (!result.ok) {
+    const busy = /BUSY|running/i.test(String(result.error || "") + " " + String(result.message || ""));
+    return {
+      ok: false,
+      error: result.error || "MOVE_FAILED",
+      message: busy
+        ? "会话正在跑，项目要等这一轮结束后才能切。"
+        : (result.message || "切换项目失败"),
+    };
+  }
+  return { ok: true, sessionId: id, projectPath: path };
+}
+
 async function sendAgent(input) {
   const payload = input && typeof input === "object" ? input : {};
   const text = typeof payload.text === "string" ? payload.text.trim() : "";
@@ -2136,6 +2200,8 @@ async function sendAgent(input) {
 
   let sessionId = String(payload.sessionId || "").trim();
   let created = false;
+  // 用户当前选的项目。会话不存在时交给 session/create；已存在且不一致时就地挪过去。
+  const wantedProject = String(payload.projectPath || "").trim();
 
   if (!sessionId) {
     // Agent mode opens a fresh session per summon, by decision — born with the
@@ -2148,10 +2214,14 @@ async function sendAgent(input) {
       // 让新会话直接带上用户在悬浮窗选的权限模式，而不是建好之后再改
       // （那样每次都要弹一次宿主确认框）。
       permissionMode: payload.permissionMode,
+      projectPath: wantedProject || undefined,
     });
     if (!made.ok) return made;
     sessionId = made.sessionId;
     created = true;
+  } else if (wantedProject) {
+    // best-effort：挪不过去（比如会话正在跑）也不能拦住这条消息。
+    await moveSessionProject(sessionId, wantedProject);
   }
 
   const result = await desktopInvoke("agent/prompt", [{ sessionId: sessionId, content: text }]);
@@ -2571,10 +2641,24 @@ async function onPanelInvoke(channel, payload) {
     case "summon.chat.configureSession":
       return await configureSession(payload && payload.sessionId, payload && payload.config);
 
+    /** 悬浮窗要显示 / 绑定「当前项目文件夹」时问这两个通道。 */
+    case "summon.chat.currentProject":
+      return await currentProject(
+        payload && payload.sessionId,
+        payload && payload.pendingPath,
+      );
+
+    case "summon.chat.moveProject":
+      return await moveSessionProject(payload && payload.sessionId, payload && payload.path);
+
     /**
      * 项目文件夹。宿主目录里有整套：
      * `project/list`（read）/ `project/get`（read）/ `project/set`（write, ["path"]）/ `project/clear`（write）。
      * 都不弹确认框。返回形状没有公开契约，所以几种形状都兜住。
+     *
+     * 注意 `project/set` 改的是**宿主当前活动项目**（主窗口那一个），
+     * 不是「悬浮窗这个会话的项目」——所以选完之后页面还要把路径带给 `sendAgent`，
+     * 由它交给 `session/create` 或 `session/moveProject` 才算真的绑上。
      */
     case "summon.chat.listProjects": {
       const listed = await desktopInvoke("project/list", []);

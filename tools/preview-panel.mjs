@@ -327,6 +327,16 @@ const LONG_TRANSCRIPT = {
  * `scroll-behavior: smooth`, so fighting it from outside loses the race).
  */
 const SCROLL_TO = demoLong ? 100000 : 0;
+/**
+ * The project the preview pretends the session is bound to.
+ *
+ * ⚠️ It is injected into the page stub, so the page can reference it. Naming a
+ * Node-side `const` inside that template looked fine and silently produced the
+ * empty state instead: the page threw `ReferenceError`, `refreshProject`'s
+ * `.catch` swallowed it, and the chip drew 「未选择项目」. Same class of bug as
+ * the missing vendor bundle — the preview is wrong, and it looks like the code.
+ */
+const DEMO_PROJECT = "D:\\Code\\Working-on-it\\summon-4-pi";
 
 /**
  * The quick-chat stub. Quick chat does not go through `readTranscript` at all —
@@ -452,6 +462,8 @@ ${demoQuick ? QUICK_STUB : ""}
             var TURN_STAGES = ${demoTurn ? JSON.stringify(TURN_STAGES) : "[]"};
             var TYPING_STAGES = ${demoTyping ? JSON.stringify(TYPING_STAGES) : "[]"};
             var TURN_I = 0;
+            // 页面里要用，所以必须注入进来（不能直接引用 Node 那边的同名常量）。
+            var DEMO_PROJECT = ${JSON.stringify(DEMO_PROJECT)};
             // In transcript/turn mode the page resumes a session on boot, which
             // routes through the same readTranscript → renderKeyed path the app uses.
             if (DEMO) BOOTSTRAP.resumeSessionId = "demo";
@@ -469,6 +481,18 @@ ${demoQuick ? QUICK_STUB : ""}
                   });
                 }
                 if (channel === "summon.chat.listSessions") return Promise.resolve({ ok: true, sessions: [], quick: [] });
+                // The composer's bottom-left project chip (Agent mode) and the
+                // project menu both read these two.
+                if (channel === "summon.chat.currentProject") {
+                  return Promise.resolve({ ok: true, path: DEMO_PROJECT, source: "session" });
+                }
+                if (channel === "summon.chat.listProjects") {
+                  return Promise.resolve({
+                    ok: true,
+                    projects: [{ name: "summon-4-pi", path: DEMO_PROJECT }],
+                    currentPath: DEMO_PROJECT,
+                  });
+                }
                 if (channel === "summon.chat.readTranscript") {
                   if (DEMO && ${demoTurn}) return Promise.resolve(TURN_STAGES[Math.min(TURN_I++, TURN_STAGES.length - 1)]);
                   if (DEMO && ${demoTyping}) return Promise.resolve(TYPING_STAGES[Math.min(TURN_I++, TYPING_STAGES.length - 1)]);

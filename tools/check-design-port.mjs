@@ -291,8 +291,17 @@ ok("预留了宿主的 46px 拖拽带，且只预留一次",
     : bandOffsets.length > 1
       ? `占位了两次：${bandOffsets.join(" + ")}（内容会整体下移 46px）`
       : `占位方式不是 padding-top，而是 ${bandOffsets[0]}`);
-ok("声明了 pi-plugin-chrome=v2（否则宿主的 body padding 会与本页的占位叠加）",
-  /<meta[^>]+name=["']pi-plugin-chrome["'][^>]+content=["']v2["']/i.test(html));
+// 页面顶部 46px 的占位契约。两个值都能避免「宿主 body padding + 本页占位」叠加成 92px：
+//   v2 = safe-area   —— 宿主不补 padding，但**开发模式**下会往这条带子里画一行
+//                       「开发提示 · 顶部 46px 为拖拽区」（用户要求去掉）。
+//   v3 = paint-through —— 宿主把胶囊浮在页面上、由页面提供拖拽/非拖拽区域；
+//                       开发提示只画在 safe-area 模式，所以没有那行字。
+// 本页本来就画穿这条带子（顶栏就在里面）并逐个控件标了 data-pi-plugin-no-drag，
+// 所以 v3 是它真正的形状。
+const chromeMarker = /<meta[^>]+name=["']pi-plugin-chrome["'][^>]+content=["']([^"']+)["']/i.exec(html);
+ok("声明了 pi-plugin-chrome=v3（paint-through：去掉开发提示，且不叠加 body padding）",
+  !!chromeMarker && chromeMarker[1].toLowerCase() === "v3",
+  chromeMarker ? `实际是 ${chromeMarker[1]}（v2 会让宿主在开发模式下多画一行提示）` : "没有这个 meta");
 ok("拖拽带下方有一条分界线（否则那段高度读起来像凭空多出的一行）",
   /\.pi-has-band\s+\.topbar\s*\{[^}]*border-bottom/.test(css),
   "缺少 .pi-has-band .topbar 的分隔线规则");

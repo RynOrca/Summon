@@ -3,13 +3,19 @@
   <head>
     <meta charset="UTF-8" />
     <!--
-      声明自己会处理宿主顶部 46px 拖拽带的占位（宿主 preload 的 "v2 契约"）。
-      不声明的话宿主会给 <body> 再补一条 `padding-top: 46px !important`
-      （plugin-panel.ts 的 pluginOwnsTitlebarSpacing()：只有 legacy 页面才吃这条），
-      而本页已经在 #win 上自己留了这 46px —— 两个一叠加就是 92px，
-      顶栏会钻到窗口按钮胶囊下面去。见 plugin-panel-chrome.ts。
+      顶部 46px 拖拽带的契约（`plugin-panel-chrome.ts`）：
+
+        v2 = safe-area —— 宿主**不**给 <body> 补 padding（那会让 46px 叠加成 92px，
+             顶栏钻到窗口按钮胶囊下面），但 preload 会在**开发模式**下往这条带子里
+             画一行「开发提示 · 顶部 46px 为拖拽区」。
+        v3 = paint-through —— 页面自己画穿这条带子，宿主把胶囊浮在上面、由页面提供
+             拖拽/非拖拽区域（`installPaintThroughDragMap` 认 button / [tabindex] /
+             `data-pi-plugin-no-drag` 这些选择器）。**开发提示只画在 safe-area 模式**，
+             所以 v3 就没有那行字了 —— 用户要的正是「去掉顶上的开发提示」。
+             本页本来就往这条带子里画顶栏、也本来就逐个控件标了
+             `data-pi-plugin-no-drag`，所以这个模式才是它真正的形状。
     -->
-    <meta name="pi-plugin-chrome" content="v2" />
+    <meta name="pi-plugin-chrome" content="v3" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>鲸唤 Summon</title>
     <style>
@@ -662,6 +668,20 @@ body { overflow: hidden; }
    也别把 composer 改成 flex column —— 前者会和 flex 互相放大（曾涨到四五百像素），
    后者会把按钮推到底、下面留白。 */
 .composer .bare-input.comp { overflow-y: auto; }
+/* 输入框下面那一行：目前只有「当前项目文件夹」。高度是 0 时就等于不存在，
+   所以快捷对话（没有项目）不会因此多出一块空白。 */
+.composer-foot { display: flex; align-items: center; gap: .35rem; margin-top: .15rem; }
+.composer-foot:empty { display: none; }
+.proj-chip {
+  display: inline-flex; align-items: center; gap: .3rem; max-width: 100%;
+  border: 0; background: none; padding: .1rem .15rem; border-radius: 5px;
+  color: var(--text-disabled); font-size: .6875rem; font-family: inherit;
+  cursor: pointer; text-align: left;
+}
+.proj-chip[hidden] { display: none; }
+.proj-chip:hover { color: var(--text-secondary); background: var(--surface-2); }
+.proj-chip svg { width: .75rem; height: .75rem; flex: 0 0 auto; }
+.proj-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /*
  * 输入区顶部那条**磨砂带**：虚化它背后滚过去的正文。
  *
@@ -2844,6 +2864,14 @@ window.PiCurve = { create: create };
               <button class="iconbtn" id="btnEnhance" title="增强提示词"><svg><use href="#i-spark" /></svg></button>
               <button class="sendkey" id="sendKey" title="发送" disabled><svg><use id="sendIcon" href="#i-send" /></svg></button>
             </div>
+            <!-- 当前项目文件夹（Agent 模式）。放在输入框**左下角**：用户要能一眼看到
+                 这条会话的工作目录是哪个 —— 以前选完项目什么都不显示，看起来就像没生效。 -->
+            <div class="composer-foot">
+              <button class="proj-chip" id="projChip" type="button" hidden title="切换项目文件夹">
+                <svg><use href="#i-folder" /></svg><span id="projName">未选择项目</span>
+              </button>
+              <span class="grow"></span>
+            </div>
             <!-- 「Enter 发送 · Shift+Enter 换行」那行提示已按用户要求删除：
                  输入区直接铺到底部，四个按钮贴着窗口下沿。
                  忙时的语义（Enter 是排队还是引导）改由上面的状态行说明，见 setBusy()。 -->
@@ -4175,22 +4203,59 @@ window.PiCurve = { create: create };
           return box;
         }
         /**
-         * 工具输出经常是一大坨原始 JSON / 报错堆栈（几十行）。默认只给一行摘要，
-         * 想看原文再展开 —— 否则整段对话都被淹没，也没法往上翻。
+         * 工具输出的正文行。
+         *
+         * ⚠️ 这里以前把**结果原文**压成一行截断显示，于是 Agent 模式下就是用户截图里
+         * 那一坨东西：`{"bytes":498,"header":["国庆快乐.md#1969"],"path":"国庆快乐.md",
+         * …（1287 字，点击展开）` —— 看起来像坏了，而且前 120 个字里没有一个字有用。
+         *
+         * 现在：标题用**结构化的那几项**（工具名 + 结果里有用的那一个值，例如「退出码 0」
+         * 或改动的增删行数），原文整段放进可折叠的 `<pre>`，默认收起。
          */
-        function renderToolRow(text) {
-          var raw = String(text == null ? "" : text);
+        function toolRowLabel(m) {
+          var meta = m.tool || {};
+          var name = meta.name || "工具";
+          var summary = summarizeToolResult(meta.result);
+          return summary ? name + " · " + summary : name;
+        }
+        /** 从结果里挑一个「人看得懂」的值当摘要，挑不到就返回空。 */
+        function summarizeToolResult(result) {
+          if (result == null) return "";
+          if (typeof result !== "object") return firstLineOf(String(result), 60);
+          // 顺序有讲究：**具体值优先于「成功」**。`{ok:true}` 这种通用形状几乎每个
+          // 工具都会返回，先取它会把真正有用的东西（退出码、改动行数）盖掉。
+          if (typeof result.exitCode === "number") return "退出码 " + result.exitCode;
+          if (typeof result.exit_code === "number") return "退出码 " + result.exit_code;
+          var adds = typeof result.additions === "number" ? result.additions : null;
+          var dels = typeof result.deletions === "number" ? result.deletions : null;
+          if (adds !== null || dels !== null) return "+" + (adds || 0) + " / -" + (dels || 0);
+          if (typeof result.count === "number") return result.count + " 条";
+          if (typeof result.bytes === "number") return result.bytes + " 字节";
+          if (typeof result.path === "string" && result.path) return firstLineOf(result.path, 60);
+          if (typeof result.error === "string" && result.error) return firstLineOf(result.error, 60);
+          if (typeof result.status === "number") return "状态 " + result.status;
+          if (typeof result.ok === "boolean") return result.ok ? "成功" : "失败";
+          return "";
+        }
+        function renderToolRow(m) {
+          var raw = String((m && m.text) || "");
           var flat = raw.replace(/\s+/g, " ").trim();
-          var isLong = flat.length > 160 || raw.split("\n").length > 3;
-          if (!isLong) return el("div", "tool-line", flat);
-          // A tool row whose body is empty happens (the host keeps the identity in
-          // toolName/args/result, which the timeline shows instead). Leaving a
-          // zero-height `<details>` there just steals a line of margin.
-          if (!flat) return el("div", "tool-line", "");
+          var meta = (m && m.tool) || {};
+          var label = toolRowLabel(m || {});
+          // 一行就能放下、而且不是结构化结果的行（例如搜索摘录）直接显示，
+          // 其余一律折叠 —— 原文是给「想深挖」的人看的，不是给第一眼看的。
+          var structured = !!meta.name || !!summarizeToolResult(meta.result);
+          if (!flat) {
+            return el("div", "tool-line", meta.name ? label : "");
+          }
+          if (!structured && flat.length <= 160 && raw.split("\n").length <= 3) {
+            return el("div", "tool-line", flat);
+          }
           var box = el("details", "think");
           var sum = el("summary");
           sum.appendChild(el("span", "arrow", "›"));
-          sum.appendChild(el("span", null, flat.slice(0, 120) + "…（" + flat.length + " 字，点击展开）"));
+          sum.appendChild(el("span", null, label));
+          sum.appendChild(el("span", "sub", "· 原始输出 " + flat.length + " 字，点击展开"));
           box.appendChild(sum);
           var pre = el("pre", "tool-raw");
           pre.textContent = raw;
@@ -4505,7 +4570,7 @@ window.PiCurve = { create: create };
           }
           var msg = el("div", "msg");
           if (kind === "tool") {
-            msg.appendChild(renderToolRow(m.text));
+            msg.appendChild(renderToolRow(m));
             return { id: m.id, kind: kind, node: msg, group: null, sig: rowSignature(m), message: m };
           }
           if (kind === "error") {
@@ -4562,7 +4627,7 @@ window.PiCurve = { create: create };
         function updateInPlace(row, m) {
           row.node.textContent = "";
           row.node.appendChild(row.kind === "tool"
-            ? renderToolRow(m.text)
+            ? renderToolRow(m)
             : (function () {
                 var e = el("div", "err-line");
                 e.appendChild(icon("i-warn"));
@@ -4883,6 +4948,9 @@ window.PiCurve = { create: create };
             done = invoke("summon.chat.sendAgent", {
               sessionId: agent.sessionId,
               text: text,
+              // 会话绑不绑得上项目，全靠这一个字段：新会话交给 session/create，
+              // 已有会话由插件用 session/moveProject 挪过去。
+              projectPath: pendingProjectPath || undefined,
               providerId: picking && slash > 0 ? models.selected.slice(0, slash) : undefined,
               modelId: picking && slash > 0 ? models.selected.slice(slash + 1) : undefined,
               thinkingLevel: picking && pendingThinking ? pendingThinking : undefined,
@@ -4897,7 +4965,7 @@ window.PiCurve = { create: create };
               if (res.created) toast("已新建会话 " + res.sessionId);
               loadSessions();
               startAgentPolling();
-              return refreshTranscript(true);
+              return refreshTranscript(true).then(function () { return refreshProject(); });
             });
           } else {
             // 状态行由 pollQuickTurn 负责更新（每 400ms 读插件的真实相位），
@@ -5300,6 +5368,8 @@ window.PiCurve = { create: create };
           var agentMode = isAgent();
           $("btnProject").hidden = !agentMode;
           $("btnPerm").hidden = !agentMode;
+          // 输入框左下角那枚「当前项目文件夹」也只在 Agent 模式出现。
+          renderProjectChip();
         }
         function roleMenuItems() {
           return state.roles.map(function (role) {
@@ -5419,11 +5489,17 @@ window.PiCurve = { create: create };
             renderChips();
             emptyState();
             $("versionState").textContent = res.version || "未知";
+            // 上次选的项目记在插件设置里，重启后接着用（左下角那枚 chip 会显示它）。
+            if (res.settings && typeof res.settings.projectPath === "string") {
+              pendingProjectPath = res.settings.projectPath;
+            }
             if (res.resumeSessionId) {
               agent.sessionId = res.resumeSessionId;
               showView("chat");
               refreshTranscript(true).then(startAgentPolling);
             }
+            // 项目 chip 要跟会话走：接续的会话绑在哪个项目，就显示哪个。
+            refreshProject();
             return Promise.all([loadSessions(), loadModels()]);
           }).catch(function (err) {
             clearMessages();
@@ -5562,26 +5638,82 @@ window.PiCurve = { create: create };
         });
 
         /**
-         * 项目文件夹。宿主目录里有 project/list、project/get、project/set、project/clear，
-         * 都是 write/read 级，不弹确认框。插件拿不到原生目录选择器，所以列已保存的项目
-         * 让用户选，而不是让人手打路径。
+         * 项目文件夹。
+         *
+         * ⚠️ 这里以前有个**真实的坑**：`project/set` 改的是**宿主当前活动项目**
+         * （也就是主窗口那一个），它并不会把这个悬浮窗的会话绑到那个项目上 ——
+         * 会话的工作目录是 `session` 自己的 `projectPath` 决定的。所以「选了项目
+         * 但没用」不是错觉，是少了一步：新建会话要把路径交给 `session/create`，
+         * 已有会话要用 `session/moveProject` 挪过去。
+         *
+         * 现在两条都做了（在 `sendAgent` 里），并且界面左下角一直显示当前项目的名字。
          */
+        var pendingProjectPath = "";
+
+        function projectLabel(path) {
+          if (!path) return "未选择项目";
+          var parts = String(path).split(/[\\/]/).filter(Boolean);
+          return parts.length ? parts[parts.length - 1] : String(path);
+        }
+
+        function renderProjectChip(path) {
+          var chip = $("projChip");
+          if (!chip) return;
+          if (typeof path === "string") pendingProjectPath = path;
+          var agentMode = isAgent();
+          chip.hidden = !agentMode;
+          if (!agentMode) return;
+          var shown = pendingProjectPath;
+          $("projName").textContent = projectLabel(shown);
+          chip.title = shown
+            ? "当前项目文件夹：" + shown + "\n（点一下可以换一个；新会话直接建在它下面，已有会话会挪过去）"
+            : "还没选项目文件夹 —— 点一下挑一个（不选就用主窗口当前的项目）";
+        }
+
+        /** 拉一次「这条会话实际绑的项目」，以宿主为准、本地选择为兜底。 */
+        function refreshProject() {
+          return invoke("summon.chat.currentProject", {
+            sessionId: agent.sessionId || "",
+            pendingPath: pendingProjectPath,
+          }).then(function (res) {
+            if (res && res.ok) renderProjectChip(res.path || "");
+          }).catch(function () { renderProjectChip(); });
+        }
+
         function setProject(path) {
+          // 先改宿主的活动项目（主窗口那边也跟着切，这是 project/set 的语义），
+          // 再交给 sendAgent 把**这条会话**绑过去。
           invoke("summon.chat.setProject", { path: path }).then(function (res) {
             if (!res || !res.ok) {
               toast("切换项目失败：" + ((res && (res.message || res.error)) || "未知错误"), "fail");
               return;
             }
-            toast(path ? "项目已切换" : "已清除项目");
+            renderProjectChip(path || "");
+            if (!path) { toast("已清除项目"); return; }
+            if (!agent.sessionId) {
+              // 还没有会话：路径会在建会话时交给 session/create。
+              toast("已选择项目：" + projectLabel(path) + "（下一条消息就在它下面建会话）");
+              return;
+            }
+            invoke("summon.chat.moveProject", { sessionId: agent.sessionId, path: path })
+              .then(function (moved) {
+                if (moved && moved.ok) {
+                  toast(moved.unchanged ? "当前会话已经在这个项目里" : "已把当前会话挪到：" + projectLabel(path));
+                } else {
+                  toast((moved && moved.message) || "会话没能挪过去，下一条消息仍用旧项目", "fail");
+                }
+                return refreshProject();
+              })
+              .catch(function () {});
           }).catch(function (err) {
             toast("切换项目失败：" + (err && err.message ? err.message : err), "fail");
           });
         }
 
-        $("btnProject").addEventListener("click", function () {
+        function openProjectMenu(anchor) {
           invoke("summon.chat.listProjects", {}).then(function (res) {
             var projects = (res && res.projects) || [];
-            var currentPath = (res && res.currentPath) || "";
+            var currentPath = pendingProjectPath || (res && res.currentPath) || "";
             var items = projects.map(function (p) {
               return {
                 label: p.name,
@@ -5599,11 +5731,14 @@ window.PiCurve = { create: create };
             if (currentPath) {
               items.push({ label: "清除当前项目", run: function () { setProject(""); } });
             }
-            showMenu($("btnProject"), [{ title: "项目文件夹", items: items }]);
+            showMenu(anchor, [{ title: "项目文件夹", items: items }]);
           }).catch(function (err) {
             toast("读取项目失败：" + (err && err.message ? err.message : err), "fail");
           });
-        });
+        }
+
+        $("btnProject").addEventListener("click", function () { openProjectMenu($("btnProject")); });
+        $("projChip").addEventListener("click", function () { openProjectMenu($("projChip")); });
 
         $("btnPerm").addEventListener("click", function () {
           var group = permissionMenuGroup();
@@ -5848,11 +5983,34 @@ window.PiCurve = { create: create };
         }
         function onHostAppearance(appearance) { adoptHostAppearance(appearance); }
 
+        /**
+         * 宿主在**一轮真正结束**时广播 `session:turnEnded`（`plugin-services.ts` 的
+         * announceTurnEnded），载荷是 `{ sessionId, turnId, reason }`。
+         *
+         * 为什么需要它：轮询只在「status === running」时才跟，而最后一轮助手消息
+         * 有可能在宿主把 status 翻成 idle **之后**才落盘 —— 那样最后一段输出就
+         * 永远不显示（用户看到的「正式输出被截断」有一半是这条竞态）。
+         * 收到这个事件就对当前会话补一次刷新，迟到的行也能收进来。
+         */
+        function onTurnEnded(payload) {
+          var id = payload && (payload.sessionId || payload.id);
+          if (!id || !agent.sessionId || id !== agent.sessionId) return;
+          setTimeout(function () {
+            refreshTranscript(false).then(function () {
+              setAgentPollingRate(false);
+              refreshProject();
+            });
+          }, 250);
+          setTimeout(function () { return refreshTranscript(false); }, 1500);
+        }
+
         document.addEventListener("visibilitychange", onVisibilityChange);
         window.addEventListener("pagehide", onPageHide);
         if (bridge && typeof bridge.on === "function") {
           // 宿主向所有打开的插件面板广播外观变化（主题 / 语言 / 字体缩放）。
           bridge.on("appearance:changed", onHostAppearance);
+          // 以及「这一轮结束了」——见 onTurnEnded 的说明。
+          bridge.on("session:turnEnded", onTurnEnded);
         } else {
           // 没有事件通道就退回到主动问一次，保证主题至少是对的。
           invoke("summon.chat.hostAppearance", {}).then(function (res) {

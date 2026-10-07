@@ -1423,6 +1423,111 @@ console.log("\n=== a 429 from search is surfaced, not hidden ===");
   check("用户仍拿到回答", res.text, "answered anyway");
 }
 
+console.log("\n=== 项目文件夹：新会话建在它下面，已有会话挪过去 ===");
+{
+  // 新会话：projectPath 必须进 session/create。
+  const created = makeHost({
+    settings: MODEL,
+    desktop: [
+      { id: "s-project" },
+      { ok: true },
+      { session: { id: "s-project", title: "T", status: "idle", messages: [] } },
+    ],
+  });
+  const modNew = load(created.host);
+  await modNew.onLoad();
+  const res = await modNew.onPanelInvoke("summon.chat.sendAgent", {
+    text: "你好",
+    projectPath: "D:\\Code\\demo",
+  });
+  check("发送成功", res.ok, true);
+  check("建会话时带上了 projectPath",
+    created.calls.desktopInvokes[0].args[0].projectPath, "D:\\Code\\demo");
+
+  // 已有会话：先查它现在绑在哪，不一致就 session/moveProject。
+  const moved = makeHost({
+    settings: MODEL,
+    desktop: [
+      { session: { id: "s1", title: "T", status: "idle", projectPath: "D:\\Code\\old", messages: [] } },
+      { ok: true },
+      { ok: true },
+      { session: { id: "s1", title: "T", status: "idle", projectPath: "D:\\Code\\new", messages: [] } },
+    ],
+  });
+  const modMove = load(moved.host);
+  await modMove.onLoad();
+  await modMove.onPanelInvoke("summon.chat.sendAgent", {
+    sessionId: "s1", text: "继续", projectPath: "D:\\Code\\new",
+  });
+  const ops = moved.calls.desktopInvokes.map((c) => c.operation);
+  check("查了会话当前项目", ops.indexOf("session/get") !== -1, true);
+  check("挪了项目", ops.indexOf("session/moveProject") !== -1, true);
+  const mv = moved.calls.desktopInvokes.find((c) => c.operation === "session/moveProject");
+  check("挪动参数是 {sessionId, projectPath}", mv.args[0],
+    { sessionId: "s1", projectPath: "D:\\Code\\new" });
+  check("仍然发了消息", ops.indexOf("agent/prompt") !== -1, true);
+
+  // 已经在目标项目里：不该无谓地挪。
+  const same = makeHost({
+    settings: MODEL,
+    desktop: [
+      { session: { id: "s1", title: "T", status: "idle", projectPath: "D:\\Code\\new", messages: [] } },
+      { ok: true },
+    ],
+  });
+  const modSame = load(same.host);
+  await modSame.onLoad();
+  await modSame.onPanelInvoke("summon.chat.sendAgent", {
+    sessionId: "s1", text: "继续", projectPath: "D:\\Code\\new",
+  });
+  check("已经在了就不挪",
+    same.calls.desktopInvokes.some((c) => c.operation === "session/moveProject"), false);
+
+  // 挪不动（会在跑）也不能拦住这条消息。
+  const busy = makeHost({
+    settings: MODEL,
+    desktop: [
+      { session: { id: "s1", title: "T", status: "running", projectPath: null, messages: [] } },
+      new Error("session is running"),
+      { ok: true },
+    ],
+  });
+  const modBusy = load(busy.host);
+  await modBusy.onLoad();
+  const busyRes = await modBusy.onPanelInvoke("summon.chat.sendAgent", {
+    sessionId: "s1", text: "继续", projectPath: "D:\\Code\\new",
+  });
+  check("挪不动也照样发消息", busyRes.ok, true,
+    JSON.stringify(busy.calls.desktopInvokes.map((c) => c.operation)));
+}
+
+console.log("\n=== 界面要能看到「当前项目文件夹」 ===");
+{
+  const { host } = makeHost({
+    settings: MODEL,
+    desktop: [
+      { session: { id: "s1", title: "T", status: "idle", projectPath: "D:\\Code\\summon-4-pi", messages: [] } },
+      { projects: [{ name: "summon-4-pi", path: "D:\\Code\\summon-4-pi" }], path: "D:\\Code\\summon-4-pi" },
+    ],
+  });
+  const mod = load(host);
+  await mod.onLoad();
+  // 会话自己绑的项目优先 —— 它是决定 cwd 的那一个。
+  const live = await mod.onPanelInvoke("summon.chat.currentProject", { sessionId: "s1" });
+  check("读到了会话绑的项目", live.path, "D:\\Code\\summon-4-pi");
+  check("来源标成 session", live.source, "session");
+
+  // 还没有会话时退回用户选的那个。
+  const pending = await mod.onPanelInvoke("summon.chat.currentProject", {
+    sessionId: "", pendingPath: "D:\\Code\\other",
+  });
+  check("没有会话时用待选路径", pending.path, "D:\\Code\\other");
+  check("来源标成 pending", pending.source, "pending");
+
+  const listed = await mod.onPanelInvoke("summon.chat.listProjects", {});
+  check("项目列表照常", listed.projects[0].path, "D:\\Code\\summon-4-pi");
+}
+
 // ===================================== app-default mirroring + thinking (P5)
 console.log("\n=== the main window's model + thinking display are mirrored ===");
 {
