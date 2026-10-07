@@ -5110,9 +5110,18 @@ window.PiCurve = { create: create };
           return isImage && !isAgent();
         }
 
-        /** 落地目录用的是用户选的项目；没选就让插件用它的工作目录。 */
+        /**
+         * 附件落地在**会话绑定的项目**里，根目录由插件解析（`resolveUploadRoot`）。
+         * 页面只把会话 id 带上去 —— 早期版本让页面给一个 `rootHint`，插件在拿不到时
+         * 退回 `process.cwd()`（= 应用目录），于是文件落在工作区外，
+         * 宿主发消息时报 `PATH_OUTSIDE_WORKSPACE`。
+         */
         function uploadRootHint() {
-          return pendingProjectPath || "";
+          return ""; // 不再使用：根目录一律由插件从会话解析
+        }
+
+        function uploadPayload(extra) {
+          return Object.assign({ sessionId: agent.sessionId || "" }, extra);
         }
 
         function humanSize(n) {
@@ -5176,7 +5185,7 @@ window.PiCurve = { create: create };
               displayName: file.name,
               bytes: (range && range.bytes) || new Uint8Array(0),
               isImage: isImage,
-              rootHint: uploadRootHint(),
+              sessionId: agent.sessionId || "",
             });
           }).then(function (res) {
             if (!res || !res.ok) throw new Error((res && (res.message || res.error)) || "写入失败");
@@ -5203,7 +5212,7 @@ window.PiCurve = { create: create };
               displayName: name,
               bytes: buf,
               isImage: isImage,
-              rootHint: uploadRootHint(),
+              sessionId: agent.sessionId || "",
             }).then(function (res) {
               if (!res || !res.ok) throw new Error((res && (res.message || res.error)) || "写入失败");
               attachStaged(res.path, name, res.bytes, isImage, "来自剪贴板");

@@ -239,22 +239,40 @@ function imageMimeFor(path) {
 /**
  * 附件落地目录（工作区内）：粘贴/拖入的文件先存到这里。
  *
- * 为什么必须落盘：
- *   1. **图片进不了模型。** 宿主 `agent.complete` 的入参是纯文本
- *      （`messages: {role, content: string}[]`，没有图片字段），插件也没有任何
- *      「往消息里放附件」的通道（`composer.attachments.add` 只作用于主窗口的
- *      composer，悬浮窗是独立窗口够不着）。所以走宿主本来就支持的那条路：
- *      把文件放进**工作区**，把**路径**写进消息（`@路径`），让 Agent 用它自带的
- *      read 工具去读 —— 多模态识别由 Agent 那边的模型完成，插件只负责把文件放对地方。
- *   2. 粘贴进来的图片（截图）**没有文件路径**，只能由页面把字节交给进程写下来。
- *      而插件的 pi.fs.* 只有 `writeText`（UTF-8），写不了图片字节；能用的是
- *      **插件进程里的 node:fs** —— 宿主自己的安全说明写明插件 main 跑在
- *      utilityProcess 里、带原生 Node 能力（`pi.*` 网关并不约束它），
- *      宿主自带的 pi.file-manager 也是这么干的。
+ * ⚠️ **根目录必须由宿主告诉我们，绝不能用 `process.cwd()`。**
+ * 插件的 cwd 是应用自己的目录（本机实测是 `D:\Tools\Pi-Desktop`），所以第一版那个
+ * `rootHint || process.cwd()` 兜底会把文件写到 `D:\Tools\Pi-Desktop\.summon\uploads\`，
+ * 然后宿主在发消息时报
+ * `PATH_OUTSIDE_WORKSPACE: Attachment path is outside the session roots`
+ * —— `preparePromptAttachments()` 只认**会话的** project / scratch 根。
+ * 用户看到的就是「明明贴进来了，发出去却说路径越界」。
  *
- * ⚠️ 因此这里的边界由我们自己守：只写 `.summon/uploads/`、文件名只保留扩展名，
- * 其它信息一概不用 —— 页面的输入永远拼不出这个目录之外的路径。
+ * 所以先问会话绑的项目（`session.get` 的 `projectPath`），再退到宿主的活动项目
+ * （`project/get`）。两个都拿不到就**不写**：写出去也是错的。
  */
+async function resolveUploadRoot(sessionId) {
+  const id = String(sessionId || "").trim();
+  if (id) {
+    const got = await desktopInvoke("session/get", [{ id: id, messageLimit: 1 }]);
+    if (got.ok) {
+      const t = normalizeTranscript(got.value);
+      const path = t.session && t.session.projectPath;
+      if (path) return { ok: true, root: path, source: "session" };
+    }
+  }
+  const active = await desktopInvoke("project/get", []);
+  if (active.ok) {
+    const path = readProjectPath(active.value);
+    if (path) return { ok: true, root: path, source: "active" };
+  }
+  return {
+    ok: false,
+    error: "NO_WORKSPACE",
+    message: "拿不到工作目录：这条会话没有绑定项目，宿主也没有活动项目。" +
+      "先在悬浮窗左下角选一个项目文件夹（或在主窗口打开一个项目），再发附件。",
+  };
+}
+
 const UPLOAD_DIR_PARTS = [".summon", "uploads"];
 const UPLOAD_MAX_BYTES = 24 * 1024 * 1024;
 
@@ -266,9 +284,8 @@ function uploadExt(name) {
 /**
  * 把页面上传的字节写进工作区的 `.summon/uploads/`。
  *
- * `rootHint` 是用户在悬浮窗选的项目目录（可能为空 → 用进程 cwd）。
- * 返回**相对工作区的路径**（`@.summon/uploads/…`），这样 Agent 的 read 工具
- * 直接就能读到，不依赖绝对路径。
+ * `root` 是 `resolveUploadRoot()` 解析出来的**会话工作区**，由插件填，页面给不了。
+ * 返回**相对工作区的路径**（`@.summon/uploads/…`），宿主按会话根解析它就能对上。
  */
 function stageUpload(input) {
   const payload = input && typeof input === "object" ? input : {};
@@ -295,7 +312,14 @@ function stageUpload(input) {
     return { ok: false, error: "UNSUPPORTED", message: "进程里没有 node:fs" };
   }
 
-  const root = String(payload.rootHint || "").trim() || process.cwd();
+  const root = String(payload.root || "").trim();
+  if (!root) {
+    return {
+      ok: false,
+      error: "NO_WORKSPACE",
+      message: "没有可写的根目录（必须先解析出会话的工作区）",
+    };
+  }
   // 文件名只保留我们自己生成的那部分，扩展名之外一个字符都不用页面的输入。
   const stamp = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const ext = uploadExt(name) || (payload.isImage ? ".png" : ".txt");
@@ -328,7 +352,8 @@ function stageUpload(input) {
   };
 }
 
-async function readTextFile(path) {  const api = host();
+async function readTextFile(path) {
+  const api = host();
   const target = String(path || "").trim();
   if (!target) return { ok: false, error: "INVALID_ARGUMENT", message: "缺少 path" };
   if (!hasFn(api && api.fs, "readText")) {
@@ -2959,10 +2984,16 @@ async function onPanelInvoke(channel, payload) {
      *
      * 页面把**字节**交过来（拖入的先用 `fs.registerDropped` 拿一次性读权限再
      * `fs.readRange`；粘贴的图片直接从 paste 事件的 File 读），这里用进程里的
-     * node:fs 写进 `.summon/uploads/`，回一个相对路径给界面和 Agent。
+     * node:fs 写进会话工作区的 `.summon/uploads/`，回一个相对路径。
+     *
+     * **根目录由插件自己解析**（`resolveUploadRoot`），页面说了不算 ——
+     * 页面只知道自己选的项目，而附件要落在**会话绑定的**项目里才过得了宿主的路径检查。
      */
-    case "summon.chat.stageUpload":
-      return stageUpload(payload);
+    case "summon.chat.stageUpload": {
+      const root = await resolveUploadRoot(payload && payload.sessionId);
+      if (!root.ok) return root;
+      return stageUpload(Object.assign({}, payload, { root: root.root }));
+    }
 
     /** 悬浮窗要显示 / 绑定「当前项目文件夹」时问这两个通道。 */
     case "summon.chat.currentProject":      return await currentProject(

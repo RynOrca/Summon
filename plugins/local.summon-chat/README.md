@@ -345,6 +345,22 @@ Agent 模式下由 Agent 自己的 `read` 工具读（多模态识别由 Agent �
 | 粘贴文件 / 截图 | `paste` 事件的 `File` 直接读字节（**没有路径**，只能这样） |
 | 落地 | 交给插件进程写进工作区 `.summon/uploads/` |
 
+### ⚠️ 落地根目录必须由插件从**会话**解析
+
+第一版让页面给一个「当前项目」提示，插件拿不到时退回 `process.cwd()` —— 而插件的 cwd 是
+**应用自己的目录**（本机实测 `D:\Tools\Pi-Desktop`）。于是文件写到
+`D:\Tools\Pi-Desktop\.summon\uploads\`，用户贴完图一发消息，宿主就报：
+
+```
+Attachment path is outside the session roots: .summon/uploads/upload-xxx.png
+(PATH_OUTSIDE_WORKSPACE)
+```
+
+因为 `preparePromptAttachments()` 只认**会话的** project / scratch 根。现在根目录一律由插件
+自己解析：先 `session.get` 的 `projectPath`，再退到 `project/get` 的活动项目；
+**两个都拿不到就不写**，并明确告诉用户去选项目（`NO_WORKSPACE`）——
+宁可拒绝，也不要写到一个「发不出去」的地方。
+
 ⚠️ **写字节用的是插件进程里的 `node:fs`，不是 `pi.fs`。** 宿主给插件的写接口只有
 `fs.writeText`（写死 UTF-8，写不了图片）。宿主自己的安全说明写明：插件 main 跑在
 `utilityProcess` 里、带原生 Node 能力，`pi.*` 网关并不约束它（宿主自带的 pi.file-manager

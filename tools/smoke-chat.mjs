@@ -1609,45 +1609,82 @@ console.log("\n=== read_image：确认存在，但绝不编造画面 ===");
   check("要求它不要编造画面", told.indexOf("不要编造画面内容") !== -1, true);
 }
 
-console.log("\n=== 附件落盘：写进工作区、文件名只保留扩展名 ===");
+console.log("\n=== 附件落盘：根目录由插件从会话解析（不再用进程 cwd） ===");
 {
-  const { host } = makeHost({ settings: MODEL });
-  const mod = load(host);
-  await mod.onLoad();
-  // 用一个临时目录当工作区，免得往真仓库里写东西。
   const os = require("node:os");
   const nodeFs = require("node:fs");
   const nodePath = require("node:path");
+  // 用一个临时目录当会话项目，免得往真仓库里写东西。
   const root = nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), "summon-smoke-"));
 
+  // ⚠️ 这条是回归：曾经 `rootHint || process.cwd()` 会把文件写到应用自己的目录里
+  // （本机实测 D:\Tools\Pi-Desktop），宿主随后报 PATH_OUTSIDE_WORKSPACE。
+  // 现在根目录来自会话的 projectPath，插件的 cwd 完全不参与。
+  const { host, calls } = makeHost({
+    settings: MODEL,
+    desktop: [
+      { session: { id: "s-up", title: "T", status: "idle", projectPath: root, messages: [] } },
+      // 每次 stageUpload 都会问一次会话；多给几条，免得后续调用被「没有脚本响应」打断。
+      { session: { id: "s-up", title: "T", status: "idle", projectPath: root, messages: [] } },
+      { session: { id: "s-up", title: "T", status: "idle", projectPath: root, messages: [] } },
+      { session: { id: "s-up", title: "T", status: "idle", projectPath: root, messages: [] } },
+    ],
+  });
+  const mod = load(host);
+  await mod.onLoad();
   const res = await mod.onPanelInvoke("summon.chat.stageUpload", {
+    sessionId: "s-up",
     name: "截图 2026-10-07 123456.png",
     bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
     isImage: true,
-    rootHint: root,
   });
   check("写入成功", res.ok, true);
+  check("问过会话绑的项目", calls.desktopInvokes[0].operation, "session/get");
+  // fullPath = <root>\.summon\uploads\<name> → 往上三级才是会话项目。
+  check("落在会话项目里，不是进程 cwd",
+    nodePath.resolve(res.fullPath, "..", "..", ".."), nodePath.resolve(root));
   check("返回的是工作区相对路径", res.path, ".summon/uploads/" + res.path.split("/").pop());
   check("路径以 .summon/uploads 开头", res.path.indexOf(".summon/uploads/") === 0, true);
   // 名字里的空格与中文都不能进路径：只留扩展名，其余自己生成。
   check("文件名是生成的，不含原名", res.path.indexOf("截图") === -1, true);
   check("保留了扩展名", /\.png$/.test(res.path), true);
-  const written = nodeFs.readFileSync(res.fullPath);
-  check("字节原样落盘", Array.from(written), [0x89, 0x50, 0x4e, 0x47]);
+  check("字节原样落盘", Array.from(nodeFs.readFileSync(res.fullPath)), [0x89, 0x50, 0x4e, 0x47]);
 
   const traversal = await mod.onPanelInvoke("summon.chat.stageUpload", {
-    name: "../../evil.sh", text: "x", rootHint: root,
+    sessionId: "s-up", name: "../../evil.sh", text: "x",
   });
   check("路径穿越写不出去", String(traversal.path).indexOf("..") === -1, true);
   check("仍然落在 uploads 目录里", String(traversal.path).indexOf(".summon/uploads/") === 0, true);
 
   const tooBig = await mod.onPanelInvoke("summon.chat.stageUpload", {
-    name: "big.bin", bytes: new Uint8Array(25 * 1024 * 1024), rootHint: root,
+    sessionId: "s-up", name: "big.bin", bytes: new Uint8Array(25 * 1024 * 1024),
   });
   check("超过上限就拒绝", tooBig.ok, false);
   check("错误码是 TOO_LARGE", tooBig.error, "TOO_LARGE");
 
+  // 页面说了不算：`root` 只能由插件解析出来。
+  const spoofed = await mod.onPanelInvoke("summon.chat.stageUpload", {
+    sessionId: "s-up", name: "x.txt", text: "x", root: "D:\\somewhere-else",
+  });
+  check("页面伪造的 root 被忽略",
+    nodePath.resolve(spoofed.fullPath, "..", "..", ".."), nodePath.resolve(root));
+
   nodeFs.rmSync(root, { recursive: true, force: true });
+}
+
+console.log("\n=== 拿不到工作区时就不写，并说清怎么办 ===");
+{
+  // 会话没绑项目、宿主也没有活动项目 → 必须明确拒绝，而不是退回 cwd 写到一个
+  // 工作区外的地方（那正是上一版的 bug）。
+  const { host } = makeHost({ settings: MODEL, desktop: [{ session: { id: "s1", title: "T", status: "idle", messages: [] } }] });
+  const mod = load(host);
+  await mod.onLoad();
+  const res = await mod.onPanelInvoke("summon.chat.stageUpload", {
+    sessionId: "s1", name: "x.txt", text: "x",
+  });
+  check("拒绝写入", res.ok, false);
+  check("错误码是 NO_WORKSPACE", res.error, "NO_WORKSPACE");
+  ok("说明里指了怎么办", /选一个项目文件夹/.test(String(res.message)));
 }
 
 console.log("\n=== 项目文件夹：新会话建在它下面，已有会话挪过去 ===");
