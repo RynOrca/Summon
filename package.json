@@ -20,7 +20,9 @@
     "renderer:check": "node tools/build-renderer.mjs --check",
     "check": "node tools/check-plugin.mjs plugins/local.summon-chat",
     "pack": "node tools/pack-plugin.mjs plugins/local.summon-chat",
-    "verify": "npm run test && npm run test:vendor && npm run lint && npm run renderer:check && npm run design && npm run check"
+    "verify": "npm run test && npm run test:vendor && npm run lint && npm run renderer:check && npm run design && npm run check",
+    "verify:package": "node tools/verify-package.mjs dist/local.summon-chat-0.26.1.piplug",
+    "verify:release": "npm run pack && npm run verify:package"
   },
   "comment": "No \"type\": \"module\" on purpose — the plugin's main.js is CommonJS, and a root-level type:module would make Node treat it as ESM. tools/*.mjs are ESM via their extension.",
   "devDependencies": {}
