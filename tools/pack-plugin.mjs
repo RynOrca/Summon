@@ -28,7 +28,7 @@ const outValue = outIndex !== -1 ? args[outIndex + 1] : null;
 const positional = args.filter(
   (arg, i) => !arg.startsWith("--") && (outIndex === -1 || i !== outIndex + 1),
 );
-const pluginArg = positional[0] || "plugins/local.summon-widget";
+const pluginArg = positional[0] || "plugins/local.summon-chat";
 const pluginDir = path.resolve(repoRoot, pluginArg);
 
 // Default the artifact outside the plugin dir, so the plugin folder stays clean

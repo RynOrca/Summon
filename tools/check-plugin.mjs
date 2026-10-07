@@ -20,7 +20,7 @@ import path from "node:path";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.join(here, "..");
-const pluginArg = process.argv[2] || "plugins/local.summon-widget";
+const pluginArg = process.argv[2] || "plugins/local.summon-chat";
 const pluginDir = path.resolve(repoRoot, pluginArg);
 
 const piSrc = process.env.PI_DESKTOP_SRC || "D:/Code/Working-on-it/PI-Desktop-src";

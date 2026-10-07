@@ -142,7 +142,7 @@ async close(pluginId) { win.close(); await pageGoneWithin(page); }
 | **没有插件可扩展的聊天渲染器** | GenUI README 原文；bridge 通道表里没有任何 message/session 通道 | transcript 必须**自己渲染**，不会和主窗口一模一样 |
 | **没有「插件 → 面板」推送** | `api-findings.md` Q3；宿主的推送事件是固定且宿主发起的（`view:open` 等） | 只能**轮询** `session/get` |
 | **没有流式增量（回答文本）** | 见下面 §3.1 | 逐字显示只能是**表现层效果**；过程（工具行）是真的边跑边出现 |
-| **没有窗口 primitive** | ADR 0081/0092/0093 反复写明 `pluginBridge` "does not gain window primitives" | 窗口**形状/尺寸只能写死在 manifest**，运行时改不了；圆球与对话窗只能是**两个插件**。同一处还决定了：**只有 widget 能置顶**，而 widget 的 `show()` 不给键盘焦点——所以「置顶」与「呼出即可打字」二选一 |
+| **没有窗口 primitive** | ADR 0081/0092/0093 反复写明 `pluginBridge` "does not gain window primitives" | 窗口**形状/尺寸只能写死在 manifest**，运行时改不了。同一处还决定了：**只有 widget 能置顶**，而 widget 的 `show()` 不给键盘焦点——所以「置顶」与「呼出即可打字」二选一，本项目选了后者（panel） |
 | **插件不提供设置页 HTML** | `02-plugin-manifest-schema.md:16`：「Plugins provide neither Settings HTML nor CSS or JavaScript」 | 角色编辑器只能做在**插件自己的窗口里**；宿主设置页里只能放 `json` 文本框兜底 |
 | `agent.complete` 是 `tools: []` | `03-plugin-api.md:588` | 快捷对话**没有函数调用**，联网搜索必须靠**手动工具循环** |
 
@@ -302,7 +302,6 @@ pi.desktop.invoke        pi.agent.complete  (+ 手动工具循环)
 
 | 阶段 | 内容 | 状态 |
 |---|---|---|
-| **P0** | 圆球插件：悬浮窗形态 + 系统级快捷键 + check/pack 全绿 | ✅ 完成 |
 | **P1** | 快捷键改用宿主录制器（`type: "shortcut"`）+ 去抖 | ✅ 完成 |
 | **P2** | 对话浮窗骨架：`local.summon-chat`，顶栏角色选择器，设置项与角色存储 | ✅ 完成（形态在 P8 由 widget 改为 panel） |
 | **P3** | 快捷对话：`agent.complete` 多轮 + 手动工具循环 + 联网搜索 + 模型选择 | ✅ 完成 |
@@ -313,7 +312,7 @@ pi.desktop.invoke        pi.agent.complete  (+ 手动工具循环)
 | **P8** | 与主软件统一 + 快捷键手感（用户反馈驱动） | ✅ 完成：panel 形态（呼出即聚焦）、可见性由页面如实上报、快捷键只注册一次、录制器改用宿主语法、配色换主软件 Token、默认跟随主软件主题 |
 | **P9** | 反馈驱动的一轮：底部雾化过渡带接缝、处理过程时间线（工具 / 搜索关键词 / 来源网址 / 用时 / 用量）、增量渲染 + 逐字揭示、曲线加载动效与图标形变 | ✅ 完成：见 `plugins/local.summon-chat/README.md` 的「处理过程」与「关于「流式」」两节；限制与证据见本文 §3.1/§3.2 |
 
-每个阶段都跑：`node tools/smoke-test.mjs`（假宿主跑真实 main.js）+ `node tools/check-plugin.mjs`（真实 devkit）。
+每个阶段都跑：`node tools/smoke-chat.mjs`（假宿主跑真实 main.js）+ `node tools/check-plugin.mjs`（真实 devkit）。
 
 ---
 
@@ -324,7 +323,7 @@ pi.desktop.invoke        pi.agent.complete  (+ 手动工具循环)
 | **搜索提供方** | **两者都要**：默认走内置 DuckDuckGo（零配置、免 Key）兜底；同时提供自定义端点 + API Key 设置项，填了就用用户的。因此权限里带 `net.anyHost` |
 | **Agent 模式默认会话** | **每次呼出新开一个会话**（`session/create` → `agent/prompt`），不污染正在干活的会话；要接续历史就在悬浮窗里从会话列表选 |
 | **角色编辑器位置** | **单独的工作面板视图**（`contributes.views` + `ui.view`），编辑体验更好 |
-| **快捷键** | 用宿主的 `shortcut` 录制控件（但**不指望它执行命令**，它只是设置项）；圆球 `Alt+Shift+S`、对话窗 `Alt+Shift+C`，刻意错开以便同时安装；实际注册由插件进程独自完成 |
+| **快捷键** | 用宿主的 `shortcut` 录制控件（但**不指望它执行命令**，它只是设置项）；默认 `Alt+Shift+C`（回落链 `Alt+Shift+Q` / `Alt+Shift+J` / `F3`，被占用时自动退让）；实际注册由插件进程独自完成 |
 | **内置角色** | `agent`（模式锁定 agent）与 `quick`（模式锁定 quick，自带 `web_search`）；不可删，但可改名字/提示词/工具/skills |
 | **窗口形态** | `shape: "panel"`。宿主源码 `resizable: request.resizable ?? !widget` 与 `alwaysOnTop: widget && …` 决定了**置顶与「呼出即可打字」互斥**；快捷键呼出的东西必须第一下就能输入，故选 panel（可缩放、呼出即得焦点），放弃置顶 |
 | **可见性判定** | 不再用心跳时长推断。插件进程自己维护 `panelOpen`（open/close 两处赋值），页面 `visibilitychange` 上报 `summon.chat.visibility`、`pagehide` 上报 `summon.chat.closed`。判定：没开→开；开着但不可见→显示并聚焦；开着且可见→关 |

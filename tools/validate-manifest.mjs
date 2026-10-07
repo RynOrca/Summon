@@ -17,7 +17,7 @@ import path from "node:path";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.join(here, "..");
-const pluginArg = process.argv[3] || "plugins/local.summon-widget";
+const pluginArg = process.argv[3] || "plugins/local.summon-chat";
 const manifestPath = path.resolve(repoRoot, pluginArg, "manifest.json");
 
 const sdkPath =

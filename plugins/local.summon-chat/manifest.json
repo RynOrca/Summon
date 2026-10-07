@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
   "id": "local.summon-chat",
-  "name": "Summon Chat",
+  "name": "对话悬浮窗 Summon",
   "version": "0.25.2",
-  "description": "A floating chat window summoned by a global hotkey: talk to a real PI-Desktop session (Agent mode) or to a quick chat with web search. Custom preset roles.",
+  "description": "A floating chat window summoned by a global hotkey: talk to a real PI-Desktop session (Agent mode, files and images attached) or to a quick chat with local read tools and web search. Custom preset roles.",
   "i18n": {
     "en": {
       "name": "Summon Chat",
-      "description": "A floating chat window summoned by a global hotkey: talk to a real PI-Desktop session (Agent mode) or to a quick chat with web search. Custom preset roles."
+      "description": "A floating chat window summoned by a global hotkey: talk to a real PI-Desktop session (Agent mode, files and images attached) or to a quick chat with local read tools and web search. Custom preset roles."
     },
     "zh-CN": {
-      "name": "悬浮对话窗",
-      "description": "用系统级快捷键呼出的对话悬浮窗：可以接宿主真实会话（Agent 模式），也可以快捷对话并联网搜索。支持自定义预设角色。"
+      "name": "对话悬浮窗 Summon",
+      "description": "用系统级快捷键呼出的对话悬浮窗：可以接宿主真实会话（Agent 模式，支持附件与图片），也可以快捷对话并读本地文件、联网搜索。支持自定义预设角色。"
     }
   },
-  "author": "local",
+  "author": "RynOrca",
   "main": "main.js",
   "ui": {
     "panel": "renderer/index.html",
@@ -23,7 +23,7 @@
     "height": 660,
     "title": {
       "en": "Summon Chat",
-      "zh-CN": "鲸唤 Summon"
+      "zh-CN": "对话悬浮窗 Summon"
     }
   },
   "contributes": {

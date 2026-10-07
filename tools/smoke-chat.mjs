@@ -264,8 +264,10 @@ console.log("=== exports + registration ===");
   ]);
   check("uses accelerator field", calls.registerInputs[0].accelerator, EXPECT_ACCEL);
   check("targets the toggle command", calls.registerInputs[0].command, calls.registerInputs[0].command);
-  // Must not collide with the orb plugin's default.
-  ok("default differs from the orb plugin", calls.registerInputs[0].accelerator !== "Alt+Shift+S");
+  // 默认键要么是主键、要么是回落链里的一环，不能是一个凭空的值。
+  ok("默认键在回落链里",
+    calls.registerInputs[0].accelerator === "Alt+Shift+C" ||
+    ["Alt+Shift+C", "Alt+Shift+Q", "Alt+Shift+J", "F3"].includes(calls.registerInputs[0].accelerator));
 }
 
 console.log("\n=== a fresh install still has both built-in roles ===");

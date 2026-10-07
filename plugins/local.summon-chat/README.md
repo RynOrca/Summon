@@ -834,7 +834,6 @@ transparent: widget,                                 // 只有 widget 透明
 | 透明 | ❌ | ✅ |
 
 本插件选 **panel**：快捷键呼出的东西必须第一下就能打字。
-（圆球 `local.summon-widget` 仍是 widget —— 它本来就不需要键盘输入。）
 
 ### 窗口大小只能改 manifest，设置页里改不了
 
@@ -901,7 +900,7 @@ Agent 模式不受影响：`agent/prompt` 本来就只回「已受理」，真�
 ## 本地校验
 
 ```bash
-npm test               # 假宿主跑真实 main.js（圆球 + 对话窗，含 transcript 富字段与实时时间线）
+npm test               # 假宿主跑真实 main.js（含 transcript 富字段与实时时间线）
 npm run test:vendor    # 第三方动效在假 DOM 上真的跑一遍（形变插值 / 曲线加载器）
 npm run lint           # 界面内联脚本语法 + 叠加层 hidden 检查
 npm run design         # 移植保真：Token 名齐全、无自造 Token（几何变量白名单）、暗色 = 主软件灰阶、拖拽带只占位一次、sprite、通道、离线、拖动根元素
@@ -963,7 +962,3 @@ node tools/inspect-panel-layout.mjs <preview.html> [shot.png]
 7. **快捷对话的「停止」是软停止**：`agent.complete` 的入参里没有 `AbortSignal`，
    那一次模型调用停不下来。界面只放弃这一轮（结果丢弃、不记历史），并**如实这么写**。
    Agent 模式是真的 `agent/abort`。
-8. **圆球插件（`local.summon-widget`）没跟着改**：它仍然是 widget 形态、仍然用
-   心跳时长推断可见性、manifest 里也仍然声明了 `default`（会和插件进程的注册撞成两个键）。
-   它需要的是圆球而不是输入框，所以形态那条要单独判断；后两条是同一个缺陷，
-   要改的话照 `main.js` 里 `panelOpen` 那段和 manifest 的 `globalShortcuts` 抄即可。
