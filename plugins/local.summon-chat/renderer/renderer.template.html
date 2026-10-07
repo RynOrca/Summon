@@ -3046,13 +3046,9 @@ __ICONS__
         /**
          * 附件以 `@路径` 跟在正文后面。
          *
-         * 图片还要**额外点名让 Agent 调用 show_image**：只给路径的话，模型拿到的是一段
-         * 文字（宿主的 Read 工具把图片按二进制回报），它看不到像素 —— 用户实测过，
-         * 模型会如实说「我拿到的只是文件路径」。
-         *
-         * `show_image` 是插件注册的工具：宿主把它交给真实 agent 会话（`pluginTools`），
-         * 而工具结果里的 image 块会被还原成真正的内容块（`runtime.ts:1561-1575`）。
-         * 所以模型调它一次，就真的看见了这张图 —— 和主窗口里贴图走的是同一个机制。
+         * ⚠️ 这里曾经额外要求模型「先调用 show_image 工具」—— 那是个**错误的方向**，
+         * 用户实测：弱模型在工具名上打转、陷入死循环。图片本来就不该走工具，
+         * 它该走**附件**（见 `agent.attachments`）：真正给模型看图的那个动作由宿主完成。
          */
         function appendAttachmentMentions(text, list) {
           if (!list.length) return text;
@@ -3060,17 +3056,15 @@ __ICONS__
             var p = String(a.path || "").replace(/\\/g, "/");
             return /\s/.test(p) ? '@"' + p + '"' : "@" + p;
           });
-          var images = list.filter(function (a) { return a.isImage; });
-          var lines = ["（附件：" + refs.join(" ") + "）"];
-          if (images.length) {
-            lines.push(
-              "（图片不是文字，**先调用 show_image 工具把图显示出来**，" +
-              "再回答与图片有关的问题：" +
-              images.map(function (a) { return 'show_image(path: "' + String(a.path || "").replace(/\\/g, "/") + '")'; }).join("、") +
-              "）",
-            );
-          }
-          return text.replace(/\s+$/, "") + "\n\n" + lines.join("\n");
+          return text.replace(/\s+$/, "") + "\n\n（附件：" + refs.join(" ") + "）";
+        }
+
+        /** 当前模型收不收图。收不到时界面要**直说**，而不是发出去才发现读不到。 */
+        function modelSupportsVision() {
+          var m = currentModel();
+          // 宿主没报这一项时按 true 处理：宁可让宿主去决定，也不要凭一个缺失的
+          // 字段拦住用户（宿主在 `preparePromptAttachments` 里会按真实能力处理）。
+          return m && m.supportsImages === false ? false : true;
         }
 
         /** 输入框上的粘贴 / 拖放。纯文本粘贴走浏览器默认行为，只有「带文件」才拦。 */
@@ -3144,15 +3138,44 @@ __ICONS__
             : "问点什么…";
         }
 
+        /**
+         * 交给 `agent/prompt` 的附件数组。
+         *
+         * 这是**主窗口贴图走的同一条路**：`AgentPromptAttachment = {path,name,kind,mimeType?,size?}`，
+         * 宿主在 `preparePromptAttachments()` 里把图片读成 base64 内联进这一轮
+         * （`supportsVision && size <= MAX_INLINE_IMAGE_BYTES`），模型因此**真的看到像素**
+         * （`prompt-attachments.ts:259-288`）。路径会先用 `resolvePromptPath()` 对着
+         * 会话的 project / scratch 根解析，`.summon/uploads/…` 就在工作区里，能过。
+         *
+         * 收不到图时（模型不支持视觉 / 文件过大）宿主会退回**文件引用**（`fallbackPath`），
+         * 所以那时模型看到的是路径 —— 界面因此提前提示，而不是发出去才发现。
+         */
+        function pendingAttachments() {
+          return attachments.filter(function (a) { return a.path; }).map(function (a) {
+            return {
+              path: a.path,
+              name: a.name || "attachment",
+              kind: a.isImage ? "image" : "file",
+              mimeType: a.mimeType || (a.isImage ? "image/png" : "text/plain"),
+              ...(a.size ? { size: a.size } : {}),
+            };
+          });
+        }
+
         function send(text) {
           if (!text.trim()) return;
           // Agent 模式允许忙时再发一条（引导），快捷对话一轮只能跑一个。
           if (busy && !isAgent()) return;
           var role = currentRole();
-          // 附件以 `@路径` 的形式跟在正文后面 —— 宿主 composer 用的就是这个语法，
-          // Agent 模式下的 read 工具认得它；快捷对话则由 read_file 工具去读。
+          // 附件跟着正文走：正文里带 `@路径`（人看得懂、也方便模型引用），
+          // **图片另外作为真附件交给宿主** —— 那才是模型真的看到图的那条路。
           var attached = attachments.filter(function (a) { return a.path; });
           var outgoing = appendAttachmentMentions(text, attached);
+          var withAgent = role.mode === "agent" ? pendingAttachments() : [];
+          // 模型收不到图时（宿主会退化成文件引用）**先说清楚**，别让用户发完才发现。
+          if (withAgent.some(function (a) { return a.kind === "image"; }) && !modelSupportsVision()) {
+            toast("当前模型不支持图片输入：图片会作为文件路径交给它，它看不到画面内容", "fail");
+          }
           showView("chat");
           $("chatInput").value = "";
           clearAttachments();
@@ -3176,6 +3199,8 @@ __ICONS__
             done = invoke("summon.chat.sendAgent", {
               sessionId: agent.sessionId,
               text: outgoing,
+              // 图片/文件作为**真附件**交上去：宿主会把它内联给支持视觉的模型。
+              attachments: withAgent.length ? withAgent : undefined,
               // 会话绑不绑得上项目，全靠这一个字段：新会话交给 session/create，
               // 已有会话由插件用 session/moveProject 挪过去。
               projectPath: pendingProjectPath || undefined,

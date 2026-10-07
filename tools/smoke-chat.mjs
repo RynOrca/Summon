@@ -1464,35 +1464,58 @@ console.log("\n=== a 429 from search is surfaced, not hidden ===");
   check("用户仍拿到回答", res.text, "answered anyway");
 }
 
-console.log("\n=== show_image：把图片真的交给模型（Agent 模式） ===");
+console.log("\n=== 附件：Agent 模式把图片当**真附件**交给宿主 ===");
 {
-  const dataUrl = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+  // 这条盯着本轮真正修掉的问题：图片必须走 `agent/prompt` 的 `attachments`
+  // （主窗口贴图走的就是它），而不是「把路径写进文字让模型自己去读」——
+  // 后者模型看不到像素，也曾经让弱模型在工具名上打转。
   const { host, calls } = makeHost({
     settings: MODEL,
-    files: { ".summon/uploads/pic.png": { kind: "image", dataUrl: dataUrl, size: 68 } },
+    desktop: [
+      { id: "s-att" },
+      { ok: true },
+      { session: { id: "s-att", title: "T", status: "idle", messages: [] } },
+    ],
   });
   const mod = load(host);
   await mod.onLoad();
-  const tool = calls.registeredTools[0];
-  ok("加载时注册了工具", !!tool);
-  check("工具名", tool && tool.name, "show_image");
-  ok("描述里说了「先调用它」", /先调用它/.test(String(tool && tool.description)));
+  const res = await mod.onPanelInvoke("summon.chat.sendAgent", {
+    text: "看看这张图\n\n（附件：@.summon/uploads/pic.png）",
+    projectPath: "D:\\Code\\demo",
+    attachments: [
+      { path: ".summon/uploads/pic.png", name: "pic.png", kind: "image", mimeType: "image/png", size: 68 },
+      { path: ".summon/uploads/a.md", name: "a.md", kind: "file", mimeType: "text/markdown" },
+    ],
+  });
+  check("发送成功", res.ok, true);
+  const prompt = calls.desktopInvokes.find((c) => c.operation === "agent/prompt");
+  ok("调用了 agent/prompt", !!prompt);
+  const passed = prompt.args[0].attachments;
+  check("两个附件都传上去了", passed.length, 2);
+  check("图片的 kind", passed[0].kind, "image");
+  check("图片的路径原样保留", passed[0].path, ".summon/uploads/pic.png");
+  check("图片的 mimeType", passed[0].mimeType, "image/png");
+  check("文件的 kind", passed[1].kind, "file");
+  check("没有 size 就不硬塞一个", "size" in passed[1], false);
 
-  const blocks = await tool.execute({ path: ".summon/uploads/pic.png" });
-  ok("返回的是内容块数组", Array.isArray(blocks));
-  check("第一块是说明文字", blocks[0].type, "text");
-  // 这一块是关键：宿主会把 image 块还原成模型能看的图片（runtime.ts 的 #1360 注释）。
-  check("第二块是 image", blocks[1].type, "image");
-  check("图片数据是纯 base64（没有 data: 前缀）", blocks[1].data, dataUrl.slice(dataUrl.indexOf(",") + 1));
-  check("mimeType 从扩展名推出来", blocks[1].mimeType, "image/png");
-  ok("说明文字里带路径", blocks[0].text.indexOf(".summon/uploads/pic.png") !== -1);
-
-  // 读不到时也要给出文字，不能让工具调用直接炸掉。
-  const bad = await tool.execute({ path: ".summon/uploads/missing.png" });
-  ok("读不到时仍然返回内容块", Array.isArray(bad) && bad[0].type === "text");
-  ok("读不到时说明原因", /读不到这张图/.test(bad[0].text));
-  const empty = await tool.execute({});
-  ok("缺少 path 时不炸", Array.isArray(empty) && /缺少 path/.test(empty[0].text));
+  // 形状不对的条目要被丢掉，不能让宿主收到 undefined.path。
+  const junk = makeHost({
+    settings: MODEL,
+    desktop: [
+      { id: "s2" },
+      { ok: true },
+      { session: { id: "s2", title: "T", status: "idle", messages: [] } },
+    ],
+  });
+  const mod2 = load(junk.host);
+  await mod2.onLoad();
+  await mod2.onPanelInvoke("summon.chat.sendAgent", {
+    text: "hi",
+    attachments: [{ name: "no-path" }, null, { path: "  " }, { path: "ok.png", kind: "weird" }],
+  });
+  const p2 = junk.calls.desktopInvokes.find((c) => c.operation === "agent/prompt");
+  check("只留下合法的那一条", p2.args[0].attachments.length, 1);
+  check("未知 kind 归成 file", p2.args[0].attachments[0].kind, "file");
 }
 
 console.log("\n=== read：快捷对话能读本机文件（不需要联网） ===");

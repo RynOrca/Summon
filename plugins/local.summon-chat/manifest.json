@@ -185,8 +185,7 @@
     "desktop.control",
     "net.fetch",
     "net.anyHost",
-    "fs.read",
-    "agent.tool.register"
+    "fs.read"
   ],
   "fs": {
     "read": {
