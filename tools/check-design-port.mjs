@@ -406,6 +406,20 @@ ok("带内位置由脚本以内联样式写入（measure 后设置，不依赖�
 ok("退出带内时清掉内联样式（widget 形态不留残留）",
   /bar\.style\.marginTop\s*=\s*""/.test(html));
 
+// 快捷对话**不接受图片**，Agent 模式接受。
+// 依据：`pi.agent.complete` 是裸补全，`pluginCompleteContext()` 会把每条消息
+// `String(message.content)` 压成文本，image 内容块在那一步就没了 ——
+// 图片进了快捷对话只有「存下来但没人看」。留一个点了没用的入口比没有更糟。
+ok("快捷对话拒绝图片，且只在非 Agent 模式拒绝",
+  /function refusesImageInQuick\(isImage\)\s*\{[^}]*return isImage && !isAgent\(\)/.test(html),
+  "refusesImageInQuick() 没有把「只在快捷对话拒绝」写成条件");
+ok("粘贴与拖入两条路都过同一道闸",
+  (html.match(/refusesImageInQuick\(isImage\)/g) || []).length >= 2,
+  "只有一条路做了拦截，另一条会把图片放进附件条");
+ok("拒绝时会说明去哪看图",
+  /Agent 模式[^"']*能看图/.test(html),
+  "拒绝的 toast 没有指路（用户只会知道「不行」，不知道怎么才行）");
+
 // 8. the settings/behaviour surface survived the port
 const mustExist = [
   ["角色选择器", /summon\.chat\.setDefaultRole/],

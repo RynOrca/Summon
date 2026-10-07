@@ -5011,6 +5011,21 @@ window.PiCurve = { create: create };
           return "a" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
         }
 
+        /**
+         * 快捷对话**不接受图片**。
+         *
+         * 理由（查证过，见 README「附件」一节）：`pi.agent.complete` 是裸补全，
+         * 模型没有工具、也拿不到 image 内容块 —— `pluginCompleteContext()` 把每条消息
+         * `String(message.content)` 压成文本，图片块在那一步就没了。所以图片进了快捷对话
+         * 只能是「存下来但没人看」，留着这个入口比没有更糟。
+         *
+         * 图片请用 Agent 模式：那边是真实的 agent 运行时，宿主的 Read 工具会把图还原成
+         * `{type:"image"}` 内容块，模型真的看得见。
+         */
+        function refusesImageInQuick(isImage) {
+          return isImage && !isAgent();
+        }
+
         /** 落地目录用的是用户选的项目；没选就让插件用它的工作目录。 */
         function uploadRootHint() {
           return pendingProjectPath || "";
@@ -5054,6 +5069,10 @@ window.PiCurve = { create: create };
         function stageDroppedFile(file) {
           var direct = bridge.getDroppedFilePath ? bridge.getDroppedFilePath(file) : null;
           var isImage = /\.(png|jpe?g|gif|webp|bmp)$/i.test(file.name || "");
+          if (refusesImageInQuick(isImage)) {
+            toast("快捷对话收不了图片 —— 换成 Agent 模式拖进来，那边的模型真的能看图。", "fail");
+            return;
+          }
           if (!direct) {
             toast("这个文件没有真实路径（不是从资源管理器拖进来的？）：" + file.name, "fail");
             return;
@@ -5083,10 +5102,14 @@ window.PiCurve = { create: create };
           });
         }
 
-        /** 粘贴进来的图片：没有路径，只有字节 —— 直接交给插件落盘。 */
+        /** 粘贴进来的文件：没有路径，只有字节 —— 直接交给插件落盘。 */
         function stagePastedFile(file) {
           var isImage = /^image\//.test(file.type || "") || /\.(png|jpe?g|gif|webp|bmp)$/i.test(file.name || "");
-          var name = file.name || ("pasted-" + Date.now() + (isImage ? ".png" : ".txt"));
+          if (refusesImageInQuick(isImage)) {
+            toast("快捷对话收不了图片 —— 换成 Agent 模式粘贴，那边的模型真的能看图。", "fail");
+            return;
+          }
+          var name = file.name || ("pasted-" + Date.now() + ".txt");
           var reader = new FileReader();
           reader.onerror = function () { toast("读取粘贴内容失败", "fail"); };
           reader.onload = function () {
@@ -5153,7 +5176,17 @@ window.PiCurve = { create: create };
             box.addEventListener(type, function (e) {
               e.preventDefault();
               if (type === "dragover") {
-                e.dataTransfer.dropEffect = "copy";
+                // 快捷对话里拖图片进来是**明确的拒绝**，所以光标也如实说「不行」，
+                // 而不是给一个 copy 光标、松手才弹提示。
+                var items = e.dataTransfer && e.dataTransfer.items;
+                var onlyImages = !!items && items.length > 0;
+                for (var i = 0; i < (items || []).length; i++) {
+                  if (items[i].kind !== "file" || String(items[i].type || "").indexOf("image/") !== 0) {
+                    onlyImages = false;
+                    break;
+                  }
+                }
+                e.dataTransfer.dropEffect = (onlyImages && !isAgent()) ? "none" : "copy";
                 return;
               }
               takeFiles(e.dataTransfer && e.dataTransfer.files, false);
