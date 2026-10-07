@@ -246,9 +246,8 @@ body { overflow: hidden; }
    一行放不下时项目名先截断（它有 title 提示，按钮没有替代品）。 */
 .composer-foot {
   display: flex; align-items: center; gap: .3rem;
-  margin-top: .3rem; padding-top: .35rem;
-  /* 比 --border 稍明显一点：分隔线是这一版新加的，太淡就一直有人问「按钮怎么飘着」。 */
-  border-top: 1px solid var(--border-strong, var(--border));
+  /* 不要分隔线了：用户说那条线很丑，而且按钮贴着输入区本来就够清楚。 */
+  margin-top: .3rem;
   min-width: 0;
 }
 .composer-foot .iconbtn { flex: 0 0 auto; }
