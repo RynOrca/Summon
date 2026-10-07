@@ -129,7 +129,7 @@ const DEFAULT_MAX_TOOL_ROUNDS = 3;
  * 与 manifest.json 的 version 保持一致（smoke 测试会断言两者相等，防止漂移）。
  * 暴露给界面显示：判断「到底加载的是哪个版本」时，这是最直接的证据。
  */
-const PLUGIN_VERSION = "0.21.0";
+const PLUGIN_VERSION = "0.21.1";
 /** Keep the wire prompt well inside the host's 200k combined-character cap. */
 const MAX_HISTORY_MESSAGES = 20;
 const SEARCH_RESULT_LIMIT = 5;
@@ -1189,6 +1189,10 @@ async function listModels() {
           providerId: row.providerId || "",
           modelId: row.modelId || "",
           supportsReasoning: !!row.supportsReasoning,
+          // 界面用它提示「这个模型收不收图」。**只用来提示**：哪怕它是 true，
+          // 插件的 `agent.complete` 也没有字段能把像素交过去（入参只收文本），
+          // 所以快捷对话看不了图这件事与模型无关。
+          supportsImages: row.supportsImages === true,
           thinkingLevels: levels,
           // The host's own default rule, so the widget preselects what the app would.
           defaultThinkingLevel: defaultThinkingLevel(levels),
