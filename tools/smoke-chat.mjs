@@ -45,6 +45,7 @@ function makeHost(options = {}) {
     completeInputs: [],
     fetches: [],
     skillReads: [],
+    fsReads: [],
     skillLists: 0,
     desktopInvokes: [],
     appSettingsReads: 0,
@@ -150,6 +151,35 @@ function makeHost(options = {}) {
         calls.skillReads.push(arg);
         const name = arg && typeof arg === "object" ? arg.name || arg.id : arg;
         return (options.skills && options.skills[name]) || "";
+      },
+    },
+    /**
+     * `pi.fs.*` — the read tools and the upload writer go through these.
+     * `options.files` maps a path to text (or to `{kind:"image", dataUrl, size}`)
+     * and `options.fsErrors` makes one path throw, like the host's
+     * PERMISSION_DENIED / NOT_FOUND would.
+     */
+    fs: {
+      async readText(path) {
+        calls.fsReads.push({ api: "readText", path });
+        const err = (options.fsErrors || {})[path];
+        if (err) throw Object.assign(new Error(err.message || "read failed"), { code: err.code || "READ_FAILED" });
+        const entry = (options.files || {})[path];
+        if (entry === undefined) throw Object.assign(new Error("ENOENT: " + path), { code: "NOT_FOUND" });
+        if (typeof entry === "string") return entry;
+        if (entry && typeof entry.text === "string") return entry.text;
+        throw Object.assign(new Error("not text"), { code: "INVALID_ARGUMENT" });
+      },
+      async readPreview(path) {
+        calls.fsReads.push({ api: "readPreview", path });
+        const entry = (options.files || {})[path];
+        if (!entry) throw Object.assign(new Error("ENOENT: " + path), { code: "NOT_FOUND" });
+        if (entry.kind) return entry;
+        return { kind: "text", content: String(entry), size: String(entry).length };
+      },
+      async stat(path) {
+        calls.fsReads.push({ api: "stat", path });
+        return { size: 0, mtimeMs: 0 };
       },
     },
     net: {
@@ -1421,6 +1451,122 @@ console.log("\n=== a 429 from search is surfaced, not hidden ===");
   check("三家都被限流，逐条记下来了", res.trace[0].failures.length, 3);
   check("每次尝试都点了名", res.trace[0].failures[0], "duckduckgo 返回 HTTP 429");
   check("用户仍拿到回答", res.text, "answered anyway");
+}
+
+console.log("\n=== read_file：快捷对话能读本机文件（不需要联网） ===");
+{
+  const md = "# 国庆快乐\n\n国泰民安，阖家团圆。\n";
+  const { host, calls } = makeHost({
+    // 这个角色没有任何联网工具，只有读文件 —— 它必须照样能用。
+    settings: { ...MODEL, roles: { roles: [{ id: "reader", mode: "quick", tools: [] }] } },
+    completions: ['{"tool":"read_file","path":"docs/README.md"}', "文件里写的是国庆祝福。"],
+    files: { "docs/README.md": md },
+  });
+  const mod = load(host);
+  await mod.onLoad();
+  const res = await mod.onPanelInvoke("summon.chat.sendQuick", { roleId: "reader", text: "读一下 docs/README.md" });
+
+  check("读到了", res.ok, true);
+  check("没有发任何网络请求", calls.fetches.length, 0);
+  check("读了那个路径", calls.fsReads[0].path, "docs/README.md");
+  check("trace 记了 read_file", res.trace[0].tool, "read_file");
+  check("trace 是本地来源", res.trace[0].provider, "local");
+  check("trace 成功", res.trace[0].ok, true);
+  // 文件内容必须回灌给模型，否则它只能猜。
+  const fed = calls.completeInputs[1].messages.at(-1);
+  check("内容作为 user 消息回灌", fed.role, "user");
+  check("回灌里有文件正文", fed.content.indexOf("国泰民安") !== -1, true);
+  check("系统提示词声明了 read_file", calls.completeInputs[0].system.indexOf("read_file") !== -1, true);
+  check("没开联网就不提 web_search", calls.completeInputs[0].system.indexOf("web_search") === -1, true);
+}
+
+console.log("\n=== read_file 的失败与截断都要如实说 ===");
+{
+  const huge = "x".repeat(30000);
+  const { host, calls } = makeHost({
+    settings: { ...MODEL, roles: { roles: [{ id: "reader", mode: "quick", tools: [] }] } },
+    completions: ['{"tool":"read_file","path":"big.txt"}', "摘要"],
+    files: { "big.txt": huge },
+  });
+  const mod = load(host);
+  await mod.onLoad();
+  const res = await mod.onPanelInvoke("summon.chat.sendQuick", { roleId: "reader", text: "读 big.txt" });
+  const fed = calls.completeInputs[1].messages.at(-1).content;
+  check("trace 标了截断", /已截断/.test(String(res.trace[0].detail)), true);
+  check("回灌里说明了还有更多", fed.indexOf("后面还有内容") !== -1, true);
+  // 截断上限是 24000：不能把整份文件灌进上下文。
+  check("回灌长度受控", fed.length < 26000, true);
+
+  const denied = makeHost({
+    settings: { ...MODEL, roles: { roles: [{ id: "reader", mode: "quick", tools: [] }] } },
+    completions: ['{"tool":"read_file","path":"../secret.txt"}', "读不到"],
+    fsErrors: { "../secret.txt": { code: "PERMISSION_DENIED", message: "outside manifest.fs.read.scope" } },
+  });
+  const mod2 = load(denied.host);
+  await mod2.onLoad();
+  const res2 = await mod2.onPanelInvoke("summon.chat.sendQuick", { roleId: "reader", text: "读 ../secret.txt" });
+  check("越界被如实报出来", res2.trace[0].error, "PERMISSION_DENIED");
+  const told = denied.calls.completeInputs[1].messages.at(-1).content;
+  check("模型被告知读不到", told.indexOf("读不到") !== -1 || told.indexOf("失败") !== -1, true);
+}
+
+console.log("\n=== read_image：确认存在，但绝不编造画面 ===");
+{
+  const { host, calls } = makeHost({
+    settings: { ...MODEL, roles: { roles: [{ id: "reader", mode: "quick", tools: [] }] } },
+    completions: ['{"tool":"read_image","path":"pic.png"}', "我看不到图片内容。"],
+    files: { "pic.png": { kind: "image", dataUrl: "data:image/png;base64,AAAA", size: 4096 } },
+  });
+  const mod = load(host);
+  await mod.onLoad();
+  const res = await mod.onPanelInvoke("summon.chat.sendQuick", { roleId: "reader", text: "这张图是什么" });
+  check("trace 记了 read_image", res.trace[0].tool, "read_image");
+  check("trace 里带尺寸", String(res.trace[0].detail).indexOf("4096") !== -1, true);
+  const told = calls.completeInputs[1].messages.at(-1).content;
+  // 这是最关键的一条：接口给不了像素，就必须让模型承认看不到，而不是编。
+  check("明确告诉模型它看不到图", told.indexOf("看不到图片内容") !== -1, true);
+  check("要求它不要编造画面", told.indexOf("不要编造画面内容") !== -1, true);
+}
+
+console.log("\n=== 附件落盘：写进工作区、文件名只保留扩展名 ===");
+{
+  const { host } = makeHost({ settings: MODEL });
+  const mod = load(host);
+  await mod.onLoad();
+  // 用一个临时目录当工作区，免得往真仓库里写东西。
+  const os = require("node:os");
+  const nodeFs = require("node:fs");
+  const nodePath = require("node:path");
+  const root = nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), "summon-smoke-"));
+
+  const res = await mod.onPanelInvoke("summon.chat.stageUpload", {
+    name: "截图 2026-10-07 123456.png",
+    bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+    isImage: true,
+    rootHint: root,
+  });
+  check("写入成功", res.ok, true);
+  check("返回的是工作区相对路径", res.path, ".summon/uploads/" + res.path.split("/").pop());
+  check("路径以 .summon/uploads 开头", res.path.indexOf(".summon/uploads/") === 0, true);
+  // 名字里的空格与中文都不能进路径：只留扩展名，其余自己生成。
+  check("文件名是生成的，不含原名", res.path.indexOf("截图") === -1, true);
+  check("保留了扩展名", /\.png$/.test(res.path), true);
+  const written = nodeFs.readFileSync(res.fullPath);
+  check("字节原样落盘", Array.from(written), [0x89, 0x50, 0x4e, 0x47]);
+
+  const traversal = await mod.onPanelInvoke("summon.chat.stageUpload", {
+    name: "../../evil.sh", text: "x", rootHint: root,
+  });
+  check("路径穿越写不出去", String(traversal.path).indexOf("..") === -1, true);
+  check("仍然落在 uploads 目录里", String(traversal.path).indexOf(".summon/uploads/") === 0, true);
+
+  const tooBig = await mod.onPanelInvoke("summon.chat.stageUpload", {
+    name: "big.bin", bytes: new Uint8Array(25 * 1024 * 1024), rootHint: root,
+  });
+  check("超过上限就拒绝", tooBig.ok, false);
+  check("错误码是 TOO_LARGE", tooBig.error, "TOO_LARGE");
+
+  nodeFs.rmSync(root, { recursive: true, force: true });
 }
 
 console.log("\n=== 项目文件夹：新会话建在它下面，已有会话挪过去 ===");

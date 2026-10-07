@@ -668,6 +668,31 @@ body { overflow: hidden; }
    也别把 composer 改成 flex column —— 前者会和 flex 互相放大（曾涨到四五百像素），
    后者会把按钮推到底、下面留白。 */
 .composer .bare-input.comp { overflow-y: auto; }
+/* 附件条：粘贴或拖进来的文件。横向滚动，不换行把输入框顶下去。 */
+.attach-strip {
+  display: flex; align-items: flex-start; gap: .35rem;
+  margin-bottom: .35rem; padding-bottom: .1rem;
+  overflow-x: auto; overflow-y: hidden;
+}
+.attach-strip[hidden] { display: none; }
+.attach {
+  position: relative; flex: 0 0 auto;
+  display: inline-flex; align-items: center; gap: .3rem;
+  max-width: 11rem; padding: .25rem .4rem;
+  border: 1px solid var(--border); border-radius: 7px;
+  background: var(--surface-2); color: var(--text-secondary);
+  font-size: .6875rem; font-family: inherit;
+}
+.attach img { width: 1.75rem; height: 1.75rem; object-fit: cover; border-radius: 4px; flex: 0 0 auto; }
+.attach svg { width: .8rem; height: .8rem; flex: 0 0 auto; }
+.attach .an { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attach .as { color: var(--text-disabled); flex: 0 0 auto; }
+.attach .ax {
+  flex: 0 0 auto; border: 0; background: none; color: var(--text-disabled);
+  cursor: pointer; font-size: .8125rem; line-height: 1; padding: 0 .1rem;
+}
+.attach .ax:hover { color: var(--text-primary); }
+.attach.bad { border-color: var(--error); }
 /* 输入框下面那一行：目前只有「当前项目文件夹」。高度是 0 时就等于不存在，
    所以快捷对话（没有项目）不会因此多出一块空白。 */
 .composer-foot { display: flex; align-items: center; gap: .35rem; margin-top: .15rem; }
@@ -2857,6 +2882,9 @@ window.PiCurve = { create: create };
           <div class="queue-strip" id="queueStrip" hidden></div>
 
           <div class="composer" data-pi-plugin-no-drag>
+            <!-- 附件条：粘贴 / 拖入的文件。图片给缩略图，其它给文件名 + 大小。
+                 有内容才出现，所以没附件时不会多占一行。 -->
+            <div class="attach-strip" id="attachStrip" hidden></div>
             <div class="cinbox">
               <textarea class="bare-input comp" id="chatInput" rows="2" placeholder="问点什么…" aria-label="提问输入框"></textarea>
               <button class="iconbtn" id="btnProject" title="项目文件夹" hidden><svg><use href="#i-folder" /></svg></button>
@@ -4921,20 +4949,253 @@ window.PiCurve = { create: create };
           invoke("summon.chat.setModelKey", { key: key }).catch(function () {});
           renderChips();
         }
+
+        // ------------------------------------------------------------ 附件
+        /**
+         * 粘贴 / 拖入的文件。
+         *
+         * 为什么是「路径」而不是「把内容塞进消息」：
+         *   · 图片进不了模型 —— 宿主 `pi.agent.complete` 的入参是纯文本
+         *     （`messages: {role, content: string}[]`，没有图片字段），
+         *     插件也没有任何「往消息里放附件」的通道（`composer.attachments.add`
+         *     只作用于主窗口的 composer，悬浮窗是独立窗口够不着）。
+         *   · 所以走宿主本来就支持的那条路：把**路径**写进消息（`@路径`，和主窗口
+         *     composer 的引用语法一致），让 Agent 用它自带的 read 工具去读，
+         *     快捷对话则用插件自己的 read_file 工具读。
+         *   · 图片在悬浮窗里仍然给你看缩略图（用宿主 `fs.readPreview` 给的 data URL），
+         *     只是模型看不到内容 —— 界面上会说清楚。
+         *
+         * 路径怎么来的：拖进来的文件用 `pluginBridge.getDroppedFilePath(file)`
+         * （宿主 preload 用 webUtils 解析，页面拿不到 Node）；粘贴的图片**没有路径**，
+         * 只能提示用户改成拖入 —— 这是宿主接口的边界，不是这里偷懒。
+         */
+        var attachments = [];
+
+        function fmtBytes(n) {
+          if (typeof n !== "number" || n <= 0) return "";
+          if (n < 1024) return n + " B";
+          if (n < 1024 * 1024) return (n / 1024).toFixed(n < 10240 ? 1 : 0) + " KB";
+          return (n / 1024 / 1024).toFixed(1) + " MB";
+        }
+
+        function clearAttachments() {
+          attachments = [];
+          renderAttachments();
+        }
+
+        function removeAttachment(id) {
+          attachments = attachments.filter(function (a) { return a.id !== id; });
+          renderAttachments();
+        }
+
+        function addAttachmentChip(item) {
+          attachments.push(item);
+          renderAttachments();
+        }
+
+        function newAttachmentId() {
+          return "a" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+        }
+
+        /** 落地目录用的是用户选的项目；没选就让插件用它的工作目录。 */
+        function uploadRootHint() {
+          return pendingProjectPath || "";
+        }
+
+        function humanSize(n) {
+          var s = fmtBytes(n);
+          return s || "";
+        }
+
+        /**
+         * 把一份**已经在工作区里**的文件做成 chip（缩略图由宿主 `fs.readPreview` 给）。
+         * 落盘成功之后才调这里 —— 界面上的 chip 一定对应一个真实存在的路径。
+         */
+        function attachStaged(relPath, displayName, size, isImage, sourceNote) {
+          var item = {
+            id: newAttachmentId(),
+            name: displayName,
+            path: relPath,
+            size: size || 0,
+            isImage: !!isImage,
+            thumb: null,
+            note: sourceNote || "",
+          };
+          addAttachmentChip(item);
+          if (!isImage) return;
+          invoke("fs.readPreview", { path: relPath.replace(/\\/g, "/") }).then(function (res) {
+            if (res && res.kind === "image" && res.dataUrl) {
+              item.thumb = res.dataUrl;
+              if (!item.size && res.size) item.size = res.size;
+              renderAttachments();
+            }
+          }).catch(function () {});
+        }
+
+        /**
+         * 普通拖入的文件：向宿主登记这次拖放拿到一次性读权限 → 取字节 → 交给插件落盘。
+         * 走这条路（而不是只记个路径）是为了让文件进入工作区：
+         * Agent 的沙盒读得到工作区，读不到用户随便一个目录。
+         */
+        function stageDroppedFile(file) {
+          var direct = bridge.getDroppedFilePath ? bridge.getDroppedFilePath(file) : null;
+          var isImage = /\.(png|jpe?g|gif|webp|bmp)$/i.test(file.name || "");
+          if (!direct) {
+            toast("这个文件没有真实路径（不是从资源管理器拖进来的？）：" + file.name, "fail");
+            return;
+          }
+          var chain = Promise.resolve().then(function () {
+            return invoke("fs.registerDropped", { path: direct });
+          }).then(function (grant) {
+            if (!grant || !grant.grantId) throw new Error("宿主没有给出读取授权");
+            return invoke("fs.readRange", {
+              path: direct, byteOffset: 0, length: file.size || 0, grantId: grant.grantId,
+            });
+          });
+          // 空文件也要能传：length 0 时宿主返回空数组，照样写一个空文件。
+          chain.then(function (range) {
+            return invoke("summon.chat.stageUpload", {
+              name: file.name,
+              displayName: file.name,
+              bytes: (range && range.bytes) || new Uint8Array(0),
+              isImage: isImage,
+              rootHint: uploadRootHint(),
+            });
+          }).then(function (res) {
+            if (!res || !res.ok) throw new Error((res && (res.message || res.error)) || "写入失败");
+            attachStaged(res.path, file.name, res.bytes, isImage, direct);
+          }).catch(function (err) {
+            toast("没能读取这个文件：" + (err && err.message ? err.message : err), "fail");
+          });
+        }
+
+        /** 粘贴进来的图片：没有路径，只有字节 —— 直接交给插件落盘。 */
+        function stagePastedFile(file) {
+          var isImage = /^image\//.test(file.type || "") || /\.(png|jpe?g|gif|webp|bmp)$/i.test(file.name || "");
+          var name = file.name || ("pasted-" + Date.now() + (isImage ? ".png" : ".txt"));
+          var reader = new FileReader();
+          reader.onerror = function () { toast("读取粘贴内容失败", "fail"); };
+          reader.onload = function () {
+            var buf = reader.result;
+            invoke("summon.chat.stageUpload", {
+              name: name,
+              displayName: name,
+              bytes: buf,
+              isImage: isImage,
+              rootHint: uploadRootHint(),
+            }).then(function (res) {
+              if (!res || !res.ok) throw new Error((res && (res.message || res.error)) || "写入失败");
+              attachStaged(res.path, name, res.bytes, isImage, "来自剪贴板");
+            }).catch(function (err) {
+              toast("保存粘贴的文件失败：" + (err && err.message ? err.message : err), "fail");
+            });
+          };
+          reader.readAsArrayBuffer(file);
+        }
+
+        /** 文本文件走 writeText 之外的同一通道：直接给字符串，插件按 UTF-8 写。 */
+        function takeFiles(list, fromPaste) {
+          var files = [];
+          for (var i = 0; i < (list || []).length; i++) files.push(list[i]);
+          if (!files.length) return false;
+          // 一次只收 8 个：再多输入框就只剩附件了。
+          files.slice(0, 8).forEach(function (f) {
+            if (fromPaste) stagePastedFile(f);
+            else stageDroppedFile(f);
+          });
+          if (files.length > 8) toast("一次最多 8 个文件，其余已忽略", "fail");
+          return true;
+        }
+
+        function appendAttachmentMentions(text, list) {
+          if (!list.length) return text;
+          var refs = list.map(function (a) {
+            var p = String(a.path || "").replace(/\\/g, "/");
+            return /\s/.test(p) ? '@"' + p + '"' : "@" + p;
+          });
+          return text.replace(/\s+$/, "") + "\n\n（附件：" + refs.join(" ") + "）";
+        }
+
+        /** 输入框上的粘贴 / 拖放。纯文本粘贴走浏览器默认行为，只有「带文件」才拦。 */
+        function wireAttachments() {
+          $("chatInput").addEventListener("paste", function (e) {
+            var files = e.clipboardData && e.clipboardData.files;
+            if (files && files.length) {
+              e.preventDefault();
+              takeFiles(files, true);
+              return;
+            }
+            var text = e.clipboardData && e.clipboardData.getData("text/plain");
+            if (text) return; // 纯文本：交给浏览器
+            // 既没有文件也没有文本，但剪贴板里确实有东西（截图常常是这种形状）。
+            if (e.clipboardData && e.clipboardData.items && e.clipboardData.items.length) {
+              e.preventDefault();
+              toast("剪贴板里没有可读取的文件，试试直接拖一个文件进来。", "fail");
+            }
+          });
+          var box = document.querySelector(".composer");
+          if (!box) return;
+          ["dragover", "drop"].forEach(function (type) {
+            box.addEventListener(type, function (e) {
+              e.preventDefault();
+              if (type === "dragover") {
+                e.dataTransfer.dropEffect = "copy";
+                return;
+              }
+              takeFiles(e.dataTransfer && e.dataTransfer.files, false);
+            });
+          });
+        }
+
+        function renderAttachments() {
+          var strip = $("attachStrip");
+          if (!strip) return;
+          while (strip.firstChild) strip.removeChild(strip.firstChild);
+          strip.hidden = attachments.length === 0;
+          attachments.forEach(function (a) {
+            var chip = el("div", "attach" + (a.path ? "" : " bad"));
+            if (a.thumb) {
+              var img = document.createElement("img");
+              img.src = a.thumb;
+              img.alt = "";
+              chip.appendChild(img);
+            } else {
+              chip.appendChild(icon(a.isImage ? "i-eye" : "i-copy"));
+            }
+            chip.appendChild(el("span", "an", a.name));
+            if (a.size) chip.appendChild(el("span", "as", fmtBytes(a.size)));
+            var x = el("button", "ax", "×");
+            x.type = "button";
+            x.title = "移除";
+            x.addEventListener("click", function () { removeAttachment(a.id); });
+            chip.appendChild(x);
+            chip.title = a.path ? a.path : a.note || a.name;
+            strip.appendChild(chip);
+          });
+          $("chatInput").placeholder = attachments.length
+            ? "说说想让我用它做什么…"
+            : "问点什么…";
+        }
+
         function send(text) {
           if (!text.trim()) return;
           // Agent 模式允许忙时再发一条（引导），快捷对话一轮只能跑一个。
           if (busy && !isAgent()) return;
           var role = currentRole();
+          // 附件以 `@路径` 的形式跟在正文后面 —— 宿主 composer 用的就是这个语法，
+          // Agent 模式下的 read 工具认得它；快捷对话则由 read_file 工具去读。
+          var attached = attachments.filter(function (a) { return a.path; });
+          var outgoing = appendAttachmentMentions(text, attached);
           showView("chat");
           $("chatInput").value = "";
+          clearAttachments();
           if (role.mode === "agent") {
             // Agent 模式的消息来自 transcript 轮询，本地这份只是先画出来。
-            addMessage("user", text);
+            addMessage("user", outgoing);
           } else {
             // 快捷对话没有 transcript：这一屏的消息由页面自己维护，
             // 所以走同一个 diff 渲染器，工具时间线与答案才能跟着一起更新。
-            pushQuickUser(text);
+            pushQuickUser(outgoing);
             renderKeyed(agent.quickMessages.slice(), { running: false });
           }
           rebuildTicks();
@@ -4947,7 +5208,7 @@ window.PiCurve = { create: create };
             var picking = !agent.sessionId;
             done = invoke("summon.chat.sendAgent", {
               sessionId: agent.sessionId,
-              text: text,
+              text: outgoing,
               // 会话绑不绑得上项目，全靠这一个字段：新会话交给 session/create，
               // 已有会话由插件用 session/moveProject 挪过去。
               projectPath: pendingProjectPath || undefined,
@@ -4972,9 +5233,9 @@ window.PiCurve = { create: create };
             // 之前这里还有个 500ms 的进度轮询，两个轮询抢着写同一行，状态就
             // 会「闪一下」。
             setStatus("正在准备…");
-            var outgoing = history.slice();
+            var priorTurns = history.slice();
             done = invoke("summon.chat.sendQuick", {
-              roleId: role.id, text: text, history: outgoing,
+              roleId: role.id, text: outgoing, history: priorTurns,
               conversationId: quickConvId,
               modelKey: models.selected, thinkingLevel: pendingThinking || undefined,
             }).then(function (ack) {
@@ -6023,6 +6284,8 @@ window.PiCurve = { create: create };
         // in case the host applied it after load.
         markTitlebarBand();
         fitComposerInput();
+        // 粘贴 / 拖入文件的入口。
+        wireAttachments();
         // 图标形变（morphicons）。装不上就保持设计源包原来的 <use> 图标 ——
         // 动效是装饰，不该让任何按钮变成空白。
         sendMorph = attachMorph($("sendKey"), "send");

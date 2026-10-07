@@ -1,0 +1,50 @@
+Let files in and out of the widget: attachments plus read tools
+
+The user asked for three things and they turned out to have one hard limit and one
+real bug behind them.
+
+The hard limit first, because it shaped the design: an image cannot reach the
+model. pi.agent.complete takes `messages: {role, content: string}[]` with no image
+field, and the only attachment channel the host has (composer.attachments.add)
+acts on the MAIN window's composer draft - a floating panel is a separate window
+and cannot reach that bridge. So a pasted screenshot has nowhere to go as pixels,
+even on a model that supports images.
+
+What works instead is the path the host does support: put the file in the
+workspace and put its path in the message (`@path`, same syntax the main composer
+uses). Agent mode's own read tool then opens it - multimodal recognition happens
+on the agent side, where it already works. So:
+
+- Paste and drop are wired on the composer. Dropped files go through
+  pluginBridge.getDroppedFilePath -> fs.registerDropped -> fs.readRange, because
+  the panel needs a real path and the host only grants one for a real drop
+  gesture. Pasted files (a screenshot has no path at all) are read from the paste
+  event's File.
+- The bytes go to the plugin process, which writes them to .summon/uploads/ inside
+  the workspace and returns a workspace-relative path. Binary writing uses
+  node:fs in the plugin process, NOT pi.fs: the host's only write verb is
+  writeText (hardcoded UTF-8), and the host's own security spec says a plugin main
+  runs with raw Node in its utilityProcess - its pi.file-manager does the same.
+  The boundary is therefore ours to keep, so the file name contributes nothing but
+  its extension and everything else is generated; smoke asserts that
+  ../../evil.sh cannot escape and that >24 MB is refused.
+- Chips show a thumbnail (fs.readPreview's data URL) for images and name+size for
+  the rest, and send appends the paths.
+
+Quick chat got read_file and read_image, so it can read the workspace without any
+network. Both skip the search round budget (maxRounds is the user's web-search
+budget, and 0 without search - the same trap that disabled current_time), read up
+to 24000 characters and say so when they truncate rather than handing over half a
+file as if it were whole. read_image reports path/size/format and tells the model
+plainly that it cannot see the picture, because an interface that cannot deliver
+pixels must not let the model invent them.
+
+Also fixed: the preview harness's pluginBridge.invoke stub never took its second
+parameter, so the new stageUpload call threw ReferenceError and the page's own
+.catch swallowed it - pasting looked like it did nothing. Third time this class of
+preview-only bug has cost real time, so the stub now takes the payload and a new
+`attach` preview mode drives the real paste path for the screenshot.
+
+A stray duplicate `function send(text) {` (a leftover from inserting the
+attachment helpers into send's body) is gone too; it had nested the rest of the
+page inside a dead function, which the lint's "Unexpected token ')'" caught.

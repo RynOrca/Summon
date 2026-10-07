@@ -184,8 +184,21 @@
     "agent.complete",
     "desktop.control",
     "net.fetch",
-    "net.anyHost"
+    "net.anyHost",
+    "clipboard.read",
+    "fs.read",
+    "fs.write"
   ],
+  "fs": {
+    "read": {
+      "root": "workspace",
+      "scope": ["**/*"]
+    },
+    "write": {
+      "root": "workspace",
+      "scope": [".summon/**"]
+    }
+  },
   "net": {
     "domains": [
       "html.duckduckgo.com",

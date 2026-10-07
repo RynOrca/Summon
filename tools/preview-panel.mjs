@@ -46,7 +46,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.join(here, "..");
 const pagePath = path.join(repoRoot, "plugins", "local.summon-chat", "renderer", "index.html");
 
-const mode = ["light", "set", "transcript", "turn", "long", "quick", "typing"].indexOf(process.argv[2]) !== -1
+const mode = ["light", "set", "transcript", "turn", "long", "quick", "typing", "attach"].indexOf(process.argv[2]) !== -1
   ? process.argv[2]
   : (process.argv[3] === "set" ? "set" : "dark");
 const theme = mode === "light" ? "light" : "dark";
@@ -60,6 +60,8 @@ const demoLong = mode === "long";
 const demoQuick = mode === "quick";
 /** `typing` feeds the same answer in growing pieces, mid-typewriter. */
 const demoTyping = mode === "typing";
+/** `attach` pastes two files (an image and a markdown) through the real path. */
+const demoAttach = mode === "attach";
 /** Quick chat is only reachable through the `quick` role, so make it the default. */
 const roleDefaultQuick = demoQuick;
 const out = path.join(tmpdir(), `summon-chat-preview-${mode}${view === "set" ? "-set" : ""}.html`);
@@ -469,7 +471,12 @@ ${demoQuick ? QUICK_STUB : ""}
             if (DEMO) BOOTSTRAP.resumeSessionId = "demo";
             window.pluginBridge = {
               on: function () { return function () {}; },
-              invoke: function (channel) {
+              // ⚠️ 第二个参数必须收：页面调用的 pluginBridge.invoke(channel, payload)
+              // 是真的会传 payload 的，而这里的桩一开始只写了 channel。新加的
+              // stageUpload / fs.readPreview 一引用 args 就抛 ReferenceError，
+              // 被页面的 .catch 吞掉 —— 表现是「粘贴了但什么都没发生」。
+              // 预览工具自身的错，和上次漏带第三方 bundle 是同一类。
+              invoke: function (channel, args) {
                 window.__channels = window.__channels || [];
                 window.__channels.push(channel);
                 if (channel === "summon.chat.bootstrap") return Promise.resolve(BOOTSTRAP);
@@ -497,6 +504,28 @@ ${demoQuick ? QUICK_STUB : ""}
                   if (DEMO && ${demoTurn}) return Promise.resolve(TURN_STAGES[Math.min(TURN_I++, TURN_STAGES.length - 1)]);
                   if (DEMO && ${demoTyping}) return Promise.resolve(TYPING_STAGES[Math.min(TURN_I++, TYPING_STAGES.length - 1)]);
                   return Promise.resolve(DEMO || { ok: true, transcript: { messages: [] } });
+                }
+                if (channel === "summon.chat.stageUpload") {
+                  // Stand in for the plugin process writing the bytes: the chip only
+                  // needs a workspace-relative path back, plus the byte count.
+                  const bytes = args && args.bytes;
+                  const size = ArrayBuffer.isView(bytes) ? bytes.byteLength
+                    : (args && args.text ? String(args.text).length : 0);
+                  return Promise.resolve({
+                    ok: true,
+                    path: ".summon/uploads/upload-preview" + (args && args.isImage ? ".png" : ".txt"),
+                    fullPath: "D:\\\\summon\\\\.summon\\\\uploads\\\\upload-preview",
+                    bytes: size,
+                    name: (args && (args.displayName || args.name)) || "file",
+                  });
+                }
+                if (channel === "fs.readPreview") {
+                  // A 1x1 blue PNG, so an image chip shows a real thumbnail.
+                  return Promise.resolve({
+                    kind: "image",
+                    dataUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+                    size: 68,
+                  });
                 }
                 if (channel === "summon.chat.progress") {
                   if (${demoQuick}) return Promise.resolve(QUICK.reply());
@@ -538,6 +567,23 @@ ${demoQuick ? QUICK_STUB : ""}
             // a user does. The page then polls on a 400ms setInterval — which
             // headless virtual time never advances — so the reply is driven
             // explicitly here instead, with the same progress payload shape.
+            if (${demoAttach}) {
+              // 驱动**真实**的粘贴路径：合成一个带图片 File 的剪贴板事件，
+              // 页面自己走 FileReader → stageUpload → chip。截图里那一枚 chip
+              // 就是这么来的，不是为了截图手画的 DOM。
+              setTimeout(function () {
+                try {
+                  var png = atob("iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAP0lEQVR42mNkYPhfz0BFwDiqYVTDqIZRDaMaRjWMagDRAAA7nQGBuJ9m4wAAAABJRU5ErkJggg==");
+                  var bytes = new Uint8Array(png.length);
+                  for (var i = 0; i < png.length; i++) bytes[i] = png.charCodeAt(i);
+                  var dt = new DataTransfer();
+                  dt.items.add(new File([bytes], "截图 2026-10-07.png", { type: "image/png" }));
+                  dt.items.add(new File(["# 国庆快乐\\n"], "国庆快乐.md", { type: "text/markdown" }));
+                  document.getElementById("chatInput").dispatchEvent(
+                    new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+                } catch (err) { /* 预览：合成事件不可用就算了 */ }
+              }, 400);
+            }
             if (${demoQuick}) {
               setTimeout(function () {
                 var input = document.getElementById("chatInput");

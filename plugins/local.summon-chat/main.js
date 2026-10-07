@@ -164,6 +164,10 @@ const TOOL_DIRECTIVE = function (allowSearch) {
     "## 可用工具",
     "current_time —— 读取当前日期时间。回答任何与「今天 / 现在 / 最新 / 今年 /",
     "这周」相关的问题之前，**先调用它**：你不知道今天是哪一天，训练数据里的年份是过期的。",
+    "read_file —— 读取用户项目里的文本文件（代码、md、json、日志…）。",
+    "read_image —— 读取用户项目里的图片（png/jpg/gif/webp/bmp）。**你无法看图**，",
+    "它只回报路径、尺寸与大小；需要图片内容时请把路径告诉用户，或说明你看不到图。",
+    "用户消息里出现 `@路径` 时，就用 read_file 去读那个路径。",
   ];
   if (allowSearch) {
     lines.push(
@@ -174,21 +178,236 @@ const TOOL_DIRECTIVE = function (allowSearch) {
   lines.push(
     "",
     "要使用工具时，**只输出一行 JSON，不要有其他任何文字**：",
+    '{"tool":"current_time"}',
+    '{"tool":"read_file","path":"相对或绝对路径"}',
   );
-  if (allowSearch) {
-    lines.push(
-      '{"tool":"current_time"}',
-      '{"tool":"web_search","query":"搜索关键词"}',
-    );
-  } else {
-    lines.push('{"tool":"current_time"}');
-  }
+  if (allowSearch) lines.push('{"tool":"web_search","query":"搜索关键词"}');
   lines.push("", "拿到工具结果后，用中文直接给出最终回答，不要再输出 JSON。");
   return lines.join("\n");
 };
 
 /** 模型可以申请的**全部**工具（界面只展示、执行在工具循环里）。 */
-const TOOL_IDS = ["current_time", "web_search"];
+const TOOL_IDS = ["current_time", "read_file", "read_image", "web_search"];
+
+/**
+ * 能读进上下文的文本上限。宿主 `agent.complete` 的 system 上限是 32 KiB，
+ * 整个会话窗口也有限，所以一次别把整个仓库读进去 —— 截断时明确告诉模型
+ * 「还有更多」，而不是悄悄给半截让它以为读完了。
+ */
+const READ_TEXT_LIMIT = 24000;
+const READ_RANGE_LIMIT = 4 * 1024 * 1024;
+
+/** 扩展名 → 图片 MIME。判断不了就当二进制，不硬猜。 */
+const IMAGE_MIME = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  bmp: "image/bmp",
+};
+
+function imageMimeFor(path) {
+  const name = String(path || "");
+  const dot = name.lastIndexOf(".");
+  if (dot === -1) return "";
+  return IMAGE_MIME[name.slice(dot + 1).toLowerCase()] || "";
+}
+
+/**
+ * 文本文件读取。
+ *
+ * `api.fs.readText` 的路径是**相对于规则根目录**的：本插件声明
+ * `manifest.fs.read.root = "workspace"`，主进程还会把「已经在项目目录里的绝对路径」
+ * 折算成相对路径（plugin-runtime.ts 的 resolveRegisteredFolderRequest），
+ * 所以这里两种写法都收，交给宿主判定 —— 越界它会明确报 PERMISSION_DENIED。
+ */
+/**
+ * 附件落地目录（工作区内）：粘贴/拖入的文件先存到这里。
+ *
+ * 为什么必须落盘：
+ *   1. **图片进不了模型。** 宿主 `agent.complete` 的入参是纯文本
+ *      （`messages: {role, content: string}[]`，没有图片字段），插件也没有任何
+ *      「往消息里放附件」的通道（`composer.attachments.add` 只作用于主窗口的
+ *      composer，悬浮窗是独立窗口够不着）。所以走宿主本来就支持的那条路：
+ *      把文件放进**工作区**，把**路径**写进消息（`@路径`），让 Agent 用它自带的
+ *      read 工具去读 —— 多模态识别由 Agent 那边的模型完成，插件只负责把文件放对地方。
+ *   2. 粘贴进来的图片（截图）**没有文件路径**，只能由页面把字节交给进程写下来。
+ *      而插件的 pi.fs.* 只有 `writeText`（UTF-8），写不了图片字节；能用的是
+ *      **插件进程里的 node:fs** —— 宿主自己的安全说明写明插件 main 跑在
+ *      utilityProcess 里、带原生 Node 能力（`pi.*` 网关并不约束它），
+ *      宿主自带的 pi.file-manager 也是这么干的。
+ *
+ * ⚠️ 因此这里的边界由我们自己守：只写 `.summon/uploads/`、文件名只保留扩展名，
+ * 其它信息一概不用 —— 页面的输入永远拼不出这个目录之外的路径。
+ */
+const UPLOAD_DIR_PARTS = [".summon", "uploads"];
+const UPLOAD_MAX_BYTES = 24 * 1024 * 1024;
+
+function uploadExt(name) {
+  const m = /\.([A-Za-z0-9]{1,8})$/.exec(String(name || ""));
+  return m ? "." + m[1].toLowerCase() : "";
+}
+
+/**
+ * 把页面上传的字节写进工作区的 `.summon/uploads/`。
+ *
+ * `rootHint` 是用户在悬浮窗选的项目目录（可能为空 → 用进程 cwd）。
+ * 返回**相对工作区的路径**（`@.summon/uploads/…`），这样 Agent 的 read 工具
+ * 直接就能读到，不依赖绝对路径。
+ */
+function stageUpload(input) {
+  const payload = input && typeof input === "object" ? input : {};
+  const name = String(payload.name || "file");
+  let bytes = null;
+  if (payload.bytes instanceof Uint8Array) bytes = payload.bytes;
+  else if (payload.bytes instanceof ArrayBuffer) bytes = new Uint8Array(payload.bytes);
+  else if (typeof payload.text === "string") {
+    bytes = typeof Buffer !== "undefined"
+      ? Buffer.from(payload.text, "utf8")
+      : new TextEncoder().encode(payload.text);
+  }
+  if (!bytes) return { ok: false, error: "INVALID_ARGUMENT", message: "没有可写入的内容" };
+  if (bytes.byteLength > UPLOAD_MAX_BYTES) {
+    return { ok: false, error: "TOO_LARGE", message: "文件太大（上限 24 MB）" };
+  }
+
+  let fs;
+  let path;
+  try {
+    fs = require("node:fs");
+    path = require("node:path");
+  } catch (err) {
+    return { ok: false, error: "UNSUPPORTED", message: "进程里没有 node:fs" };
+  }
+
+  const root = String(payload.rootHint || "").trim() || process.cwd();
+  // 文件名只保留我们自己生成的那部分，扩展名之外一个字符都不用页面的输入。
+  const stamp = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const ext = uploadExt(name) || (payload.isImage ? ".png" : ".txt");
+  const base = "upload-" + stamp + ext;
+  const dir = path.join(root, UPLOAD_DIR_PARTS[0], UPLOAD_DIR_PARTS[1]);
+  const full = path.join(dir, base);
+
+  // 双保险：拼出来的绝对路径必须在目标目录里。
+  if (path.dirname(path.resolve(full)) !== path.resolve(dir)) {
+    return { ok: false, error: "INVALID_ARGUMENT", message: "文件名不合法" };
+  }
+
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(full, bytes);
+  } catch (err) {
+    return {
+      ok: false,
+      error: "WRITE_FAILED",
+      message: (err && err.message) || String(err),
+      root: root,
+    };
+  }
+  return {
+    ok: true,
+    path: UPLOAD_DIR_PARTS.join("/") + "/" + base,
+    fullPath: full,
+    bytes: bytes.byteLength,
+    name: String(payload.displayName || name),
+  };
+}
+
+async function readTextFile(path) {  const api = host();
+  const target = String(path || "").trim();
+  if (!target) return { ok: false, error: "INVALID_ARGUMENT", message: "缺少 path" };
+  if (!hasFn(api && api.fs, "readText")) {
+    return { ok: false, error: "UNSUPPORTED", message: "宿主没有 pi.fs.readText（需要 fs.read 权限）" };
+  }
+  try {
+    const text = await api.fs.readText(target);
+    const full = typeof text === "string" ? text : String(text == null ? "" : text);
+    const truncated = full.length > READ_TEXT_LIMIT;
+    return {
+      ok: true,
+      path: target,
+      text: truncated ? full.slice(0, READ_TEXT_LIMIT) : full,
+      bytes: full.length,
+      truncated: truncated,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: (err && err.code) || "READ_FAILED",
+      message: (err && err.message) || String(err),
+    };
+  }
+}
+
+/**
+ * 图片读取。**只取元信息，不把像素塞进上下文** ——
+ * 宿主 `agent.complete` 的入参是纯文本（`{role, content: string}`），没有图片字段，
+ * 所以「把图给模型看」这条路在插件 API 下不存在。返回 dataUrl 是给**界面**画缩略图的。
+ */
+async function readImageFile(path) {
+  const api = host();
+  const target = String(path || "").trim();
+  if (!target) return { ok: false, error: "INVALID_ARGUMENT", message: "缺少 path" };
+  if (!hasFn(api && api.fs, "readPreview")) {
+    return { ok: false, error: "UNSUPPORTED", message: "宿主没有 pi.fs.readPreview（需要 fs.read 权限）" };
+  }
+  try {
+    const preview = await api.fs.readPreview(target);
+    const kind = preview && preview.kind;
+    if (kind === "tooLarge") {
+      return { ok: false, error: "TOO_LARGE", message: "图片太大，宿主拒绝预览", size: preview.size };
+    }
+    if (kind === "text") {
+      return {
+        ok: false,
+        error: "NOT_AN_IMAGE",
+        message: "这不是图片（宿主把它当文本了），用 read_file 读",
+        size: preview.size,
+      };
+    }
+    if (kind !== "image") {
+      return { ok: false, error: "NOT_AN_IMAGE", message: "不是可预览的图片格式", size: preview && preview.size };
+    }
+    return {
+      ok: true,
+      path: target,
+      dataUrl: preview.dataUrl || "",
+      size: preview.size,
+      mimeType: imageMimeFor(target) || "image/*",
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: (err && err.code) || "READ_FAILED",
+      message: (err && err.message) || String(err),
+    };
+  }
+}
+
+/** 工具结果回灌给模型的文本。 */
+function formatFileResult(result) {
+  if (!result.ok) {
+    return "工具结果(read) 失败：" + (result.message || result.error || "未知错误") +
+      "\n请如实说明读不到这个文件，不要猜测它的内容。";
+  }
+  return (
+    "工具结果(read_file) " + result.path + "（" + result.bytes + " 字符" +
+    (result.truncated ? "，只给了前 " + READ_TEXT_LIMIT + " 字符，后面还有内容" : "") + "）：\n" +
+    result.text
+  );
+}
+
+function formatImageResult(result) {
+  if (!result.ok) {
+    return "工具结果(read_image) 失败：" + (result.message || result.error || "未知错误");
+  }
+  return (
+    "工具结果(read_image) " + result.path + "：这是一张图片，" + result.size + " 字节，格式 " +
+    result.mimeType + "。**你看不到图片内容**（当前接口不支持把图片传给模型），" +
+    "请如实告诉用户你只能确认这个文件存在，不要编造画面内容。"
+  );
+}
 /**
  * 一轮里「读时钟 + 搜索 + 再读时钟…」的总次数上限，防止弱模型对着工具反复打转。
  * 与用户可调的 `maxToolRounds`（只管搜索）分开：时钟是白给的，不该占搜索的额度。
@@ -1515,6 +1734,52 @@ async function runQuickChat(input) {
     const call = extractToolCall(answer);
     if (!call) break; // 不是工具调用 → 这就是最终回答
 
+    /**
+     * 读文件。和时钟一样**不占搜索的轮次额度**（`maxRounds` 是用户为「联网搜索」
+     * 设的预算，读本地文件不该花它），但仍受 `MAX_TOOL_CALLS` 兜底。
+     */
+    if (call.tool === "read_file" || call.tool === "read_image") {
+      if (rounds >= MAX_TOOL_CALLS) break;
+      rounds++;
+      const wantPath = typeof call.path === "string" ? call.path.trim() : "";
+      const isImage = call.tool === "read_image";
+      const stepAt = setProgress("tool", "正在读取" + (wantPath || "文件") + "…", rounds, {
+        kind: "tool",
+        phase: "tool",
+        detail: (isImage ? "正在读取图片 " : "正在读取 ") + (wantPath || "?") + "…",
+        round: rounds,
+        status: "running",
+        at: Date.now(),
+      });
+      const read = isImage ? await readImageFile(wantPath) : await readTextFile(wantPath);
+      trace.push({
+        round: rounds,
+        tool: call.tool,
+        ok: read.ok,
+        provider: "local",
+        count: 0,
+        error: read.ok ? null : read.error || "READ_FAILED",
+        detail: read.ok
+          ? (isImage
+            ? (wantPath + " · " + read.size + " 字节 · " + read.mimeType)
+            : (wantPath + " · " + read.bytes + " 字符" + (read.truncated ? "（已截断）" : "")))
+          : (wantPath + "：" + (read.message || read.error || "读取失败")),
+        // 缩略图走这里给界面；**不进模型上下文**（模型看到的正文在 formatImageResult 里）。
+        results: [],
+        thumbnail: read.ok && isImage ? read.dataUrl || null : null,
+      });
+      updateProgressStep(stepAt, {
+        status: read.ok ? "done" : "error",
+        detail: trace[trace.length - 1].detail,
+      });
+      messages.push({ role: "assistant", content: answer });
+      messages.push({
+        role: "user",
+        content: isImage ? formatImageResult(read) : formatFileResult(read),
+      });
+      continue;
+    }
+
     // 时钟：本地计算，不花搜索的轮次额度。
     // ⚠️ 它的闸门**不能**用 `rounds >= maxRounds` —— 不开联网搜索时 maxRounds 是 0，
     // 于是 `0 >= 0` 直接把这一支掐掉，角色越「干净」越用不了时间工具（第一次写就是这样）。
@@ -2641,9 +2906,18 @@ async function onPanelInvoke(channel, payload) {
     case "summon.chat.configureSession":
       return await configureSession(payload && payload.sessionId, payload && payload.config);
 
+    /**
+     * 粘贴 / 拖入的文件落到工作区。
+     *
+     * 页面把**字节**交过来（拖入的先用 `fs.registerDropped` 拿一次性读权限再
+     * `fs.readRange`；粘贴的图片直接从 paste 事件的 File 读），这里用进程里的
+     * node:fs 写进 `.summon/uploads/`，回一个相对路径给界面和 Agent。
+     */
+    case "summon.chat.stageUpload":
+      return stageUpload(payload);
+
     /** 悬浮窗要显示 / 绑定「当前项目文件夹」时问这两个通道。 */
-    case "summon.chat.currentProject":
-      return await currentProject(
+    case "summon.chat.currentProject":      return await currentProject(
         payload && payload.sessionId,
         payload && payload.pendingPath,
       );

@@ -315,12 +315,68 @@ npm run renderer:check   # 校验产物是否与模板/设计基座一致（已�
   `tools/check-vendor-effects.mjs` 里专门有一条断言守住「模板从不把填充图标交进去」。
   动效装不上时**保留原来的 `<use>` 图标**：装饰不该让一个操作入口变成空白按钮。
 
-## 工具：`current_time` 与 `web_search`
+## 附件：粘贴 / 拖入文件
+
+输入框上方会出现一条附件栏：图片给缩略图，其它给文件名 + 大小。发送时附件以
+`@路径` 的形式跟在正文后面（和主窗口 composer 的引用语法一致）。
+
+![附件](../../docs/preview/attach-dark.png)
+
+### 为什么是「路径」而不是「把内容塞进消息」
+
+**因为图片根本进不了模型。** 查证如下：
+
+- `pi.agent.complete` 的入参是纯文本：`messages?: Array<{role, content: string}>`
+  （plugin-sdk `PluginCompleteInput`）——**没有图片字段**。
+- 插件也**没有**任何「往消息里放附件」的通道：`composer.attachments.add`
+  （`renderer-composer.ts`）只作用于**主窗口 composer 的草稿**，而悬浮窗是独立窗口、
+  够不着那个 bridge。
+- 所以哪怕模型支持图片（`PluginModelInfo.supportsImages`），插件也没有一条路把像素交过去。
+
+于是走宿主本来就支持的那条路：**把文件放进工作区，把路径写进消息**。
+Agent 模式下由 Agent 自己的 `read` 工具读（多模态识别由 Agent 那边的模型完成）；
+快捷对话由下面的 `read_file` / `read_image` 读。
+
+### 文件怎么落盘
+
+| 来源 | 怎么拿到内容 |
+|---|---|
+| 拖入文件 | preload 的 `pluginBridge.getDroppedFilePath(file)` 拿真实路径 → `fs.registerDropped` 换一次性读权限 → `fs.readRange` 取字节 |
+| 粘贴文件 / 截图 | `paste` 事件的 `File` 直接读字节（**没有路径**，只能这样） |
+| 落地 | 交给插件进程写进工作区 `.summon/uploads/` |
+
+⚠️ **写字节用的是插件进程里的 `node:fs`，不是 `pi.fs`。** 宿主给插件的写接口只有
+`fs.writeText`（写死 UTF-8，写不了图片）。宿主自己的安全说明写明：插件 main 跑在
+`utilityProcess` 里、带原生 Node 能力，`pi.*` 网关并不约束它（宿主自带的 pi.file-manager
+也是直接用 `node:fs`）。
+
+**边界由插件自己守**：只写 `.summon/uploads/`，写到磁盘的文件名**只保留扩展名**、
+其余部分自己生成 —— 页面的输入永远拼不出这个目录之外的路径。
+`tools/smoke-chat.mjs` 里有两条断言盯着它：`../../evil.sh` 写不出去、超过 24 MB 被拒。
+
+`.summon/` 会在你的项目里创建（只在你发过附件之后）。想清掉直接删这个目录。
+
+## 工具：`current_time`、`read_file`、`read_image` 与 `web_search`
 
 宿主给插件的 `agent.complete` 是 `tools: []` —— **没有函数调用**。所以工具循环是**约定**做的：
-模型输出一行 JSON 申请工具，插件执行，把结果当成一条 user 消息回灌。两个工具：
+模型输出一行 JSON 申请工具，插件执行，把结果当成一条 user 消息回灌。四个工具：
 
 | 工具 | 什么时候可用 | 是什么 |
+|---|---|---|
+| `current_time` | **始终可用** | 本地读时钟 + 时区/UTC 偏移/星期，不走网、不花钱 |
+| `read_file` | **始终可用** | 读工作区里的文本文件（代码、md、json、日志） |
+| `read_image` | **始终可用** | 只回报路径/尺寸/格式，**明确告诉模型它看不到画面** |
+| `web_search` | 角色的「联网搜索」打开时 | 见下面「搜索」一节 |
+
+`read_file` 一次最多 24000 字符，截断时会**明确告诉模型「后面还有内容」**，
+而不是悄悄给半截让它以为读完了。越界（`../secret`）由宿主报 `PERMISSION_DENIED`，
+错误原文回灌给模型，它必须如实说读不到。
+
+`read_image` 是个**诚实**的工具：接口给不了像素，所以它回报元信息并明确要求模型
+「不要编造画面内容」。要真正看图，用 Agent 模式（那边的 `read` 工具能出图），
+或者在消息里带上路径让 Agent 去读。
+
+
 |---|---|---|
 | `current_time` | **始终可用**（不看角色的联网开关） | 本地读时钟 + 时区/UTC 偏移/星期，**不走网、不花钱** |
 | `web_search` | 角色的「联网搜索」打开时 | 见下面「搜索」一节 |
@@ -616,6 +672,11 @@ Agent 模式的工具行以前把**结果原文**压成一行截断显示，于�
 | `agent.complete` | high | 快捷对话（花你的额度） |
 | `desktop.control` | high | Agent 模式 |
 | `net.fetch` / `net.anyHost` | high | 联网搜索（后者允许自填端点） |
+| `clipboard.read` | medium | 读剪贴板历史（粘贴图片用） |
+| `fs.read` | medium | `read_file` / `read_image`，以及拖入文件的字节 |
+
+`manifest.fs.read` 是 `{ root: "workspace", scope: ["**/*"] }` —— 只读工作区。
+写权限**没有**声明也不需要：附件落盘用的是插件进程里的 `node:fs`（见「附件」一节）。
 
 `check` 会对 `net.fetch` / `net.anyHost` 报一条 high-risk 提示 —— 那是预期的。
 
