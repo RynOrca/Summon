@@ -576,6 +576,10 @@ details.think > .body {
 .trace-step.ok .si { color: var(--text-disabled); }
 .trace-step.err .si { color: var(--error); }
 .trace-step.err .lb { color: var(--error); }
+/* 正在跑的那一行：文字用主色（其余步骤是次要色），一眼能看出「现在卡在这一步」。 */
+.trace-step.running .lb { color: var(--text-primary); }
+.trace-step.running .sub { color: var(--text-secondary); }
+.trace-step.running .si { color: var(--accent); }
 /* 源包 sprite 里的图标是填充型（path 自带 fill="currentColor"），默认会吃 CSS 的
    `color`，跑完一条就整排绿勾，比正文还抢眼。所以这里统一压成与其它图标同一个灰，
    只有出错那一行保留红色。 */
@@ -895,9 +899,11 @@ __ICONS__
 
         var HEARTBEAT_MS = 2000;
         var AGENT_POLL_MS = 1500;
-        // 轮次运行中的节奏。见 renderTranscript 下方 setAgentPollingRate 的说明：
-        // 工具行是「边跑边落盘」的，1.5s 一次会让它们一顿一顿地冒出来。
-        var AGENT_POLL_FAST_MS = 600;
+        // 轮次运行中的节奏。工具行是「边跑边落盘」的，1.5s 一次会让它们一顿一顿地冒出来；
+        // 用户要的是「发送后立刻能看到它在思考 / 在调什么工具」，所以跑着的时候压到 400ms
+        // —— 每次只是一个 `session/get`（read 级、不弹确认框），代价可以接受。
+        // 轮次一停就退回 1.5s，不白烧 CPU。
+        var AGENT_POLL_FAST_MS = 400;
         var PROGRESS_POLL_MS = 500;
 
         // 设计 §12.1 / 档位标签：选项里只放档位词，含义放 title。
@@ -1360,6 +1366,63 @@ __ICONS__
             $("statusAnim").appendChild(statusSpinner);
           }
         }
+
+        /**
+         * Agent 模式的状态行：**说清楚它此刻在干什么**，而不是一律「正在思考…」。
+         *
+         * 宿主没有把「实时运行状态」给插件（`plugins.broadcastEvent` 的全集只有四个：
+         * appearance / modelChanged / turnEnded / workspace，**没有** turn 内的事件，
+         * 也没有「列出待批授权」的操作）。所以这里用的是宿主**边跑边落盘**的那份
+         * transcript：工具行在 tool_start 就以 `running` 落盘、tool_end 再补结果
+         * （`renderKeeyed` 的注释里记着这条）。刷新够快时，它就是实时的。
+         *
+         * 三个信息：最近的思考片段、正在调用的工具、以及「可能正在等授权」。
+         */
+        function renderAgentRunningStatus(t) {
+          var msgs = (t && t.messages) || [];
+          var steps = stepsFromMessages(msgs, null, true);
+          var last = steps.length ? steps[steps.length - 1] : null;
+          var stalledMs = Date.now() - (agent.lastChangeAt || Date.now());
+
+          if (last && last.status === "running" && last.kind === "tool") {
+            var name = last.label || "工具";
+            // 时间线那一行的 sub 已经带了「正在调用 · 」前缀，这里只取参数部分，
+            // 免得拼出「正在调用 X：正在调用 · …」。
+            var argText = String(last.sub || "").replace(/^正在调用\s*·\s*/, "").replace(/^正在调用…$/, "");
+            // 停留超过 20s 且一行都没新增：最可能的原因是宿主要在**主窗口**弹授权卡片，
+            // 而那张卡片悬浮窗看不到、也答不了。与其让它看起来卡死，不如直接指路。
+            if (stalledMs > 20000) {
+              setStatus("「" + name + "」还没有结果 —— 如果主窗口弹出了授权卡片，去那里点允许（悬浮窗看不到那张卡片）");
+            } else {
+              setStatus("正在调用 " + name + (argText ? "：" + argText.slice(0, 60) : "") + "…");
+            }
+            return;
+          }
+          if (last && last.status === "running" && last.kind === "search") {
+            setStatus(last.label ? last.label + "…" : "正在联网检索…");
+            return;
+          }
+          // 还没有工具、只有思考（或者连思考都还没落盘）。
+          var thinking = lastThinkingText(msgs);
+          if (thinking) {
+            setStatus("正在思考：" + thinking.slice(0, 80) + (thinking.length > 80 ? "…" : ""));
+            return;
+          }
+          setStatus(stalledMs > 45000
+            ? "仍在进行。若长时间无变化，可能是在等主窗口的操作，或这一轮的输出还没落盘"
+            : "Agent 正在思考…");
+        }
+
+        /** 最新一条思考文本（宿主把 thinking 放在同一条消息里）。 */
+        function lastThinkingText(messages) {
+          for (var i = messages.length - 1; i >= 0; i--) {
+            var m = messages[i];
+            if (m && typeof m.thinking === "string" && m.thinking) {
+              return m.thinking.replace(/\s+/g, " ").trim();
+            }
+          }
+          return "";
+        }
         function stopProgress() {
           // 快捷对话的状态行现在由 pollQuickTurn 全权负责（它每 400ms 读插件的
           // 真实相位，并且在拿到结果时收尾），所以这里只剩一个幂等的收尾动作。
@@ -1821,7 +1884,7 @@ __ICONS__
         }
         /**
          * 一行步骤。`openIds` 是这一组上次渲染时被展开的行 —— 重画时把展开状态
-         * 还回去，否则每 0.6s 一次轮询都会把用户刚点开的那一行合上。
+         * 还回去，否则每 0.4s 一次轮询都会把用户刚点开的那一行合上。
          * `marker` 是**复用的加载动效节点**：正在跑的那一行换行时把同一个节点
          * 搬过去，动画不会从头开始。
          */
@@ -1911,9 +1974,21 @@ __ICONS__
          * 其余步骤用「语义 + 轮次」做键 —— **不能用 label**：思考那一行的 label
          * 就是内容摘要，内容一变键就变，用户刚展开的那一行会被合上。
          */
+        /**
+         * 步骤的稳定键 —— 重画时用它把展开状态还回去。
+         *
+         * ⚠️ `step.live` 不能一律返回 "live"：一轮里会有**很多** live 步骤
+         * （当前在跑的思考、正在调用的工具…），它们会撞在同一个键上，
+         * 于是 keyed 渲染把它们当成同一条互相覆盖 —— 表现就是「正在调用工具时，
+         * 思考那一行被工具那行顶掉」。带上 kind / round / 标签才唯一。
+         */
         function traceStepKey(step) {
-          if (step.live) return "live";
-          return [step.kind, step.round == null ? "" : step.round, step.sub || ""].join("~");
+          return [
+            step.live ? "live" : "step",
+            step.kind || "",
+            step.round == null ? "" : step.round,
+            step.label || "",
+          ].join("~");
         }
         /**
          * 把一次提问处理的全部痕迹拼成一条可折叠的时间线。
@@ -1984,10 +2059,19 @@ __ICONS__
               if (t.durationMs) sub = (sub ? sub + " · " : "") + formatDuration(t.durationMs);
               steps.push({
                 kind: "tool",
-                status: t.status === "error" || t.status === "denied" ? "error" : "success",
+                // ⚠️ 以前这里只有 error/denied → error、其余 → success，所以**正在调用**
+                // 的工具会被画成「已完成」。宿主的 transcript 在 tool_start 就以
+                // `running` 落盘、tool_end 再补结果，这个状态必须原样保留，
+                // 否则用户看到的是「已经跑完了」而其实还在等（等授权时尤其误导）。
+                status: t.status === "error" || t.status === "denied" ? "error"
+                  : (t.status === "running" ? "running" : "success"),
                 tookMs: t.durationMs || 0,
                 label: t.name || "工具",
-                sub: sub,
+                // 正在跑的行说「正在调用」，不留白让人以为卡住了（状态行另外还会说一次，
+                // 那是它自己的句子，两者不重复）。
+                sub: t.status === "running"
+                  ? (sub ? "正在调用 · " + sub : "正在调用…")
+                  : sub,
                 args: t.args, result: t.result, urls: urls.slice(0, 8),
               });
             }
@@ -3184,12 +3268,9 @@ __ICONS__
               setAgentPollingRate(status === "running");
               if (status === "running") {
                 // 悬浮窗看不到也答不了宿主的授权卡片（插件事件目录里没有权限事件，
-                // 也没有「列出待批请求」的操作），所以长时间没变化时明确告诉用户
-                // 该去哪儿处理，而不是让它看起来只是卡住了。
-                var stalled = Date.now() - (agent.lastChangeAt || Date.now());
-                setStatus(stalled > 45000
-                  ? "仍在进行。若长时间无变化，可能在等主窗口的授权卡片 —— 可在 ☰ 里把「权限模式」改成「允许编辑」或「全自动」"
-                  : "正在思考…");
+                // 也没有「列出待批请求」的操作），所以状态行要说清**此刻在干什么**，
+                // 并在疑似等授权时明确指路 —— 见 renderAgentRunningStatus。
+                renderAgentRunningStatus(res.transcript);
               } else if (!busy) setStatus("");
             })
             .catch(function () {});

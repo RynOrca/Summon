@@ -396,6 +396,34 @@ Agent 模式下由 Agent 自己的 `read` 工具读（多模态识别由 Agent �
 **要看图就用 Agent 模式。** 文本文件（代码 / md / json / 日志）在快捷对话里照常可以上传，
 `read` 工具会读它们。
 
+## Agent 模式的实时状态
+
+Agent 会话跑在**主窗口那边**，但悬浮窗必须让你看到它此刻在干什么。发送后：
+
+- **状态行**（输入框上方，带曲线加载动效）显示的是**具体动作**，而不是一句「正在思考」：
+  `正在调用 tavily-search：刘备 去世时间 卒…` / `正在思考：<最新思考片段>…`
+- **时间线**里正在跑的那一步是 `running` 态：标签用主色、图标用强调色，
+  句子写「正在调用」而不是留白；
+- **疑似在等授权**时明确指路：某个工具停留超过 20 秒且一行都没新增，状态行会说
+  「「Bash」还没有结果 —— 如果主窗口弹出了授权卡片，去那里点允许（悬浮窗看不到那张卡片）」。
+
+### 数据从哪儿来（以及为什么不是推送）
+
+宿主的 `plugins.broadcastEvent` 全集只有四个：
+`appearance:changed`、`session:modelChanged`、`session:turnEnded`、`workspace:changed`
+—— **没有**轮次内的事件，也**没有**「列出待批授权」的操作（`agent/askTool/resolve` 只能
+**回答**授权，不能列出待批的）。`session:turnEnded` 是终态事件，只能用来收尾。
+
+所以实时性来自**宿主自己边跑边落盘的那份 transcript**：工具行在 tool_start 就以
+`status: "running"` 落盘，tool_end 再补结果。轮询在轮次运行期间压到 **400ms**
+（停下退回 1.5s），每次只是一个 `session/get`（read 级、不弹确认框）。
+
+> ⚠️ 这里修掉了两个真 bug。其一：`stepsFromMessages` 原先把工具状态写成
+> 「error/denied → error、**其余 → success**」，于是**正在调用**的工具被画成「已完成」。
+> 其二：`traceStepKey` 对 `step.live` 一律返回 `"live"`，而一轮里有很多 live 步骤
+> （思考、正在调用的工具…），它们撞在同一个键上互相覆盖 —— 表现就是「工具在跑时，
+> 思考那一行被顶掉」。键现在带 kind / round / label。
+
 ## 输入区：按钮和项目名在同一行，都在最底下
 
 ```
