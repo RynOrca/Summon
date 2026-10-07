@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "local.summon-chat",
   "name": "Summon Chat",
-  "version": "0.17.0",
+  "version": "0.19.0",
   "description": "A floating chat window summoned by a global hotkey: talk to a real PI-Desktop session (Agent mode) or to a quick chat with web search. Custom preset roles.",
   "i18n": {
     "en": {
@@ -18,10 +18,9 @@
   "main": "main.js",
   "ui": {
     "panel": "renderer/index.html",
-    "shape": "widget",
-    "width": 360,
+    "shape": "panel",
+    "width": 420,
     "height": 660,
-    "alwaysOnTop": true,
     "title": {
       "en": "Summon Chat",
       "zh-CN": "鲸唤 Summon"
@@ -72,8 +71,7 @@
     "globalShortcuts": [
       {
         "id": "toggle",
-        "command": "summon.chat.toggle",
-        "default": "Alt+Shift+C"
+        "command": "summon.chat.toggle"
       }
     ],
     "settings": [
@@ -106,30 +104,34 @@
       {
         "key": "appearance",
         "title": "外观",
-        "description": "跟随系统 / 深色（纯黑）/ 浅色。",
+        "description": "跟随主软件（默认，用 PI-Desktop 自己的配色并实时跟随它的主题）/ 深色 / 浅色 / 跟随系统。窗口里的「设置 → 外观」是同一份数据。",
         "type": "select",
-        "default": "system",
+        "default": "host",
         "enum": [
           {
-            "label": "跟随系统",
-            "value": "system"
+            "label": "跟随主软件",
+            "value": "host"
           },
           {
-            "label": "深色（纯黑）",
+            "label": "深色",
             "value": "dark"
           },
           {
             "label": "浅色",
             "value": "light"
+          },
+          {
+            "label": "跟随系统",
+            "value": "system"
           }
         ]
       },
       {
         "key": "fontSize",
         "title": "字体大小",
-        "description": "界面基础字号，12–20 px。",
+        "description": "界面基础字号，12–20 px（跟随主软件时会再乘上主软件的字体缩放）。",
         "type": "number",
-        "default": 13
+        "default": 15
       },
       {
         "key": "opacity",
@@ -188,7 +190,8 @@
     "domains": [
       "html.duckduckgo.com",
       "lite.duckduckgo.com",
-      "duckduckgo.com"
+      "duckduckgo.com",
+      "www.bing.com"
     ]
   },
   "engines": {

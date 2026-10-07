@@ -5,6 +5,10 @@
  *   组件/窗口框架 index.html:169–511
  * 图标 sprite 在 index.html:115–161（22 个 symbol），需内联进页面。
  * 文档页脚手架（侧栏/状态画廊/响应式演示）已排除。
+ *
+ * 这里导出的是原型的**结构与 Token 名**。插件实际使用的**颜色值**在
+ * renderer/renderer.template.html 的「与 PI-Desktop 主软件统一」块里被换成
+ * 主软件自己的设计 Token（灰阶 + 中性强调色），所以不要在这里改颜色。
  * ------------------------------------------------------------------------ */
 /* ============ Design Tokens（与 design.md §1 一致）============ */
 :root, [data-theme="light"]{
@@ -446,10 +450,3 @@ kbd.conflict{border-color:var(--warning); color:var(--warning)}
   *,*::before,*::after{animation-duration:1ms !important; transition-duration:1ms !important}
   .view.on,.hist-drawer.show .hist-item{animation:none; opacity:1; transform:none}
 }
-
-/* ------------------------------------------------------------------------
- * 对设计的唯一偏离：用户明确要求暗色主题底色为**纯黑**，
- * 而设计的暗色底面是近黑色（--bg: #191B1F）。
- * 以覆写规则追加而不是改写 Token 块，这样上面引入的 Token 与源包保持逐字节一致。
- * ------------------------------------------------------------------------ */
-[data-theme="dark"]{ --bg:#000000; }

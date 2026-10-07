@@ -26,10 +26,91 @@ const DEFAULT_ACCELERATOR = "Alt+Shift+C";
  */
 const FALLBACK_ACCELERATORS = ["Alt+Shift+C", "Alt+Shift+Q", "Alt+Shift+J", "F3"];
 
-const HEARTBEAT_TTL_MS = 6000;
+/**
+ * Only ONE registration is ever live under the id below.
+ *
+ * The manifest used to declare `contributes.globalShortcuts[].default` as well,
+ * and the host registers that declared accelerator by itself
+ * (`plugin-runtime.ts: registerDeclaredShortcuts`, after the child's onLoad).
+ * The plugin process also registers imperatively. For the shipped default the
+ * two collided on the same accelerator and the registry refused the second one,
+ * so it looked harmless — but the moment the user recorded a different key, the
+ * imperative registration moved to the new key while the host's duplicate
+ * stayed on `Alt+Shift+C`: two working system-wide toggles, one of them
+ * invisible in the UI. The manifest no longer declares a default
+ * (the field is optional, `02-plugin-manifest-schema`), which leaves this
+ * process as the single owner of the binding.
+ */
 
-/** The host binds a `shortcut` setting in-app too; swallow the double delivery. */
+/**
+ * Swallow a keypress the host delivers twice. Narrow on purpose: a deliberate
+ * double-press is ~150ms apart at best, and 350ms of de-duplication is still
+ * shorter than a human's second tap after watching the window react.
+ */
 const TOGGLE_DEBOUNCE_MS = 350;
+
+// -------------------------------------------------------- host appearance
+/**
+ * The UI follows PI-Desktop's own appearance by default（「跟随主软件」）。
+ *
+ * The host publishes it two ways, both verified in the 0.16.1 source:
+ *   - `pi.app.getAppearance()` — resolved `{ theme, base, locale, pluginTheme }`
+ *     (`plugin-sdk/src/index.ts: PluginAppearance`; host half is
+ *     `app-lifecycle.ts: resolveAppearance`);
+ *   - the panel event `appearance:changed`, broadcast to every open panel and
+ *     every loaded plugin process (`app-lifecycle.ts: broadcastAppearance`).
+ *
+ * The page subscribes to the event; the plugin process pulls and caches the same
+ * value so a page that opens later starts from the host's *current* palette
+ * instead of waiting for the next change.
+ */
+const HOST_APPEARANCE_MODE = "host";
+const APPEARANCE_MODES = [HOST_APPEARANCE_MODE, "system", "dark", "light"];
+
+/** Answer used until the host has been asked: neutral, and never a crash. */
+const DEFAULT_HOST_APPEARANCE = {
+  theme: "system",
+  base: "system",
+  locale: "",
+  fontScale: 1,
+};
+
+function clampNumber(value, min, max, fallback) {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!isFinite(n)) return fallback;
+  if (n < min) return min;
+  if (n > max) return max;
+  return n;
+}
+
+/** Normalise whatever the host returns into the shape the page consumes. */
+function normalizeHostAppearance(raw) {
+  const value = raw && typeof raw === "object" ? raw : {};
+  const base = value.base === "light" || value.base === "dark" ? value.base : "system";
+  return {
+    theme: typeof value.theme === "string" && value.theme ? value.theme : "system",
+    // `base` is the *resolved* palette; "system" only means the host could not
+    // resolve it, and the page then follows the OS exactly like the app does.
+    base: base,
+    locale: typeof value.locale === "string" ? value.locale : "",
+    // `getAppearance` does not publish the Appearance font scale yet. Read it
+    // when it appears, so the day the host adds it the page scales for free.
+    fontScale: clampNumber(value.fontScale, 0.8, 1.6, 1),
+  };
+}
+
+/** Read the host's current appearance. Best effort: a failure keeps the cache. */
+async function readHostAppearance() {
+  const api = host();
+  if (!hasFn(api && api.app, "getAppearance")) return hostAppearance;
+  try {
+    hostAppearance = normalizeHostAppearance(await api.app.getAppearance());
+  } catch (err) {
+    // The panel can be summoned before the host resolves its palette; the page
+    // then keeps its own default until the next read.
+  }
+  return hostAppearance;
+}
 
 const COMMAND_IDS = [
   "summon.chat.toggle",
@@ -48,7 +129,7 @@ const DEFAULT_MAX_TOOL_ROUNDS = 3;
  * 与 manifest.json 的 version 保持一致（smoke 测试会断言两者相等，防止漂移）。
  * 暴露给界面显示：判断「到底加载的是哪个版本」时，这是最直接的证据。
  */
-const PLUGIN_VERSION = "0.17.0";
+const PLUGIN_VERSION = "0.19.0";
 /** Keep the wire prompt well inside the host's 200k combined-character cap. */
 const MAX_HISTORY_MESSAGES = 20;
 const SEARCH_RESULT_LIMIT = 5;
@@ -56,6 +137,8 @@ const SEARCH_TIMEOUT_MS = 15000;
 
 const DDG_HTML_ENDPOINT = "https://html.duckduckgo.com/html/";
 const DDG_LITE_ENDPOINT = "https://lite.duckduckgo.com/lite/";
+/** 免配置兜底：DuckDuckGo 在不少网络里连不上（见 builtInSearch 的说明）。 */
+const BING_ENDPOINT = "https://www.bing.com/search?q=";
 
 /** DDG serves a challenge page to unknown agents, so send a browser-ish one. */
 const BROWSER_UA =
@@ -63,19 +146,54 @@ const BROWSER_UA =
 
 /**
  * `agent.complete` runs with `tools: []`, so there is no function calling. The
- * tool loop is done by convention instead: the model asks for a search by
- * emitting one JSON line, we run it, and feed the result back as a user turn.
+ * tool loop is done by convention instead: the model asks for a tool by emitting
+ * one JSON line, we run it, and feed the result back as a user turn.
+ *
+ * Two tools:
+ *   · `current_time` — **always available** in quick chat. It is a local
+ *     computation (no network, no API, no cost), and a model that does not know
+ *     today's date will happily answer "深圳今天天气" from its training data or
+ *     search with a stale year. The user has to ask for it to be useful, though,
+ *     which is why the directive has to name it.
+ *   · `web_search` — only when the role has the "联网搜索" switch on; offering it
+ *     to a role that cannot search just makes the model emit JSON forever.
  */
-const TOOL_DIRECTIVE = [
-  "",
-  "## 可用工具",
-  "web_search —— 联网搜索。当你需要最新信息、事实核查或你不确定的内容时使用它。",
-  "",
-  "要使用工具时，**只输出一行 JSON，不要有其他任何文字**：",
-  '{"tool":"web_search","query":"搜索关键词"}',
-  "",
-  "拿到工具结果后，用中文直接给出最终回答，不要再输出 JSON。",
-].join("\n");
+const TOOL_DIRECTIVE = function (allowSearch) {
+  const lines = [
+    "",
+    "## 可用工具",
+    "current_time —— 读取当前日期时间。回答任何与「今天 / 现在 / 最新 / 今年 /",
+    "这周」相关的问题之前，**先调用它**：你不知道今天是哪一天，训练数据里的年份是过期的。",
+  ];
+  if (allowSearch) {
+    lines.push(
+      "web_search —— 联网搜索。需要最新信息、事实核查或你不确定的内容时使用它。",
+      "搜索关键词里如果涉及年份，用 current_time 拿到的真实年份。",
+    );
+  }
+  lines.push(
+    "",
+    "要使用工具时，**只输出一行 JSON，不要有其他任何文字**：",
+  );
+  if (allowSearch) {
+    lines.push(
+      '{"tool":"current_time"}',
+      '{"tool":"web_search","query":"搜索关键词"}',
+    );
+  } else {
+    lines.push('{"tool":"current_time"}');
+  }
+  lines.push("", "拿到工具结果后，用中文直接给出最终回答，不要再输出 JSON。");
+  return lines.join("\n");
+};
+
+/** 模型可以申请的**全部**工具（界面只展示、执行在工具循环里）。 */
+const TOOL_IDS = ["current_time", "web_search"];
+/**
+ * 一轮里「读时钟 + 搜索 + 再读时钟…」的总次数上限，防止弱模型对着工具反复打转。
+ * 与用户可调的 `maxToolRounds`（只管搜索）分开：时钟是白给的，不该占搜索的额度。
+ */
+const MAX_TOOL_CALLS = 6;
 
 // ------------------------------------------------------------ role model
 /** `agent.complete` caps `system` at 32 KiB; clamp rather than fail. */
@@ -194,7 +312,6 @@ function roleById(roles, id) {
 }
 
 // ------------------------------------------------------------------ state
-let lastHeartbeatAt = 0;
 let lastToggleAt = 0;
 let settings = {
   accelerator: DEFAULT_ACCELERATOR,
@@ -203,17 +320,50 @@ let settings = {
   maxToolRounds: DEFAULT_MAX_TOOL_ROUNDS,
   agentStartMode: "new",
   lastAgentSessionId: "",
-  appearance: "system",
+  appearance: HOST_APPEARANCE_MODE,
   fontSize: 13,
   opacity: 100,
   searchEndpoint: "",
   searchApiKey: "",
 };
 let roleState = normalizeRoles(null);
-let shortcutState = { requested: null, active: null, registered: false, error: null };
+let shortcutState = { requested: null, active: null, registered: false, error: null, fallbackFrom: null };
 let settingsListener = null;
+let appearanceListener = null;
+/** Last appearance read from the host; served to a panel that opens later. */
+let hostAppearance = normalizeHostAppearance(DEFAULT_HOST_APPEARANCE);
 /** Rolling timestamps of `agent.complete` calls, against the host's 8/min budget. */
 let completionTimes = [];
+
+/**
+ * ------------------------------------------------------------------ liveness
+ * Who owns "is the window up?" — the previous design guessed from the age of
+ * the last heartbeat (2s beacon, 6s TTL), and that guess is what made the hotkey
+ * feel unresponsive:
+ *
+ *   - a heartbeat says the *page* is alive, not that the window is on screen.
+ *     Minimizing a window keeps its renderer running, so for those 6 seconds the
+ *     plugin believed a hidden window was visible and the next press *closed*
+ *     it — a press that visibly did nothing.
+ *   - the same guess made a real open flicker: press to open, stay away longer
+ *     than the TTL, then the press meant to "bring it back" closed it instead.
+ *
+ * Now the state is asserted at both ends and never inferred:
+ *   - this process sets it when IT opens or closes the panel;
+ *   - the page reports `visibilitychange` (hidden when the window is minimized
+ *     or occluded) and `pagehide` (the surface is going away).
+ * The only inference left is the startup default: a process that has just loaded
+ * has no panel.
+ */
+let panelOpen = false;
+/** False is authoritative: the page said it is hidden. True may mean "not yet reported". */
+let panelVisible = false;
+/** True once the page has answered about itself, so a stale "true" cannot stick. */
+let panelReported = false;
+
+function panelLikelyVisible() {
+  return panelOpen && panelVisible;
+}
 
 /**
  * Mirror of the desktop app's own model preference, so the widget defaults to
@@ -249,10 +399,6 @@ function host() {
   return typeof pi !== "undefined" && pi !== null ? pi : null;
 }
 
-function panelLikelyVisible() {
-  return lastHeartbeatAt > 0 && Date.now() - lastHeartbeatAt < HEARTBEAT_TTL_MS;
-}
-
 function hasFn(obj, name) {
   try {
     return typeof obj === "object" && obj !== null && typeof obj[name] === "function";
@@ -275,12 +421,29 @@ async function toast(message) {
 }
 
 // --------------------------------------------------------------- commands
+/**
+ * Show the panel, and make it usable in the same breath.
+ *
+ * `panelHost.open()` reuses the live window when there is one: it restores a
+ * minimized window, shows it, and focuses it. That is the whole reason the
+ * window is declared as `shape: "panel"` — the same method sets
+ * `alwaysOnTop: widget && request.alwaysOnTop === true` and `resizable:
+ * request.resizable ?? !widget`, i.e. a widget can never be focused by the host
+ * (so a hotkey summons a window the user still has to click before typing),
+ * while a panel also takes keyboard focus on show.
+ */
 async function openWidget() {
   const api = host();
   if (!api || !api.ui || typeof api.ui.openPanel !== "function") {
     return { ok: false, error: "OPEN_PANEL_NOT_AVAILABLE" };
   }
   await api.ui.openPanel({ title: "Summon Chat" });
+  panelOpen = true;
+  // Left true on purpose: the window may be up while its page has not answered
+  // yet. A press in that window re-runs openPanel, which is a no-op besides
+  // restoring and focusing the same window — never a close.
+  panelVisible = true;
+  panelReported = false;
   return { ok: true, action: "open" };
 }
 
@@ -290,18 +453,35 @@ async function closeWidget() {
     return { ok: false, error: "CLOSE_PANEL_NOT_AVAILABLE" };
   }
   await api.ui.closePanel();
-  lastHeartbeatAt = 0;
+  // Authoritative and race-free: `panelHost.close()` resolves after the page is
+  // gone (`plugin-panel-senders.ts: pageGoneWithin`), so no later `pagehide`
+  // report can contradict this ordering.
+  panelOpen = false;
+  panelVisible = false;
+  panelReported = false;
   return { ok: true, action: "close" };
 }
 
+/**
+ * One press, one action — from anywhere, in both directions.
+ *
+ *   panel not up        -> open (and focus)
+ *   up but hidden       -> show + focus again (restore a minimized window)
+ *   up and visible      -> close
+ *
+ * `panelOpen` is only ever set by this process and by the page's own reports, so
+ * the branch above cannot be reached with a stale belief about the window; see
+ * the note on `panelOpen` for why that used to be a heartbeat guess.
+ */
 async function toggleWidget() {
   const now = Date.now();
   if (now - lastToggleAt < TOGGLE_DEBOUNCE_MS) {
     return { ok: true, action: "debounced" };
   }
   lastToggleAt = now;
-  if (panelLikelyVisible()) return await closeWidget();
-  return await openWidget();
+  if (!panelOpen) return await openWidget();
+  if (!panelVisible) return await openWidget();
+  return await closeWidget();
 }
 
 // --------------------------------------------------------------- shortcut
@@ -338,6 +518,11 @@ async function applyShortcut(preferred) {
           active: result.accelerator || candidate,
           registered: true,
           error: null,
+          // Recorded so the settings UI can say plainly which key is live.
+          // Without it a silent fallback (user records Alt+D, Alt+D is taken by
+          // another app, the plugin quietly moves to Alt+Shift+C) reads as
+          // "the hotkey doesn't respond".
+          fallbackFrom: candidate !== wanted ? wanted : null,
         };
         if (candidate !== wanted) {
           await toast("「" + wanted + "」被占用或无效，已改用 " + candidate);
@@ -396,10 +581,12 @@ async function loadSettings() {
       agentStartMode: source.agentStartMode === "continue" ? "continue" : "new",
       lastAgentSessionId:
         typeof source.lastAgentSessionId === "string" ? source.lastAgentSessionId.trim() : "",
+      // "host" is the default: the window mirrors whatever PI-Desktop is
+      // wearing (palette + locale) instead of drifting from it.
       appearance:
-        source.appearance === "dark" || source.appearance === "light"
+        APPEARANCE_MODES.indexOf(source.appearance) !== -1
           ? source.appearance
-          : "system",
+          : HOST_APPEARANCE_MODE,
       // 15px is the default: the design ships `html{font-size:16px}`, so a
       // 13px default made the whole rem-based UI read too small.
       fontSize: clampInt(source.fontSize, 12, 20, 15),
@@ -541,9 +728,40 @@ function parseDdgLite(html) {
   });
 }
 
+/**
+ * Bing 的结果块。
+ *
+ * 为什么加它：**内置的 DuckDuckGo 端点在不少网络里根本连不上**（本机实测三个
+ * 域名全部超时，`html` / `lite` / `api` 都不通），于是「联网搜索」这个功能整体
+ * 失效 —— 用户看到的就是「无法联网搜索」。Bing 在这里是通的（200、10 条结果、
+ * 解析稳定），所以把它当作**免配置的兜底**，DDG 优先。
+ *
+ * 只用 `li.b_algo` 里的 `<h2><a href>` 与 `<p>` 摘要：这两处结构多年没变，
+ * 而 Bing 是抓来的页面、不是承诺过的 API —— 解析失败时如实报错（见
+ * `builtInSearch` 的 error），不要静默返回空。
+ */
+function parseBing(html) {
+  const blocks = String(html || "").match(/<li class="b_algo"[\s\S]*?(?=<li class="b_algo"|<\/ol>)/g) || [];
+  const out = [];
+  for (const block of blocks) {
+    const link = /<h2[^>]*>\s*<a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/.exec(block);
+    if (!link) continue;
+    const url = decodeEntities(link[1]);
+    if (!/^https?:\/\//i.test(url)) continue;
+    const para = /<p class="[^"]*b_lineclamp[^"]*"[^>]*>([\s\S]*?)<\/p>/.exec(block) ||
+      /<p[^>]*>([\s\S]*?)<\/p>/.exec(block);
+    out.push({
+      title: stripTags(link[2]),
+      url: url,
+      snippet: para ? stripTags(para[1]) : "",
+    });
+    if (out.length >= SEARCH_RESULT_LIMIT) break;
+  }
+  return out;
+}
+
 /** Map the common JSON shapes of SearXNG / Tavily / Brave / generic APIs. */
-function mapCustomResults(data) {
-  if (!data || typeof data !== "object") return [];
+function mapCustomResults(data) {  if (!data || typeof data !== "object") return [];
   const candidates = [
     data.results,
     data.data,
@@ -567,32 +785,66 @@ function mapCustomResults(data) {
   return [];
 }
 
+/**
+ * 用户自填的搜索端点。
+ *
+ * ⚠️ **Tavily 必须用 POST。** 这是「装了 tavily 还是搜不到」的直接原因：
+ * 老实现一律 GET + `?q=`，而 `api.tavily.com/search` 只接受 POST ——
+ * 实测 `GET /search` 回的是 **405 Method Not Allowed**（POST 同一把 key 才是
+ * 401/200，即 key 经过 `Authorization: Bearer` 校验）。所以按端点识别提供方，
+ * 用各自的正确姿势请求。
+ *
+ * 证据：`tavily-python` 的客户端是 POST `https://api.tavily.com/search`，
+ * 头 `Authorization: Bearer <key>`，体 `{query, max_results, search_depth}`，
+ * 响应 `{results:[{title,url,content,…}]}` —— `mapCustomResults` 本来就能认这个形状。
+ */
 async function customSearch(endpoint, query, apiKey) {
   const api = host();
   if (!hasFn(api && api.net, "fetch")) {
     return { ok: false, error: "UNSUPPORTED", results: [], message: "宿主没有 pi.net.fetch" };
   }
 
-  let url = endpoint;
+  let parsed;
   try {
-    const parsed = new URL(endpoint);
-    if (!parsed.searchParams.get("q") && !parsed.searchParams.get("query")) {
-      parsed.searchParams.set("q", query);
-    }
-    if (/searx/i.test(endpoint) && !parsed.searchParams.get("format")) {
-      parsed.searchParams.set("format", "json");
-    }
-    url = parsed.toString();
+    parsed = new URL(endpoint);
   } catch (err) {
-    return { ok: false, error: "INVALID_ARGUMENT", results: [], message: "搜索端点不是合法 URL" };
+    return { ok: false, error: "INVALID_ARGUMENT", results: [], message: "搜索端点不是合法 URL（要写全 https:// 开头）" };
   }
 
-  const headers = { Accept: "application/json" };
-  if (apiKey) headers.Authorization = "Bearer " + apiKey;
+  // 只写 host 是很自然的写法（`api.tavily.com`），但那样 URL 没有路径、
+  // 请求会打到首页。Tavily 补上 /search，用户就不必记住路径。
+  const isTavily = /(^|\.)tavily\.com$/i.test(parsed.hostname) || /^tvly-/i.test(String(apiKey || ""));
+  if (isTavily && (parsed.pathname === "/" || parsed.pathname === "")) parsed.pathname = "/search";
 
   let response;
   try {
-    response = await api.net.fetch({ url: url, method: "GET", headers: headers, timeoutMs: SEARCH_TIMEOUT_MS });
+    if (isTavily) {
+      const headers = { Accept: "application/json", "Content-Type": "application/json" };
+      if (apiKey) headers.Authorization = "Bearer " + apiKey;
+      const body = JSON.stringify({ query: query, max_results: SEARCH_RESULT_LIMIT });
+      response = await api.net.fetch({
+        url: parsed.toString(),
+        method: "POST",
+        headers: headers,
+        body: body,
+        timeoutMs: SEARCH_TIMEOUT_MS,
+      });
+    } else {
+      if (!parsed.searchParams.get("q") && !parsed.searchParams.get("query")) {
+        parsed.searchParams.set("q", query);
+      }
+      if (/searx/i.test(endpoint) && !parsed.searchParams.get("format")) {
+        parsed.searchParams.set("format", "json");
+      }
+      const headers = { Accept: "application/json" };
+      if (apiKey) headers.Authorization = "Bearer " + apiKey;
+      response = await api.net.fetch({
+        url: parsed.toString(),
+        method: "GET",
+        headers: headers,
+        timeoutMs: SEARCH_TIMEOUT_MS,
+      });
+    }
   } catch (err) {
     return {
       ok: false,
@@ -603,7 +855,17 @@ async function customSearch(endpoint, query, apiKey) {
   }
 
   if (!response || response.status !== 200) {
-    return { ok: false, error: "HTTP_" + (response && response.status), results: [] };
+    const status = response && response.status;
+    // Tavily 的两个特殊状态：432 = 用量上限，433 = 需要付费计划。直接抄给用户，
+    // 比「HTTP_4xx」有用得多。
+    const hint = status === 432 ? "（Tavily 用量已达上限）" : status === 433 ? "（Tavily 需要付费计划）"
+      : status === 401 ? "（API Key 不对或没填）" : status === 405 ? "（这个端点不接受 GET，可能是 Tavily 这类只收 POST 的 API）" : "";
+    return {
+      ok: false,
+      error: "HTTP_" + status,
+      results: [],
+      message: "搜索端点返回 HTTP " + status + hint,
+    };
   }
 
   let data;
@@ -615,23 +877,39 @@ async function customSearch(endpoint, query, apiKey) {
 
   const results = mapCustomResults(data);
   if (!results.length) {
-    return { ok: false, error: "NO_RESULTS_PARSED", results: [], message: "返回的 JSON 结构不认识" };
+    // 有的 API 把「为什么没有结果」写在 body 里（Tavily 是 detail/error）。
+    const detail = (data && (data.detail || data.error || data.message)) || "";
+    return {
+      ok: false,
+      error: "NO_RESULTS_PARSED",
+      results: [],
+      message: "返回的 JSON 里没有可用的结果" + (detail ? "：" + String(detail).slice(0, 200) : "（结构不认识）"),
+    };
   }
-  return { ok: true, provider: "custom", results: results };
+  return { ok: true, provider: isTavily ? "tavily" : "custom", results: results };
 }
 
-async function duckDuckGoSearch(query) {
+/**
+ * 内置搜索：先 DuckDuckGo（免 key、结构化程度最好），不通就退到 Bing。
+ *
+ * ⚠️ 这里如实报告**为什么失败**，因为「联网搜索没成功」这句话对用户毫无帮助。
+ * 之前无论哪种失败都归成一个 `SEARCH_FAILED` 加一句「没解析到结果」，而实际原因
+ * 可能是网络不通（本机 DDG 三个域名全超时）、被限流（HTTP 403），或者页面结构
+ * 变了（解析 0 条）—— 三种要做的事完全不同。
+ */
+async function builtInSearch(query) {
   const api = host();
   if (!hasFn(api && api.net, "fetch")) {
     return { ok: false, error: "UNSUPPORTED", results: [], message: "宿主没有 pi.net.fetch" };
   }
 
   const attempts = [
-    { url: DDG_HTML_ENDPOINT + "?q=" + encodeURIComponent(query), parse: parseDdgHtml },
-    { url: DDG_LITE_ENDPOINT + "?q=" + encodeURIComponent(query), parse: parseDdgLite },
+    { url: DDG_HTML_ENDPOINT + "?q=" + encodeURIComponent(query), parse: parseDdgHtml, provider: "duckduckgo" },
+    { url: DDG_LITE_ENDPOINT + "?q=" + encodeURIComponent(query), parse: parseDdgLite, provider: "duckduckgo" },
+    { url: BING_ENDPOINT + encodeURIComponent(query) + "&setlang=zh-CN", parse: parseBing, provider: "bing" },
   ];
 
-  let lastError = null;
+  const failures = [];
   for (let i = 0; i < attempts.length; i++) {
     const attempt = attempts[i];
     let response;
@@ -639,34 +917,40 @@ async function duckDuckGoSearch(query) {
       response = await api.net.fetch({
         url: attempt.url,
         method: "GET",
-        headers: { "User-Agent": BROWSER_UA, Accept: "text/html,application/xhtml+xml" },
+        headers: {
+          "User-Agent": BROWSER_UA,
+          Accept: "text/html,application/xhtml+xml",
+          "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        },
         timeoutMs: SEARCH_TIMEOUT_MS,
       });
     } catch (err) {
-      lastError = (err && err.code) || "FETCH_FAILED";
+      failures.push(attempt.provider + " 连不上（" + ((err && err.code) || "网络错误") + "）");
       continue;
     }
     if (!response || response.status !== 200) {
-      lastError = "HTTP_" + (response && response.status);
+      failures.push(attempt.provider + " 返回 HTTP " + (response && response.status));
       continue;
     }
     const results = attempt.parse(response.bodyText || "").slice(0, SEARCH_RESULT_LIMIT);
-    if (results.length) return { ok: true, provider: "duckduckgo", results: results };
-    lastError = "NO_RESULTS_PARSED";
+    if (results.length) return { ok: true, provider: attempt.provider, results: results };
+    failures.push(attempt.provider + " 的页面里没解析到结果（结构可能变了）");
   }
 
   return {
     ok: false,
-    error: lastError || "SEARCH_FAILED",
+    error: "SEARCH_FAILED",
     results: [],
-    message: "内置 DuckDuckGo 没解析到结果，可以在插件设置里换成自己的搜索端点。",
+    message: "内置搜索没成功：" + failures.join("；") +
+      "。可以在插件设置里填自己的搜索端点（SearXNG / Tavily / Brave 等）。",
+    failures: failures,
   };
 }
 
 async function webSearch(query) {
   const endpoint = String(settings.searchEndpoint || "").trim();
   if (endpoint) return await customSearch(endpoint, query, settings.searchApiKey);
-  return await duckDuckGoSearch(query);
+  return await builtInSearch(query);
 }
 
 // --------------------------------------------------------------- models
@@ -723,7 +1007,7 @@ function extractToolCall(text) {
       continue;
     }
     if (!parsed || typeof parsed.tool !== "string") continue;
-    if (parsed.tool !== "web_search") continue;
+    if (TOOL_IDS.indexOf(parsed.tool) === -1) continue;
     return parsed;
   }
   return null;
@@ -877,8 +1161,65 @@ async function injectMentionedSkills(systemText) {
 async function buildSystemPrompt(role) {
   const parts = [];
   if (role.system) parts.push(await injectMentionedSkills(role.system));
-  if ((role.tools || []).indexOf("web_search") !== -1) parts.push(TOOL_DIRECTIVE);
+  parts.push(TOOL_DIRECTIVE((role.tools || []).indexOf("web_search") !== -1));
   return parts.join("\n\n").slice(0, MAX_SYSTEM_CHARS);
+}
+
+/**
+ * 当前时间。**本地算，不走网、不花钱**，所以它永远可用。
+ *
+ * 为什么这件事值得一个工具：模型不知道今天是几号，于是
+ *   · 「深圳今天天气」它会照训练数据答，或者搜一个过期的年份；
+ *   · 「今年是哪一年」「明天是周几」这类问题只能靠猜。
+ * 给一次准确的时间就够 —— 相对日期（下周五、三天后）模型自己会算。
+ *
+ * 时区取本机（`Intl` 的 `timeZone`），偏移量直接量出来，不靠猜：
+ * 用 `Intl` 格式化一个已知时刻再反解。夏令时也会跟着对。
+ */
+function currentTimeBlock(now) {
+  const at = now instanceof Date ? now : new Date();
+  let zone = "";
+  try {
+    zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+  } catch (err) {
+    zone = "";
+  }
+
+  const pad = function (n) { return String(n).padStart(2, "0"); };
+  const local =
+    at.getFullYear() + "-" + pad(at.getMonth() + 1) + "-" + pad(at.getDate()) +
+    " " + pad(at.getHours()) + ":" + pad(at.getMinutes()) + ":" + pad(at.getSeconds());
+  const weekday = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"][at.getDay()];
+
+  let offset = "";
+  try {
+    const named = new Intl.DateTimeFormat("en-US", {
+      timeZone: zone || undefined,
+      timeZoneName: "shortOffset",
+    }).formatToParts(at).find(function (part) { return part.type === "timeZoneName"; });
+    offset = named ? named.value.replace(/^GMT/, "UTC") : "";
+  } catch (err) {
+    offset = "";
+  }
+  if (!offset) {
+    // Fallback: measure the real gap between local time and UTC.
+    const mins = -at.getTimezoneOffset();
+    const sign = mins < 0 ? "-" : "+";
+    const abs = Math.abs(mins);
+    offset = "UTC" + sign + pad(Math.floor(abs / 60)) + ":" + pad(abs % 60);
+  }
+
+  return [
+    "当前时间：" + local + "（" + weekday + "）",
+    "时区：" + (zone || "本机时区") + (offset ? "（" + offset + "）" : ""),
+    "ISO：" + at.toISOString(),
+  ].join("\n");
+}
+
+function formatTimeResult() {
+  return "工具结果(current_time)：\n" + currentTimeBlock(new Date()) +
+    "\n（这是本机时间。涉及「今天/现在/最新」的回答请以它为准；" +
+    "相对日期可以自己推算，不必再调用本工具。）";
 }
 
 /**
@@ -922,12 +1263,30 @@ function formatToolResult(query, search) {
   return "工具结果(web_search) 「" + query + "」：\n" + lines.join("\n");
 }
 
-function setProgress(phase, detail, round) {
+function setProgress(phase, detail, round, step) {
   // A cancelled turn keeps running in the background (agent.complete cannot be
   // aborted), and it keeps calling setProgress. Without this guard those ticks
   // would flip `inFlight` back on and the page would start waiting again for a
   // turn the user already stopped.
-  if (quickProgress.phase === "cancelled") return;
+  if (quickProgress.phase === "cancelled") return -1;
+  const at = Date.now();
+  // `steps` is the live timeline the panel draws while the turn runs: one row per
+  // step that actually happened, in order. Without it the panel can only say
+  // "正在搜索…", and the keyword / source URLs only appear after the turn ends —
+  // which is exactly the "不知道它做了什么" complaint.
+  //
+  // The sequence is: previous step → done; append the new one. So the panel sees
+  // 「思考完成」 followed by 「正在搜索「…」」, the same shape as the reference UI.
+  const steps = (quickProgress.steps || []).map(function (row, index, all) {
+    if (index === all.length - 1 && row.status === "running") {
+      // Date.now() has 1ms resolution, so a step that finished in the same tick
+      // would report 0; recording 1 keeps "did this row finish?" unambiguous.
+      const took = row.at ? Math.max(1, at - row.at) : null;
+      return Object.assign({}, row, { status: "done", tookMs: took });
+    }
+    return row;
+  });
+  if (step) steps.push(Object.assign({ at: at, status: "running" }, step));
   // Object.assign, not a fresh literal: turnId/result/error must survive every
   // progress tick or the page would lose the answer it is polling for.
   quickProgress = Object.assign({}, quickProgress, {
@@ -935,9 +1294,70 @@ function setProgress(phase, detail, round) {
     detail: detail || "",
     round: typeof round === "number" ? round : quickProgress.round,
     inFlight: true,
-    startedAt: quickProgress.startedAt || Date.now(),
-    updatedAt: Date.now(),
+    startedAt: quickProgress.startedAt || at,
+    updatedAt: at,
+    steps: steps,
   });
+  return steps.length - 1;
+}
+
+/**
+ * The "thinking" phase fires once per round and its label changes ("正在思考…"
+ * then "正在思考（第 2 轮）…"). A fresh row per tick would flood the timeline, so
+ * the newest row is replaced while it is still the running one.
+ */
+function setThinkingStep(detail, round) {
+  if (quickProgress.phase === "cancelled") return;
+  const steps = quickProgress.steps || [];
+  const last = steps[steps.length - 1];
+  if (last && last.kind === "thinking" && last.status === "running") {
+    // Only the label changes. `at` must keep the time the step *started* — moving
+    // it here would make every thinking row report a few milliseconds.
+    updateProgressStep(steps.length - 1, { detail: detail, round: round });
+    return;
+  }
+  const at = setProgress("thinking", detail, round, {
+    kind: "thinking",
+    phase: "thinking",
+    detail: detail,
+    round: round,
+  });
+  updateProgressStep(at, { detail: detail, round: round });
+}
+
+/**
+ * Close every still-running step. Called when a turn reaches a terminal state:
+ * the last "思考" row would otherwise stay marked running forever, and the panel
+ * would keep an animation alive next to an answer that is already on screen.
+ */
+function settleProgressSteps(outcome) {
+  const steps = (quickProgress.steps || []).map(function (row) {
+    if (row.status !== "running") return row;
+    return Object.assign({}, row, {
+      status: outcome,
+      tookMs: row.at ? Math.max(1, Date.now() - row.at) : null,
+    });
+  });
+  quickProgress = Object.assign({}, quickProgress, { steps: steps });
+}
+
+/**
+ * Patch one already-appended live step (a search that started as "running" and
+ * has now finished). Keeps the row in place so the timeline does not jump.
+ */
+function updateProgressStep(index, patch) {
+  if (quickProgress.phase === "cancelled") return;
+  const steps = (quickProgress.steps || []).slice();
+  if (!(index >= 0 && index < steps.length)) return;
+  steps[index] = Object.assign({}, steps[index], patch);
+  if (steps[index].status !== "running" && steps[index].tookMs == null && steps[index].at) {
+    steps[index].tookMs = Date.now() - steps[index].at;
+  }
+  // Date.now() has 1ms resolution, so a step that finished in the same tick
+  // would report 0. The renderer hides anything below 1ms anyway; recording 0
+  // makes "did this row even finish?" ambiguous in the payload.
+  if (steps[index].tookMs === 0) steps[index].tookMs = 1;
+  quickProgress = Object.assign({}, quickProgress, { steps: steps, updatedAt: Date.now() });
 }
 
 function finishQuickTurn(patch) {
@@ -949,6 +1369,7 @@ function finishQuickTurn(patch) {
     result: patch.result !== undefined ? patch.result : quickProgress.result,
     error: patch.error !== undefined ? patch.error : quickProgress.error,
   });
+  settleProgressSteps(patch.error ? "error" : "done");
 }
 
 /**
@@ -975,6 +1396,10 @@ async function quickChat(input) {
     updatedAt: Date.now(),
     result: null,
     error: null,
+    // Live timeline for the panel: one entry per step that actually happened.
+    // It is what makes the widget show the search keyword and the source URLs
+    // while the turn runs, instead of only a phase word.
+    steps: [{ kind: "turn", phase: "starting", detail: "正在准备…", at: Date.now(), status: "running" }],
     input: {
       text: typeof payload.text === "string" ? payload.text : "",
       roleId: typeof payload.roleId === "string" ? payload.roleId : "",
@@ -1050,6 +1475,9 @@ async function runQuickChat(input) {
   const trace = [];
   let answer = "";
   let rounds = 0;
+  // `current_time` 每轮只给一次：它是个常量，再问一次也给同样的答案 —— 而每多问一次
+  // 就是一次模型调用（宿主每分钟只放 8 次）。给过一次之后就从可用列表里摘掉。
+  let clockGiven = false;
 
   for (;;) {
     if (recentCompletionCount() >= COMPLETE_BUDGET_PER_MINUTE) {
@@ -1063,7 +1491,7 @@ async function runQuickChat(input) {
     }
 
     completionTimes.push(Date.now());
-    setProgress("thinking", rounds > 0 ? "正在思考（第 " + (rounds + 1) + " 轮）…" : "正在思考…", rounds);
+    setThinkingStep(rounds > 0 ? "正在思考（第 " + (rounds + 1) + " 轮）…" : "正在思考…", rounds);
     let result;
     try {
       const completionInput = { modelKey: modelKey, system: system, messages: messages.slice() };
@@ -1084,26 +1512,93 @@ async function runQuickChat(input) {
       return { ok: false, error: "EMPTY_RESPONSE", message: "模型返回了空内容", trace: trace };
     }
 
-    if (!useTools || rounds >= maxRounds) break;
-
     const call = extractToolCall(answer);
-    if (!call) break;
+    if (!call) break; // 不是工具调用 → 这就是最终回答
+
+    // 时钟：本地计算，不花搜索的轮次额度。
+    // ⚠️ 它的闸门**不能**用 `rounds >= maxRounds` —— 不开联网搜索时 maxRounds 是 0，
+    // 于是 `0 >= 0` 直接把这一支掐掉，角色越「干净」越用不了时间工具（第一次写就是这样）。
+    // 各管各的预算：搜索有 `--rounds`，时钟由 clockGiven 保证每轮只给一次，
+    // 两者都还要受一个绝对上限约束，避免弱模型无限循环。
+    if (call.tool === "current_time") {
+      if (clockGiven || rounds >= MAX_TOOL_CALLS) break;
+      clockGiven = true;
+      rounds++;
+      const stepAt = setProgress("tool", "正在读取当前时间…", rounds, {
+        kind: "tool",
+        phase: "tool",
+        detail: "正在读取当前时间…",
+        round: rounds,
+        status: "running",
+        at: Date.now(),
+      });
+      const stamp = currentTimeBlock(new Date());
+      trace.push({
+        round: rounds,
+        tool: "current_time",
+        ok: true,
+        provider: "local",
+        count: 0,
+        error: null,
+        // 时间线的「结果」栏显示的原文（点开那一行就能看到）。
+        results: [],
+        detail: stamp.split("\n").join(" · "),
+      });
+      updateProgressStep(stepAt, {
+        status: "done",
+        detail: "当前时间：" + stamp.split("\n")[0].replace(/^当前时间：/, ""),
+      });
+      messages.push({ role: "assistant", content: answer });
+      messages.push({ role: "user", content: formatTimeResult() });
+      continue;
+    }
+
+    if (!useTools || rounds >= maxRounds) break;
 
     rounds++;
     const query = typeof call.query === "string" ? call.query.trim() : "";
     if (!query) break;
 
-    setProgress("searching", "正在搜索「" + query.slice(0, 40) + "」…", rounds);
+    // The step is appended *before* the search runs, so the panel shows the
+    // keyword immediately; the row is then patched with the result count, the
+    // provider and the source URLs. "正在搜索…" alone tells the user nothing.
+    const stepAt = setProgress("searching", "正在搜索「" + query.slice(0, 40) + "」…", rounds, {
+      kind: "search",
+      phase: "searching",
+      query: query,
+      round: rounds,
+      status: "running",
+      at: Date.now(),
+    });
     const search = await webSearch(query);
+    const results = search.results ? search.results : [];
     trace.push({
       round: rounds,
       tool: "web_search",
       query: query,
       ok: search.ok,
       provider: search.provider || null,
-      count: search.results ? search.results.length : 0,
+      count: results.length,
       error: search.ok ? null : search.error || "SEARCH_FAILED",
-      results: search.results ? search.results : [],
+      // 失败时把**每一项尝试各自的原因**也带上：界面之前只能干说
+      // 「联网搜索没成功」，而真正该区分的是「连不上」「被限流」「页面结构变了」。
+      failures: search.ok ? null : (search.failures || null),
+      message: search.ok ? null : (search.message || null),
+      results: results,
+    });
+    updateProgressStep(stepAt, {
+      status: search.ok ? "done" : "error",
+      detail: search.ok
+        ? "「" + query + "」→ " + results.length + " 条（" + (search.provider || "?") + "）"
+        : "「" + query + "」失败：" + (search.error || "未知错误"),
+      provider: search.provider || null,
+      count: results.length,
+      error: search.ok ? null : search.error || "SEARCH_FAILED",
+      // Only what the timeline shows: title + url. The snippet stays in the model
+      // context, where it belongs — it would triple the size of the panel state.
+      results: results.map(function (row) {
+        return { title: row && row.title ? String(row.title) : "", url: row && row.url ? String(row.url) : "" };
+      }),
     });
 
     messages.push({ role: "assistant", content: answer });
@@ -1261,6 +1756,92 @@ function extractMessageText(message) {
 
 /** Tool traffic arrives as its own `role: "tool"` message, not as message parts. */
 
+/** Trim a string, or null. */
+function optionalText(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+/** A finite number, or null. Durations arrive as ms integers; 0 means "unknown". */
+function optionalNumber(value) {
+  return typeof value === "number" && isFinite(value) && value > 0 ? value : null;
+}
+
+/**
+ * One provider-hosted web-search round, normalized.
+ *
+ * Shape comes from `HostedSearchRound` (packages/shared/src/types/messages.ts):
+ * `{ id, status, kind?, query?, url?, sources[{url,title?}] }`. The renderer shows
+ * the query and the source URLs, so only those fields are carried over — the raw
+ * block is large (it contains the provider's own wire payload) and dumping it
+ * into the panel would cost more than it explains.
+ */
+function normalizeHostedSearchRound(row) {
+  const item = row && typeof row === "object" ? row : {};
+  const sources = (Array.isArray(item.sources) ? item.sources : [])
+    .map(function (source) {
+      if (!source || typeof source !== "object") return null;
+      const url = optionalText(source.url);
+      if (!url) return null;
+      return { url: url, title: optionalText(source.title) };
+    })
+    .filter(Boolean)
+    .slice(0, 12);
+  return {
+    id: optionalText(item.id) || "",
+    status: optionalText(item.status) || "completed",
+    kind: optionalText(item.kind) || "search",
+    query: optionalText(item.query),
+    url: optionalText(item.url),
+    sources: sources,
+  };
+}
+
+/**
+ * Provider-hosted search activity for one assistant turn.
+ *
+ * Present only when the model binding opted into native web search *and* the
+ * provider actually searched — i.e. exactly the case the user asked to see
+ * (「联网搜索了也不会展现搜索的关键词、搜索的网址」).
+ */
+function normalizeHostedSearch(value) {
+  if (!value || typeof value !== "object") return null;
+  const rounds = (Array.isArray(value.rounds) ? value.rounds : [])
+    .map(normalizeHostedSearchRound)
+    .filter(Boolean);
+  if (!rounds.length) return null;
+  return {
+    status: optionalText(value.status) || "completed",
+    rounds: rounds,
+  };
+}
+
+/**
+ * A tool row's own metadata.
+ *
+ * Every field here is persisted by the host and comes back through `session/get`
+ * (`ui_to_record` → `remote_tool_meta` → `record_to_ui`): the tool name, the
+ * call's status, its arguments, its result, and how long it ran. The main window
+ * renders exactly these; before this the widget flattened them into the row's
+ * body text and the user could not tell a tool call from a tool result.
+ */
+function normalizeToolMeta(message) {
+  const name = optionalText(message.toolName) || optionalText(message.tool_name);
+  const callId = optionalText(message.toolCallId) || optionalText(message.tool_call_id);
+  const args = message.toolArgs !== undefined ? message.toolArgs : message.tool_args;
+  const result = message.toolResult !== undefined ? message.toolResult : message.tool_result;
+  const status = optionalText(message.toolStatus) || optionalText(message.tool_status);
+  if (!name && !callId && args === undefined && result === undefined && !status) return null;
+  return {
+    name: name || "",
+    callId: callId || "",
+    status: status || (message.isError || message.is_error ? "error" : "success"),
+    args: args === undefined ? null : args,
+    result: result === undefined ? null : result,
+    durationMs: optionalNumber(message.toolDurationMs) || optionalNumber(message.tool_duration_ms),
+    completedAt:
+      optionalText(message.toolCompletedAt) || optionalText(message.tool_completed_at) || null,
+  };
+}
 
 function normalizeTranscript(value) {
   const session =
@@ -1283,6 +1864,7 @@ function normalizeTranscript(value) {
       const message = row && typeof row === "object" ? row : {};
       const usage = message.usage && typeof message.usage === "object" ? message.usage : null;
       const error = message.error && typeof message.error === "object" ? message.error : null;
+      const tool = normalizeToolMeta(message);
       return {
         id: firstNonEmptyString(message.id, message.messageId, message.seq && String(message.seq)),
         role: firstNonEmptyString(message.role, message.type) || "unknown",
@@ -1297,6 +1879,20 @@ function normalizeTranscript(value) {
         status: firstNonEmptyString(message.status) || null,
         modelId: firstNonEmptyString(message.modelId) || null,
         providerId: firstNonEmptyString(message.providerId) || null,
+        // An assistant turn is "the reply still being written" exactly when the
+        // host says so. The panel uses this to decide whether the row is worth
+        // re-rendering on every poll, and to show a live "writing" state.
+        streaming: message.status === "streaming",
+        // "This message is internal model context, never a visible chat row."
+        modelSystem: !!message.modelSystem,
+        // Elapsed model time for this turn (host: responseDurationMs) — the
+        // number behind "已处理 2m 11s" in the reference UI.
+        durationMs:
+          optionalNumber(message.responseDurationMs) ||
+          optionalNumber(message.response_duration_ms),
+        createdAt: firstNonEmptyString(message.createdAt, message.created_at) || null,
+        tool: tool,
+        hostedSearch: normalizeHostedSearch(message.hostedSearch || message.hosted_search),
         usage: usage
           ? {
               inputTokens: typeof usage.inputTokens === "number" ? usage.inputTokens : null,
@@ -1315,7 +1911,15 @@ function normalizeTranscript(value) {
         at: message.createdAt || message.at || message.timestamp || null,
       };
     })
-    .filter(function (row) { return row.text || row.thinking || row.error; });
+    // A tool row keeps its place even with empty text: its identity now lives in
+    // `tool` (name / status / args / result), and dropping it would hide the very
+    // thing the timeline is built from.
+    .filter(function (row) {
+      return row.text || row.thinking || row.error || row.tool || row.hostedSearch;
+    })
+    // Internal model instructions are not chat rows. They carry text, so without
+    // this they would render as a stray assistant message.
+    .filter(function (row) { return !row.modelSystem; });
 
   const summary = normalizeSessionSummary(session);
 
@@ -1614,8 +2218,12 @@ function probe() {
   const api = host();
   return {
     panelLikelyVisible: panelLikelyVisible(),
-    msSinceHeartbeat: lastHeartbeatAt ? Date.now() - lastHeartbeatAt : null,
+    panelOpen: panelOpen,
+    panelReported: panelReported,
     shortcut: shortcutState,
+    appearanceMode: settings.appearance,
+    hostAppearance: hostAppearance,
+    shortcutOwner: "plugin-process",
     defaultRoleId: settings.defaultRoleId,
     roleCount: roleState.roles.length,
     roleProblems: roleState.problems,
@@ -1646,6 +2254,8 @@ async function onLoad() {
   await loadSettings();
   // Best-effort: mirrors the main window's model + thinking-display preference.
   await readAppDefaults();
+  // And its palette, so the window opens already wearing the app's colours.
+  await readHostAppearance();
 
   await api.commands.register({
     id: "summon.chat.toggle",
@@ -1678,6 +2288,12 @@ async function onLoad() {
     if (api.events && typeof api.events.on === "function") {
       settingsListener = onSettingsChanged;
       api.events.on("plugin:settingsChanged", settingsListener);
+      // The host pushes its palette to every loaded plugin process as well as
+      // to every open panel, so the cache a later panel reads stays current.
+      appearanceListener = function (appearance) {
+        hostAppearance = normalizeHostAppearance(appearance);
+      };
+      api.events.on("appearance:changed", appearanceListener);
     }
   } catch (err) {
     console.log("[summon-chat] could not subscribe to settings changes: " + err.message);
@@ -1691,13 +2307,15 @@ async function onUnload() {
   if (!api) return;
 
   try {
-    if (settingsListener && api.events && typeof api.events.off === "function") {
-      api.events.off("plugin:settingsChanged", settingsListener);
+    if (api.events && typeof api.events.off === "function") {
+      if (settingsListener) api.events.off("plugin:settingsChanged", settingsListener);
+      if (appearanceListener) api.events.off("appearance:changed", appearanceListener);
     }
   } catch (err) {
     // best-effort
   }
   settingsListener = null;
+  appearanceListener = null;
 
   try {
     if (api.keyboard && typeof api.keyboard.unregisterGlobalShortcut === "function") {
@@ -1715,7 +2333,9 @@ async function onUnload() {
     }
   }
 
-  lastHeartbeatAt = 0;
+  panelOpen = false;
+  panelVisible = false;
+  panelReported = false;
 }
 
 // ---------------------------------------------------------- panel bridge
@@ -1725,12 +2345,32 @@ async function onUnload() {
  */
 async function onPanelInvoke(channel, payload) {
   switch (channel) {
+    /**
+     * The page's own view of itself.
+     *
+     * `heartbeat` is now only a liveness ping that carries the page's visibility
+     * — it no longer *is* the open/closed state. Minimizing keeps a renderer
+     * alive, so a heartbeat alone cannot tell "on screen" from "hidden", and
+     * that is precisely the confusion that made the hotkey feel dead.
+     */
     case "summon.chat.heartbeat":
-      lastHeartbeatAt = Date.now();
-      return { ok: true };
+    case "summon.chat.visibility": {
+      const visible = !(payload && payload.visible === false);
+      panelOpen = true;
+      panelVisible = visible;
+      panelReported = true;
+      return { ok: true, panelOpen: panelOpen, panelVisible: panelVisible };
+    }
 
+    /**
+     * The panel page is going away (`pagehide`, or the explicit report on the
+     * way out). Authoritative for the same reason `closeWidget` is: it is sent
+     * by the page that is actually being torn down, not inferred from silence.
+     */
     case "summon.chat.closed":
-      lastHeartbeatAt = 0;
+      panelOpen = false;
+      panelVisible = false;
+      panelReported = false;
       return { ok: true };
 
     case "summon.chat.probe":
@@ -1753,6 +2393,9 @@ async function onPanelInvoke(channel, payload) {
         agentStartMode: settings.agentStartMode,
         thinkingDisplayMode: appDefaults.thinkingDisplayMode,
         appDefaultModelKey: appDefaults.modelKey || null,
+        // Handed to the page instead of it having to know how to ask the host;
+        // `appearance:changed` keeps it current from then on.
+        hostAppearance: hostAppearance,
         settings: {
           accelerator: settings.accelerator,
           agentStartMode: settings.agentStartMode,
@@ -1770,6 +2413,10 @@ async function onPanelInvoke(channel, payload) {
         phase: 4,
         version: PLUGIN_VERSION,
       };
+
+    /** The host's current palette, on demand (used before the first event). */
+    case "summon.chat.hostAppearance":
+      return { ok: true, appearance: await readHostAppearance() };
 
     case "summon.chat.saveRoles":
       return await saveRoles(payload && payload.roles ? { roles: payload.roles } : payload);
@@ -1888,9 +2535,33 @@ async function onPanelInvoke(channel, payload) {
       };
     }
 
-    /** Live phase of the in-flight quick-chat turn, for the "正在思考" indicator. */
-    case "summon.chat.progress":
-      return { ok: true, progress: quickProgress };
+    /**
+     * Live phase of the in-flight quick-chat turn.
+     *
+     * The page polls this every 400ms, so the payload is deliberately lean: the
+     * live timeline (`steps`, capped by the search-round limit) is always sent,
+     * while the answer itself and the error only travel once the turn is over —
+     * re-serializing a whole answer five times a second would be pure waste.
+     * `input` never leaves the plugin process.
+     */
+    case "summon.chat.progress": {
+      const p = quickProgress;
+      return {
+        ok: true,
+        progress: {
+          turnId: p.turnId,
+          phase: p.phase,
+          detail: p.detail,
+          round: p.round,
+          inFlight: p.inFlight,
+          startedAt: p.startedAt,
+          updatedAt: p.updatedAt,
+          steps: p.steps || [],
+          result: p.inFlight ? null : p.result,
+          error: p.inFlight ? null : p.error,
+        },
+      };
+    }
 
     case "summon.chat.appDefaults":
       await readAppDefaults();
@@ -1972,7 +2643,9 @@ async function onPanelInvoke(channel, payload) {
       if (typeof body.searchApiKey === "string") patch.searchApiKey = body.searchApiKey;
       if (typeof body.appearance === "string") {
         patch.appearance =
-          body.appearance === "dark" || body.appearance === "light" ? body.appearance : "system";
+          APPEARANCE_MODES.indexOf(body.appearance) !== -1
+            ? body.appearance
+            : HOST_APPEARANCE_MODE;
       }
       if (body.fontSize !== undefined) patch.fontSize = clampInt(body.fontSize, 12, 20, 13);
       if (body.opacity !== undefined) patch.opacity = clampInt(body.opacity, 50, 100, 100);
@@ -1988,6 +2661,9 @@ async function onPanelInvoke(channel, payload) {
         return { ok: false, error: "SETTINGS_WRITE_FAILED", message: String(err && err.message) };
       }
       await loadSettings();
+      // The page needs the fallback key it will actually feel, and the palette
+      // if it just switched to "follow the app".
+      const appearance = await readHostAppearance();
       if (patch.accelerator && patch.accelerator !== shortcutState.requested) {
         await applyShortcut(patch.accelerator);
       }
@@ -2004,6 +2680,7 @@ async function onPanelInvoke(channel, payload) {
           hasApiKey: !!settings.searchApiKey,
         },
         shortcut: shortcutState,
+        hostAppearance: appearance,
       };
     }
 

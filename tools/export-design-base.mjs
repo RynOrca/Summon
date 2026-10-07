@@ -10,11 +10,12 @@
  * Everything else in that file is doc-page scaffolding (sidebar, section
  * cards, the state gallery, the responsive demo) and must NOT ship.
  *
- * Also appends the ONE sanctioned deviation from the design: the user asked for
- * a true-black dark theme, where the design's dark surface is a near-black.
- * It is appended as an override rule rather than editing the token block, so
- * the vendored tokens stay byte-identical to the source and the deviation is
- * visible in one place.
+ * What this export deliberately does NOT do any more: append a "true black dark
+ * theme" override. The plugin's palette is no longer the prototype's — it wears
+ * PI-Desktop's own tokens (grey ramp + neutral accent) — and that swap lives in
+ * the plugin's own template, where it can be read next to the rules it affects.
+ * Keeping a second, unrelated dark override here only made "which file owns the
+ * dark background?" ambiguous.
  *
  * Run:  node tools/export-design-base.mjs
  */
@@ -114,8 +115,8 @@ if (problems.length) {
   process.exit(1);
 }
 
-// Which token carries the dark window background? Report it so the override
-// below is auditable rather than magic.
+// Which token carries the dark window background? Reported so the palette swap
+// in the plugin template can be audited against the source it replaces.
 const darkMatch = /\[data-theme=["']?dark["']?\]\s*\{([\s\S]*?)\}/.exec(tokenText);
 const darkBlock = darkMatch ? darkMatch[1] : "";
 const bgToken = /(--[a-zA-Z0-9-]+)\s*:\s*(#[0-9a-fA-F]{3,8})\s*;/.exec(darkBlock);
@@ -131,22 +132,15 @@ const banner = [
   ` *   组件/窗口框架 index.html:${COMPONENT_RANGE[0]}–${COMPONENT_RANGE[1]}`,
   ` * 图标 sprite 在 index.html:115–161（${symbolCount} 个 symbol），需内联进页面。`,
   " * 文档页脚手架（侧栏/状态画廊/响应式演示）已排除。",
+  " *",
+  " * 这里导出的是原型的**结构与 Token 名**。插件实际使用的**颜色值**在",
+  " * renderer/renderer.template.html 的「与 PI-Desktop 主软件统一」块里被换成",
+  " * 主软件自己的设计 Token（灰阶 + 中性强调色），所以不要在这里改颜色。",
   " * ------------------------------------------------------------------------ */",
   "",
 ].join("\n");
 
-const override = [
-  "",
-  "/* ------------------------------------------------------------------------",
-  " * 对设计的唯一偏离：用户明确要求暗色主题底色为**纯黑**，",
-  ` * 而设计的暗色底面是近黑色${bgToken ? `（${bgToken[1]}: ${bgToken[2]}）` : ""}。`,
-  " * 以覆写规则追加而不是改写 Token 块，这样上面引入的 Token 与源包保持逐字节一致。",
-  " * ------------------------------------------------------------------------ */",
-  '[data-theme="dark"]{ --bg:#000000; }',
-  "",
-].join("\n");
-
-await writeFile(OUT, banner + tokenText + "\n\n" + componentText + override, "utf8");
+await writeFile(OUT, banner + tokenText + "\n\n" + componentText, "utf8");
 
 // ---- icon sprite -----------------------------------------------------------
 // Exported as a bare <symbol> fragment (no outer <svg>) so it can be dropped
@@ -179,6 +173,6 @@ console.log(`                  ${spriteSymbols.slice(0, 8).join(", ")} …`);
 console.log(`wrote ${path.relative(repoRoot, OUT)}`);
 console.log(`  tokens          ${tokenCount}`);
 console.log(`  icon symbols    ${symbolCount} (仍需内联到页面)`);
-console.log(`  dark bg token   ${bgToken ? bgToken[1] + " = " + bgToken[2] : "未识别"}  -> 覆盖为 #000000`);
+console.log(`  dark bg token   ${bgToken ? bgToken[1] + " = " + bgToken[2] : "未识别"}  （原型值；插件模板会换成主软件的 #181818）`);
 console.log(`  剔除文档页规则  ${droppedSelectors.length} 条：${droppedSelectors.slice(0, 6).join(" / ")}${droppedSelectors.length > 6 ? " …" : ""}`);
 console.log(`  bytes           ${(await readFile(OUT, "utf8")).length}`);

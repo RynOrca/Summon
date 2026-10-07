@@ -2,6 +2,14 @@
 <html lang="zh-CN" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
+    <!--
+      声明自己会处理宿主顶部 46px 拖拽带的占位（宿主 preload 的 "v2 契约"）。
+      不声明的话宿主会给 <body> 再补一条 `padding-top: 46px !important`
+      （plugin-panel.ts 的 pluginOwnsTitlebarSpacing()：只有 legacy 页面才吃这条），
+      而本页已经在 #win 上自己留了这 46px —— 两个一叠加就是 92px，
+      顶栏会钻到窗口按钮胶囊下面去。见 plugin-panel-chrome.ts。
+    -->
+    <meta name="pi-plugin-chrome" content="v2" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>鲸唤 Summon</title>
     <style>
@@ -13,6 +21,10 @@
  *   组件/窗口框架 index.html:169–511
  * 图标 sprite 在 index.html:115–161（22 个 symbol），需内联进页面。
  * 文档页脚手架（侧栏/状态画廊/响应式演示）已排除。
+ *
+ * 这里导出的是原型的**结构与 Token 名**。插件实际使用的**颜色值**在
+ * renderer/renderer.template.html 的「与 PI-Desktop 主软件统一」块里被换成
+ * 主软件自己的设计 Token（灰阶 + 中性强调色），所以不要在这里改颜色。
  * ------------------------------------------------------------------------ */
 /* ============ Design Tokens（与 design.md §1 一致）============ */
 :root, [data-theme="light"]{
@@ -455,42 +467,174 @@ kbd.conflict{border-color:var(--warning); color:var(--warning)}
   .view.on,.hist-drawer.show .hist-item{animation:none; opacity:1; transform:none}
 }
 
-/* ------------------------------------------------------------------------
- * 对设计的唯一偏离：用户明确要求暗色主题底色为**纯黑**，
- * 而设计的暗色底面是近黑色（--bg: #191B1F）。
- * 以覆写规则追加而不是改写 Token 块，这样上面引入的 Token 与源包保持逐字节一致。
- * ------------------------------------------------------------------------ */
-[data-theme="dark"]{ --bg:#000000; }
+/* ===================== 与 PI-Desktop 主软件统一 =====================
+   设计源包（鲸唤 Summon v1.4）给的是它自己的品牌色：鲸蓝 --accent-fill #3A63D6、
+   纯黑底、纯白字。用户要求「插件和主软件风格一致」，所以这里**只改写 Token 的值**，
+   不动设计基座的任何组件规则：
+
+   · 色板换成 PI-Desktop 自己的 `apps/desktop/src/styles/tokens.css`：
+     灰阶 #0d0d0d / #181818 / #212121 / #303030，中性强调色（--ds-accent = 纯白），
+     次要文字用白 alpha 阶梯（70% / 52% / 38%），描边 8% / 5% / 14% 白 alpha；
+     主窗口的底色就是 #181818（`builtinWindowBackground("dark")`），
+     所以插件面板和主软件窗口之间不会出现一条色差缝。
+   · 字体族换成主软件的 --font-sans / --font-mono。
+   · 圆角阶梯换成主软件的 4 / 6 / 8 / 14px。
+   · 暗色下主按钮改用文字色而不是色块（主软件同一处的发送键是白底圆钮，
+     所以 .sendkey 保持填充；.btn.primary 这种次要场景交给下面的覆写）。
+
+   Token 名保持设计源包的原名，这样 `tools/check-design-port.mjs` 仍然能逐项核对；
+   被替换的只是「值」。 */
+:root, [data-theme="light"] {
+  /* 主软件的浅色：Codex electron-light */
+  --bg: #ffffff; --surface: #f9f9f9; --surface-2: #ededed;
+  --border: rgba(26, 28, 31, 0.08); --border-strong: rgba(26, 28, 31, 0.20);
+  --text-primary: #1a1c1f; --text-secondary: rgba(26, 28, 31, 0.74); --text-disabled: #afafaf;
+  --accent: #1a1c1f; --accent-hover: #303030; --accent-pressed: #000000;
+  --accent-fill: #1a1c1f; --on-accent: #ffffff; --accent-subtle: rgba(26, 28, 31, 0.08);
+  --success: #00a240; --success-bg: #e6f6ec;
+  --warning: #e25507; --warning-bg: #fbf1e2;
+  --error: #e02e2a; --error-bg: #fbe9e7;
+  --skeleton-a: #ededed; --skeleton-b: #f9f9f9;
+  --shadow-window: 0 16px 48px rgba(0, 0, 0, 0.12);
+  --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.10);
+}
+
+[data-theme="dark"] {
+  /* 主软件的深色：Codex electron-dark（--ds-bg-primary #181818 起） */
+  --bg: #181818; --surface: #212121; --surface-2: #303030;
+  --border: rgba(255, 255, 255, 0.08); --border-strong: rgba(255, 255, 255, 0.20);
+  --text-primary: #ffffff; --text-secondary: rgba(255, 255, 255, 0.70); --text-disabled: rgba(255, 255, 255, 0.38);
+  --accent: #ffffff; --accent-hover: #ededed; --accent-pressed: #afafaf;
+  --accent-fill: #ffffff; --on-accent: #181818; --accent-subtle: rgba(255, 255, 255, 0.10);
+  --success: #40c977; --success-bg: rgba(64, 201, 119, 0.14);
+  --warning: #ff8549; --warning-bg: rgba(255, 133, 73, 0.14);
+  --error: #ff6764; --error-bg: rgba(255, 103, 100, 0.14);
+  --skeleton-a: #212121; --skeleton-b: #303030;
+  --shadow-window: 0 16px 48px rgba(0, 0, 0, 0.55);
+  --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.55);
+}
+
+:root {
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --font-code: ui-monospace, "Cascadia Code", Consolas, Menlo, monospace;
+  /* 底部「雾化过渡带」的高度（从下往上渐变的那一段）。 */
+  --fade-h: 3.5rem;
+  /* 模糊带允许**伸进输入区**的那一段 = .composer 的 padding-top，也是输入区自己
+     那条磨砂带的高度。一个数字三处用：带子向下越出的距离、输入区的上内边距、
+     磨砂带的高度 —— 三者对齐，交接处才不会露缝、也不会盖住正文。 */
+  --fade-overlap: 2.25rem;
+  /* 消息区底部内边距。必须**大于** `--fade-h`，否则滚到底时模型回复的最后一行
+     会落进过渡带里被糊掉（详见 .msg-area 那条规则的说明）。 */
+  --fade-pad: 5.6rem;}
+
+/* ---- 主软件里的两处「有色块」的地方，按主软件的做法改写 ----
+   1) 用户气泡：主软件不用蓝底白字，而是 8% 白 alpha 的柔和气泡 + 正文色
+      （messages.css `.message-row.session-message .message-bubble`）。
+   2) 发送键：主软件是 28px 圆形、白底、深色箭头（composer.css `.send-btn`）。 */
+[data-theme="dark"] .bubble {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+  border-radius: 14px;
+}
+[data-theme="dark"] .sendkey {
+  border-radius: 999px;
+  background: var(--accent-fill);
+  color: var(--on-accent);
+  border-color: transparent;
+}
+[data-theme="dark"] .sendkey:disabled { background: rgba(255, 255, 255, 0.18); color: rgba(24, 24, 24, 0.70); }
+[data-theme="dark"] .btn.primary { color: var(--text-primary); }
+
+/* ---- 分段控件（主题 / 字号 / 透明度）----
+   设计基座是 `.seg button.on{background:var(--accent-fill); color:var(--on-accent)}`。
+   主软件的暗色强调色是**纯白**，于是选中项变成「白底白字」——「跟随系统」那一格
+   在截图里就是一片空白。改成主软件自己的做法：选中项用**抬升底色 + 正文色**
+   （--ds-raised 的 #282828），对比度足够，也不必依赖强调色是深还是浅。
+   浅色主题下沿用基座（深底白字），它是清楚的。 */
+[data-theme="dark"] .seg button.on {
+  background: var(--surface-2);
+  color: var(--text-primary);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+
+/* ---- panel 形态的窗口外壳 ----
+   窗口现在是 `shape: "panel"`（见 manifest.json）：宿主给的是不透明、不透明的
+   原生窗口，并在顶部保留 46px 拖拽带（`PLUGIN_PANEL_TITLEBAR_HEIGHT`）。
+   所以：不再需要自绘圆角卡片，也不能让内容钻到拖拽带下面去。 */
+html, body { background: var(--bg); height: 100%; }
+body { overflow: hidden; }
+#win { border: 0; border-radius: 0; box-shadow: none; background: var(--bg); }
 
 /* ===================== 本插件对设计基座的补充 =====================
-   只做三件设计基座没有覆盖的事：让窗口在 widget 形态下透出圆角、给 Markdown 与
-   思考块排版、以及承载对话气泡里的富文本。所有颜色一律走设计 Token。 */
-html, body { background: transparent; height: 100%; }
+   只做设计基座没有覆盖的事：让内容避开宿主的拖拽带、给 Markdown 与思考块排版、
+   以及承载对话气泡里的富文本。所有颜色一律走设计 Token。 */
+html, body { background: var(--bg); height: 100%; }
 body { overflow: hidden; }
-/* position:fixed + inset:0 makes the surface exactly the viewport. With
-   `height:100vh` the surface ended up taller than the widget window, so the
-   bottom rounded corners fell outside it and the window looked square-bottomed
-   while the top stayed rounded. */
+/* position:fixed + inset:0 让面板正好等于视口。顶部再留出宿主拖拽带：
+   面板形态下宿主会在 46px 内画窗口按钮胶囊（`PLUGIN_PANEL_TITLEBAR_HEIGHT`），
+   插件自己的任何东西都不该钻到那下面去 —— 那是「快捷键按了没反应」之外的另一种
+   看着像坏了的样子：点不到模型/设置按钮。 */
 #win {
   position: fixed; inset: 0;
+  box-sizing: border-box;
+  padding-top: var(--pi-plugin-titlebar-height, 0px);
   display: flex; flex-direction: column;
-  border-radius: 12px; overflow: hidden;
+  overflow: hidden;
 }
 
 /* 消息区外层。必须撑满剩余高度并建立定位上下文，否则：
    · .msg-area 没有可滚动的高度 → 内容把整个窗口撑高，顶栏/工具栏被推出视野；
    · .fade-band 会锚到 .wview 而不是消息区 → 模糊出现在错误的位置。
    原型用行内样式做同一件事。 */
-.chatbody { flex: 1; display: flex; min-height: 0; position: relative; }
+.chatbody {
+  flex: 1; display: flex; min-height: 0; position: relative;
+  /* 建立 backdrop root：`backdrop-filter` 只采样**同一个 backdrop root 内**的
+     背后内容，而滚动容器（.msg-area）在合成时是独立的一层 —— 不隔离的话
+     composer 上那条磨砂带采到的是空的（在无头 Chromium 里实测：一点都没糊）。
+     `isolation: isolate` 让采样范围收敛到 .chatbody 自己，滚动中的正文就进来了。 */
+  isolation: isolate;
+}
 
 /* 设置面板右侧：.set-panel 可滚动 + .savebar 常驻底部，同样需要撑满高度。 */
 .setwrap { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 
-/* 滚动区底部留出 composer 与状态行的空间，使其看起来是被模糊带盖住的 */
-.msg-area { padding-bottom: 5rem; }
+/* 滚动区底部的内边距 = 过渡带高度 + 让末行停在上面的余量。
+ *
+ * ⚠️ 这里有个反直觉的点，实测过才敢写：**padding-bottom 不会把正文从
+ * 过渡带里「抬起来」**。滚到底时内容下边界停在滚动区下边界，内边距只是它**下面**
+ * 的一段空白，而过渡带永远盖住滚动区最下面那 `--fade-h` —— 所以只留一个
+ * `--fade-h` 的结果恰好是「末行下沿落在带子最上沿」，末行的字身还在带子里
+ * （无头量到：末行 bottom 落在 band.top **以下 17px**，用户看到的正是
+ * 「模型回复的最后一行被模糊遮住」）。
+ * 要真给末行留出干净的位置，内边距必须比带子多出至少一个行高。
+ * `--fade-pad` = `--fade-h × 1.6` ≈ 5.6rem：末行落在带子上沿往上约 2.1rem，
+ * 下面留一段干净的空白，正是参考图里输入框上方那片空的感觉。 */
+.msg-area { padding-bottom: var(--fade-pad, 5.6rem); }
 
-/* 状态行（思考中/搜索中）——设计有 .statusline，这里让它贴在 composer 上方 */
-.statusline { padding: 0 .75rem .25rem; }
+/* 消息区**永远不横向滚动**。
+   一条被压平的长 URL、一段没有断点的命令原文，都会把内容撑得比窗口宽；
+   实测就是整个时间线被推出左边界（rect.x = -63），看起来像「面板被裁了一刀」。
+   `max-width: 100%` 是给消息行自己的上限：行是块级元素，正常就该收在容器里，
+   但任何一处 min-content 被撑大都会从这一行蔓延到整个滚动区。
+   纵向照旧滚动，横向一律收掉。 */
+.msg-area { overflow-x: hidden; }
+.msg, .trace-msg, .trace { max-width: 100%; min-width: 0; }
+
+/* 状态行（思考中/搜索中）——设计有 .statusline，这里让它贴在 composer 上方。
+ *
+ * ⚠️ 它必须**压住**底部那条雾化过渡带：带子为了盖住滚到底的正文，会向下越出
+ * composer 上沿（`--fade-overlap`），而越出的那一段正是这里 —— 结果就是
+ * 「正在思考…」被自己的渐变色压暗、看起来像被糊掉了。
+ * 三个前提缺一不可：抬到带子之上（z-index > 带子的 2）、自己有实底
+ * （否则带子的渐变色照样透上来）、并且不挡住点击（它只是文字行）。 */
+.statusline {
+  padding: 0 .75rem .25rem;
+  position: relative;
+  z-index: 4;
+  background: var(--bg);
+  /* 再往下 7px（用户要求）：状态行与输入框之间松一点，读起来是两件事。 */
+  margin-bottom: 7px;
+}
 
 /* 设计基座里的 .warn-line / .savefail-banner 自带 display，用 hidden 切换时
    必须补 [hidden] 覆盖：作者样式的 display 会压过浏览器默认的
@@ -507,9 +651,101 @@ body { overflow: hidden; }
 .queue-strip .chip { max-width: 100%; }
 .queue-strip .chip b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-/* 输入框抬高一半：设计里 .bare-input.comp 是 min-height:2.5rem，×1.5 = 3.75rem。
-   多行时仍由 autoGrow 撑高，上限沿用设计的 max-height。 */
-.bare-input.comp { min-height: 3.75rem; }
+/* 底部输入区：**回到最简单的那种布局**（即「输入第一行位置」那次改动之前的样子）。
+   一行 flex：textarea 在左，四个按钮靠右**贴在输入框下沿**；不再把 composer 做成
+   纵向两段去把按钮推到窗口最底 —— 那样按钮下面会空出一大片。
+   textarea 高度固定 140px（约 6 行），文字从顶部开始，内容多了在框内滚动。
+   「Enter 发送 · Shift+Enter 换行」那行提示已删除，它占的高度并进输入区
+   （忙时的语义改由 composer 上方的状态行说明）。
+
+   ⚠️ 高度只有一个来源：fitComposerInput() 设内联样式。别再让 autoGrow 去设 height，
+   也别把 composer 改成 flex column —— 前者会和 flex 互相放大（曾涨到四五百像素），
+   后者会把按钮推到底、下面留白。 */
+.composer .bare-input.comp { overflow-y: auto; }
+/*
+ * 输入区顶部那条**磨砂带**：虚化它背后滚过去的正文。
+ *
+ * 为什么必须是 composer 自己的 ::before，而不是把模糊放在 composer 上方：
+ * `backdrop-filter` 只能模糊**自己盒子内**的背后内容。放在 composer 上方时，
+ * 盒子的下边界正好是 composer 的上沿，模糊就在这里被硬切一刀 —— 于是那条边界
+ * 以下用「透明→实色」的渐变去补，而**渐变底根本藏不住文字**（它只是盖了一层
+ * 半透明色），结果就是文字在渐变底下继续显示成一块糊糊的黑影。
+ * 放到 composer 内部之后，模糊与遮盖在同一条线上交接，不再有「只渐变不模糊」
+ * 的区间。输入区自己不带底色（下一条规则），看到的永远是这块毛玻璃。
+ *
+ * `padding-top` 必须与 `--fade-overlap` 一致：磨砂带正好铺满这段 padding，
+ * 一行字都不会被它盖到。
+ */
+.composer { padding-top: var(--fade-overlap, 2.25rem); background: none; }
+.composer::before {
+  content: "";
+  position: absolute; left: 0; right: 0; top: 0;
+  height: var(--fade-overlap, 2.25rem);
+  pointer-events: none;
+  /* 上沿淡入、下沿满格：文字是「越往下越糊」，而不是在某个 y 上突然被切开。 */
+  -webkit-backdrop-filter: blur(5px);
+  backdrop-filter: blur(5px);
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 55%);
+  mask-image: linear-gradient(180deg, transparent 0, #000 55%);
+}
+@media (prefers-reduced-transparency: reduce) {
+  .fade-band .blurpart { -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+/* 设计基座的 .comp-hint 规则留着不碍事（元素已从 markup 里删掉）。 */
+
+/* 顶栏与宿主拖拽带的合并。
+   面板形态下顶部 46px 归宿主（窗口按钮胶囊在那儿），而这一排控件**就放进这条带子**，
+   与胶囊同一行 —— 这样顶部不再是一段没有内容的空白，也不浪费垂直空间。
+   两条前提缺一不可：
+     · 控件的 `data-pi-plugin-no-drag`：宿主的拖拽地图会在这些矩形上挖洞，
+       `isPaintThroughElementVisible()` 只要求存在、可见即有洞（表单元素/按钮/
+       [tabindex] 本来也在它的选择器表里）；
+     · 右侧留 112px 给胶囊（96px 宽 + 距右 8px + 8px 余量）。
+   这些值在运行时由 markTitlebarBand() 以**内联样式**写在每个 .topbar 上（内联不参与
+   层叠竞争，行为确定）。下面这条规则是 JS 未执行时的兜底，两者取同一个数字。 */
+.pi-has-band .topbar {
+  /* 负外边距把自己拉进上面那 46px 的占位里：占位仍写在 #win 的 padding-top 上
+     （「拖拽带只预留一次」那条断言看的就是它），这里只是把这排控件挪进去。
+     高度取宿主发布的高度，避免和「数字写死」绑在一起。 */
+  margin-top: calc(-1 * var(--pi-plugin-titlebar-height, 0px));
+  height: var(--pi-plugin-titlebar-height, 0px);
+  min-height: 0;
+  border-top: 0;
+  border-bottom: 1px solid var(--border);
+  padding: 0 .5rem;
+  /* 右侧让开宿主胶囊：胶囊 96px 宽、距右边 8px，再留 8px 余量。 */
+  padding-right: calc(96px + 8px + 8px);
+  gap: .25rem;
+}
+.pi-has-band .topbar .grow {
+  gap: .25rem;
+  min-width: 0;
+  overflow: hidden;
+}
+/* 右上两个图标按钮永远在，芯片让位。`flex: 0 1 auto` 会真的把按钮缩到比图标
+   还窄（图标被压成两行），所以按钮显式不缩。 */
+.pi-has-band .topbar .iconbtn { flex: 0 0 auto; }
+/* 芯片整块收缩 + 文字单行省略。`overflow-wrap:anywhere` 会把标签折成两三行，
+   46px 的带子里放不下，所以这里改成 nowrap + ellipsis；
+   完整名字仍在 renderChips() 写的 title 里。 */
+.pi-has-band .topbar .chip { min-width: 0; flex: 0 1 auto; }
+.pi-has-band .topbar .chip b {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 设置视图的顶栏只有「返回 + 标题」，没有右侧按钮组，所以右边只让开胶囊。 */
+.pi-has-band #view-set .topbar {
+  padding-right: calc(96px + 8px + .5rem);
+}
+.pi-has-band #view-set .topbar .tb-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* ---- 一律去掉外框与底色 ----
    设计基座里 .chip / .btn / .sendkey 都带实心底色与 1px 边框，在悬浮窗里显得很重。
@@ -548,11 +784,40 @@ body { overflow: hidden; }
    它只会水平居中，所以之前那块提示贴在顶部。 */
 .msg-area.is-empty { display: flex; align-items: center; justify-content: center; }
 
-/* 让模糊过渡带贴住输入的**第一行**：composer 的上内边距压到最小，把首行顶到
-   模糊带下沿；同时把过渡带收紧，模糊集中在下沿，而不是散在上方一大片。 */
-.composer { padding-top: .25rem; }
-.fade-band { height: 3rem; }
-.fade-band .blurpart { height: 2rem; }
+/* ===================== 底部雾化过渡带（从下往上渐变） =====================
+   这一块的设计目标只有一个：**正文滚到底部时，越往下越淡，到输入区上沿消失**。
+
+   ⚠️ 一条踩过的经验：**不能靠 `backdrop-filter` 来完成「遮住文字」这件事。**
+      · `backdrop-filter` 只模糊它**自己盒子内**的背后内容，盒子下边界那里会被
+        硬切一刀；用「透明→实色」的渐变去补边界以下，是补不住的 —— 渐变只是盖了一层
+        半透明色，文字照样透出来，看起来就是一块糊糊的黑影。
+      · 它依赖合成，无头 Chromium 里根本不生效（实测截图里一点都没糊），
+        而且跨平台本来就时灵时不灵。
+   所以真正承担「淡出」的是基座自带的那条**颜色渐变**（`linear-gradient`，
+   透明 → `--bg`），模糊只是叠加在上面的一点润色。模糊不生效时，看到的仍然是
+   一条干净的从下往上渐变；生效时再多一点雾感。
+
+   几何（三个数字由 `--fade-h` / `--fade-overlap` / `--fade-pad` 统一管理）：
+     `.msg-area` 底部留 `--fade-pad`（> `--fade-h`）→ 滚到底时**末行停在带子之上**，
+     下面是一段干净的空白，而不是被糊掉的字；
+     带子向下越出 composer 上沿 `--fade-overlap`（= composer 的 padding-top），
+     所以「渐变满格」与「输入区实底」在同一条线上交接，中间没有缝。 */
+.fade-band {
+  height: calc(var(--fade-h, 3.5rem) + var(--fade-overlap, 2.25rem));
+  margin-bottom: 0;
+  /* 上沿透明、下沿实色；关键的一段（文字真正淡掉的地方）压在最后 2rem 里。 */
+  background: linear-gradient(180deg, transparent 0%, transparent 26%, var(--bg) 100%);
+}
+.fade-band .blurpart {
+  top: auto;
+  inset: 0 0 calc(-1 * var(--fade-overlap, 2.25rem));
+  height: auto;
+  /* 模糊只在下半段生效：上半段「只有渐变、没有模糊」，文字在那里正常淡出。 */
+  -webkit-backdrop-filter: blur(5px);
+  backdrop-filter: blur(5px);
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, transparent 40%, #000 90%);
+  mask-image: linear-gradient(180deg, transparent 0, transparent 40%, #000 90%);
+}
 
 /* 新增的项目/权限按钮默认隐藏，由 JS 按模式切换 */
 .iconbtn[hidden] { display: none; }
@@ -638,6 +903,138 @@ details.think > .body {
   color: var(--text-secondary);
 }
 
+/* ===================== 处理过程（时间线） =====================
+   这一块回答的是「它到底干了什么」：处理了多久、想了什么、调了哪个工具、
+   命令原文与退出码、搜索用了什么关键词、命中了哪些网址。
+   数据全部来自宿主 `session/get` 的**真实字段**（summary 一行即依据）：
+
+     responseDurationMs / toolName / toolStatus / toolArgs / toolResult /
+     toolDurationMs / hostedSearch{rounds[{query,url,sources}],status} / usage
+
+   ⚠️ 样式刻意与**主窗口那一条**一致（用户明确要求）：**没有外框、没有底色**，
+   整块就是一行灰字 + 若干可展开的步骤行，左侧是设计源包的 `#i-spark`。
+   第一版把它做成了带边框和 `--surface` 底色的卡片，和主窗口完全两个样子。 */
+.trace {
+  margin: 0 0 .35rem;
+  border: 0;
+  background: none;
+  border-radius: 0;
+}
+.trace > summary {
+  list-style: none; cursor: pointer; user-select: none;
+  display: flex; align-items: center; gap: .35rem;
+  padding: .1rem 0; font-size: .8125rem; color: var(--text-secondary);
+}
+.trace > summary::-webkit-details-marker { display: none; }
+.trace > summary:hover { color: var(--text-primary); }
+.trace > summary .arrow {
+  color: var(--text-disabled); flex: 0 0 auto;
+  transition: transform var(--dur-fast) ease-out;
+}
+.trace[open] > summary .arrow { transform: rotate(90deg); }
+.trace > summary .tt {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.trace > summary .elapsed {
+  margin-left: auto; color: var(--text-disabled); font-variant-numeric: tabular-nums;
+}
+.trace > summary .state { flex: 0 0 auto; color: var(--text-disabled); font-size: .6875rem; }
+.trace-body {
+  padding: .05rem 0 .1rem;
+  display: flex; flex-direction: column; gap: 0;
+}
+/* 一条步骤：图标 + 标题 + 右侧耗时/状态。整行可点开看参数与结果。 */
+.trace-step { border: 0; background: none; }
+.trace-step > summary {
+  list-style: none; cursor: pointer; user-select: none;
+  display: flex; align-items: center; gap: .4rem;
+  padding: .12rem 0; font-size: .8125rem; color: var(--text-secondary);
+}
+.trace-step > summary::-webkit-details-marker { display: none; }
+.trace-step > summary:hover { color: var(--text-primary); }
+.trace-step > summary .arrow {
+  margin-left: auto; color: var(--text-disabled); flex: 0 0 auto;
+  transition: transform var(--dur-fast) ease-out;
+}
+.trace-step[open] > summary .arrow { transform: rotate(90deg); }
+.trace-step .si { color: var(--text-disabled); flex: 0 0 auto; display: flex; }
+.trace-step .si svg { width: .8125rem; height: .8125rem; display: block; }
+.trace-step .lb {
+  min-width: 0; flex: 0 1 auto;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--text-secondary);
+}
+.trace-step .sub {
+  min-width: 0; flex: 0 1 auto;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--text-disabled); font-size: .75rem;
+}
+.trace-step .ms { color: var(--text-disabled); font-size: .6875rem; font-variant-numeric: tabular-nums; flex: 0 0 auto; }
+.trace-step.ok .si { color: var(--text-disabled); }
+.trace-step.err .si { color: var(--error); }
+.trace-step.err .lb { color: var(--error); }
+/* 源包 sprite 里的图标是填充型（path 自带 fill="currentColor"），默认会吃 CSS 的
+   `color`，跑完一条就整排绿勾，比正文还抢眼。所以这里统一压成与其它图标同一个灰，
+   只有出错那一行保留红色。 */
+.trace-step .si svg { fill: currentColor; }
+.trace-detail { padding: .1rem 0 .35rem 1.2rem; min-width: 0; }
+/* 展开后的思考内容：**直接就是内容本身**，没有「思考」这样的前缀标签。
+   用 pre-wrap 保留模型自己的换行，读起来才像推理过程而不是一坨文字。 */
+.trace-think {
+  font-size: .75rem; line-height: 1.6; color: var(--text-secondary);
+  white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0;
+}
+.trace-detail .kv {
+  display: grid; grid-template-columns: 4.5rem minmax(0, 1fr); gap: .1rem .45rem;
+  font-size: .6875rem; color: var(--text-secondary);
+  min-width: 0;
+}
+.trace-detail .kv > span:nth-child(odd) { color: var(--text-disabled); }
+/* min-width:0 是必须的：网格项默认 min-width:auto，「网址」这种长不可断串会把
+   1fr 那一列撑到内容宽度，整个面板就出现横向滚动（实测 420px 的窗口里
+   scrollWidth 跑到 556）。 */
+.trace-detail .kv > span:nth-child(even) {
+  font-family: var(--font-code); overflow-wrap: anywhere; white-space: pre-wrap;
+  min-width: 0;
+}
+.trace-src { display: flex; flex-direction: column; gap: .15rem; margin-top: .3rem; min-width: 0; }
+.trace-src a {
+  font-size: .6875rem; color: var(--accent-fill);
+  text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  min-width: 0;
+}
+.trace-src a:hover { text-decoration: underline; }
+.trace-src .u {
+  color: var(--text-disabled); font-family: var(--font-code); font-size: .625rem;
+  overflow-wrap: anywhere; min-width: 0;
+}
+.trace-src .host { color: var(--text-disabled); font-size: .625rem; }
+.trace-usage {
+  padding: .2rem 0 0; font-size: .6875rem; color: var(--text-disabled);
+  display: flex; flex-wrap: wrap; gap: .5rem;
+}
+/* 正在跑的那一条：图标用曲线加载器，标题稍稍提亮，不要抢过正文 */
+.trace-step.running .lb { color: var(--text-secondary); }
+.trace-step.running .si svg { display: block; }
+
+/* 时间线自己占一条消息行：它跨着「思考 / 工具 / 回答」几条消息，所以不能挂在
+   其中任何一条的正文里。比普通消息紧凑一点，避免过程比答案还占地方。 */
+.trace-msg { margin-bottom: .25rem; }
+.trace-msg.live .trace { border-color: var(--border-strong); }
+
+/* ---- 数学曲线加载动效（移植自 Paidax01/math-curve-loaders 的粒子轨迹加载器）----
+   设计基座原来的 `.statusline .spin` 是一个 0.8s 转一圈的圆环 —— 用户反馈「太快了」。
+   这里换成曲线轨迹 + 粒子拖尾：循环 4.6s、呼吸 4.2s、自身缓慢旋转 28s。
+   速度参数与上游原版一致，观感是「流动」而不是「打转」。 */
+.curvespin { width: 1.15rem; height: 1.15rem; flex: 0 0 1.15rem; color: var(--accent); }
+.curvespin svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.curvespin .trail { fill: none; stroke: currentColor; opacity: .18; }
+.curvespin .dot { fill: currentColor; }
+.statusline .curve-box { display: flex; align-items: center; flex: 0 0 auto; }
+/* 工具行 / 时间线里的小尺寸版本 */
+.trace-step.running .si .curvespin,
+.trace > summary .curvespin { width: .875rem; height: .875rem; flex: 0 0 .875rem; }
+
 /* 设置里角色行的选中态（.role-item 由设计提供外观） */
 .role-item.cur { border-color: var(--accent-fill); }
 .role-item[role="button"] { cursor: pointer; }
@@ -645,6 +1042,1734 @@ details.think > .body {
 /* 外观/思考等分段控件的说明行 */
 .set-row .k .sub { display: block; }
 </style>
+    <!--
+      第三方动效代码（由 tools/build-renderer.mjs 注入，源文件见 docs/vendor/）。
+
+      为什么是内联：一个 script 标签就够，插件面板拿不到别的资源通道 ——
+      宿主只把 manifest 里那**一个** HTML 当 sandboxed 页面发出去
+      （没有自定义协议、没有 node，net.fetch 也不是给渲染进程取脚本用的）。
+      两段代码都在各自文件顶部标了出处、许可证与改动点：
+
+        · morphicons —— SVG 路径形变动效（Send↔Stop）
+        · 曲线加载器 —— 移植自 Paidax01/math-curve-loaders 的粒子轨迹加载动效
+
+      两者都包在 IIFE 里，只往 window 上挂一个命名空间，不新增其它全局名。
+    -->
+    <script>
+/* ------------------------------------------------------------------------
+ * morphicons v1.7.1 —— SVG 路径形变动效（弹簧物理插值）
+ * 上游：https://github.com/guillermolg00/morphicons   许可证：MIT
+ * 原作者：Guillermo（guillermolg.com）
+ *
+ * 本文件由 tools/fetch-morphicons.mjs 生成，请勿手改。
+ * 生成方式：把 npm 包 dist/ 里 morphicons/dom 依赖的三个 chunk 按依赖顺序
+ * 拼接、去掉 import/export（都在同一个 IIFE 作用域内，名字仍然解析得到），
+ * 最后只对外暴露一个命名空间。除了这一步「ESM → 经典脚本」的机械转换，
+ * 算法与常量一字未改。
+ *
+ * 用法（页面内）：
+ *   const m = PiMorph.createMorph(pathEl, '<path d="…"/> ', { reducedMotion: "user" });
+ *   m.morphTo('<path d="…"/>', "snappy");
+ *
+ * 注意：传入的路径必须是**描边**几何（fill="none" + stroke），同一条子路径
+ * 数量不要差太多。填充型图标虽然能解析，但过渡途中读起来是错的 —— 所以本插件
+ * 只为这几个位置手写了描边图标：Menu↔X、Send↔Stop、chevron 翻转。
+ * ------------------------------------------------------------------------ */
+(function () {
+"use strict";
+/* ---- dist/spring-CFHloqPP.js ---- */
+//#region src/core/interpolate.ts
+/** Preallocated output buffers for a plan (zero allocation per frame). */
+function allocOutputs(plan) {
+	return plan.items.map(() => new Float64Array(2 * plan.n));
+}
+function interpPolar(plan, t, out) {
+	for (let k = 0; k < plan.items.length; k++) {
+		const it = plan.items[k];
+		const o = out[k];
+		const n = plan.n;
+		const s = Math.exp(it.lnSigma * t);
+		const ang = it.theta * t;
+		const cos = Math.cos(ang) * s;
+		const sin = Math.sin(ang) * s;
+		let cx;
+		let cy;
+		if (it.block) {
+			const [ox, oy] = it.block.off;
+			const [dx, dy] = it.block.drift;
+			cx = it.ca[0] + dx * t + (ox * cos - oy * sin - ox);
+			cy = it.ca[1] + dy * t + (ox * sin + oy * cos - oy);
+		} else {
+			cx = it.ca[0] + (it.cb[0] - it.ca[0]) * t;
+			cy = it.ca[1] + (it.cb[1] - it.ca[1]) * t;
+		}
+		for (let i = 0; i < n; i++) {
+			const px = it.aC[2 * i] + (it.bT[2 * i] - it.aC[2 * i]) * t;
+			const py = it.aC[2 * i + 1] + (it.bT[2 * i + 1] - it.aC[2 * i + 1]) * t;
+			o[2 * i] = cx + px * cos - py * sin;
+			o[2 * i + 1] = cy + px * sin + py * cos;
+		}
+	}
+}
+/** Raw coordinate lerp (same correspondence, no decomposition). */
+function interpLinear(plan, t, out) {
+	for (let k = 0; k < plan.items.length; k++) {
+		const it = plan.items[k];
+		const o = out[k];
+		const n = plan.n;
+		for (let i = 0; i < n; i++) {
+			o[2 * i] = it.a[2 * i] + (it.bO[2 * i] - it.a[2 * i]) * t;
+			o[2 * i + 1] = it.a[2 * i + 1] + (it.bO[2 * i + 1] - it.a[2 * i + 1]) * t;
+		}
+	}
+}
+//#endregion
+//#region src/core/plan.ts
+/** Weight of |ΔL| in the subpath pairing cost. */
+const LEN_WEIGHT = .35;
+/** λ of the minimal-rotation tie-break: score = res + λ·|θ|/π.
+*  It exists because shapes symmetric under inversion (lines) tie in
+*  residual for both traversal orientations yet produce different rotations. */
+const LAMBDA = .05;
+/** Global residual below which the whole icon counts as congruent and the
+*  plan shares (θ, σ) across all items (hybrid variant of Procrustes). */
+const GLOBAL_EPS = .005;
+/** Bounds for exhaustive matching; above them it falls back to greedy with
+*  repair. 8! = 40 320 permutations / 1e5 assignments — both sub-ms. */
+const PERM_MAX = 8;
+const SURJ_MAX = 1e5;
+function centroid(p) {
+	const n = p.length / 2;
+	let cx = 0;
+	let cy = 0;
+	for (let i = 0; i < n; i++) {
+		cx += p[2 * i];
+		cy += p[2 * i + 1];
+	}
+	return [cx / n, cy / n];
+}
+function polyLen(p) {
+	const n = p.length / 2;
+	let L = 0;
+	for (let i = 1; i < n; i++) L += Math.hypot(p[2 * i] - p[2 * i - 2], p[2 * i + 1] - p[2 * i - 1]);
+	return L;
+}
+function reversePts(p) {
+	const n = p.length / 2;
+	const out = new Float64Array(2 * n);
+	for (let i = 0; i < n; i++) {
+		out[2 * i] = p[2 * (n - 1 - i)];
+		out[2 * i + 1] = p[2 * (n - 1 - i) + 1];
+	}
+	return out;
+}
+/** Circular re-indexing of a loop: out[i] = p[(i+off) mod n]. Same point
+*  set, different cut point — the circular degree of freedom of closed paths. */
+function rotatePts(p, off) {
+	const n = p.length / 2;
+	const out = new Float64Array(2 * n);
+	for (let i = 0; i < n; i++) {
+		const j = (i + off) % n;
+		out[2 * i] = p[2 * j];
+		out[2 * i + 1] = p[2 * j + 1];
+	}
+	return out;
+}
+/** Optimal similarity (θ, σ) minimizing Σ|σ·R(θ)·(a−c_A) − (b−c_B)|².
+*  θ* = atan2(S_xy − S_yx, S_xx + S_yy); σ* by zero derivative.
+*  res = RMS residual normalized by b's energy (0 → same shape). */
+function procrustes(a, b, ca, cb) {
+	const n = a.length / 2;
+	let sxx = 0;
+	let sxy = 0;
+	let syx = 0;
+	let syy = 0;
+	let na = 0;
+	let nb = 0;
+	for (let i = 0; i < n; i++) {
+		const ax = a[2 * i] - ca[0];
+		const ay = a[2 * i + 1] - ca[1];
+		const bx = b[2 * i] - cb[0];
+		const by = b[2 * i + 1] - cb[1];
+		sxx += ax * bx;
+		syy += ay * by;
+		sxy += ax * by;
+		syx += ay * bx;
+		na += ax * ax + ay * ay;
+		nb += bx * bx + by * by;
+	}
+	const theta = Math.atan2(sxy - syx, sxx + syy);
+	const num = Math.cos(theta) * (sxx + syy) + Math.sin(theta) * (sxy - syx);
+	let sigma = na > 1e-12 ? num / na : 1;
+	if (!(sigma > 1e-6)) sigma = 1e-6;
+	const res2 = Math.max(0, sigma * sigma * na - 2 * sigma * num + nb);
+	const res = nb > 1e-12 ? Math.sqrt(res2 / nb) : 0;
+	return {
+		theta,
+		sigma,
+		res
+	};
+}
+/** Best index-to-index correspondence between a and b: tries both traversal
+*  directions and, if there is a closed loop, its N circular offsets,
+*  scoring with score = res + λ·|θ|/π. The freedom is applied to ONE cloud
+*  — the closed one (b if both are); varying both at once would be
+*  redundant. */
+function alignPair(aPts, bPts, aClosed = false, bClosed = false) {
+	const ca = centroid(aPts);
+	const cb = centroid(bPts);
+	const varyA = aClosed && !bClosed;
+	const base = varyA ? aPts : bPts;
+	const offs = aClosed || bClosed ? base.length / 2 : 1;
+	let bestScore = Number.POSITIVE_INFINITY;
+	let best = base;
+	let sim = {
+		theta: 0,
+		sigma: 1,
+		res: 0
+	};
+	for (let dir = 0; dir < 2; dir++) {
+		const walk = dir ? reversePts(base) : base;
+		for (let off = 0; off < offs; off++) {
+			const cand = off ? rotatePts(walk, off) : walk;
+			const s = varyA ? procrustes(cand, bPts, ca, cb) : procrustes(aPts, cand, ca, cb);
+			const score = s.res + LAMBDA * Math.abs(s.theta) / Math.PI;
+			if (score < bestScore) {
+				bestScore = score;
+				best = cand;
+				sim = s;
+			}
+		}
+	}
+	return varyA ? {
+		ca,
+		cb,
+		a: best,
+		b: bPts,
+		...sim
+	} : {
+		ca,
+		cb,
+		a: aPts,
+		b: best,
+		...sim
+	};
+}
+function costMatrix(A, B) {
+	const cbs = B.map(centroid);
+	const lbs = B.map(polyLen);
+	return A.map((a) => {
+		const ca = centroid(a);
+		const la = polyLen(a);
+		return cbs.map((cb, j) => Math.hypot(ca[0] - cb[0], ca[1] - cb[1]) + LEN_WEIGHT * Math.abs(la - lbs[j]));
+	});
+}
+function bestPermutation(C) {
+	const n = C.length;
+	if (n > PERM_MAX) {
+		const pairs = [];
+		for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) pairs.push([
+			C[i][j],
+			i,
+			j
+		]);
+		pairs.sort((x, y) => x[0] - y[0]);
+		const out = new Array(n).fill(-1);
+		const used = new Array(n).fill(false);
+		for (const [, i, j] of pairs) if (out[i] < 0 && !used[j]) {
+			out[i] = j;
+			used[j] = true;
+		}
+		return out;
+	}
+	const idx = Array.from({ length: n }, (_, i) => i);
+	let best = idx.slice();
+	let bc = Number.POSITIVE_INFINITY;
+	const perm = (arr, k, acc) => {
+		if (acc >= bc) return;
+		if (k === n) {
+			bc = acc;
+			best = arr.slice();
+			return;
+		}
+		for (let i = k; i < n; i++) {
+			[arr[k], arr[i]] = [arr[i], arr[k]];
+			perm(arr, k + 1, acc + C[k][arr[k]]);
+			[arr[k], arr[i]] = [arr[i], arr[k]];
+		}
+	};
+	perm(idx, 0, 0);
+	return best;
+}
+function bestSurjection(C) {
+	const B = C.length;
+	const S = C[0].length;
+	if (S ** B > SURJ_MAX) {
+		const f = C.map((row) => {
+			let m = 0;
+			for (let j = 1; j < row.length; j++) if (row[j] < row[m]) m = j;
+			return m;
+		});
+		const mult = new Array(S).fill(0);
+		for (const s of f) mult[s]++;
+		for (let s = 0; s < S; s++) {
+			if (mult[s] > 0) continue;
+			let bi = -1;
+			let bc = Number.POSITIVE_INFINITY;
+			for (let i = 0; i < B; i++) {
+				if (mult[f[i]] < 2) continue;
+				const extra = C[i][s] - C[i][f[i]];
+				if (extra < bc) {
+					bc = extra;
+					bi = i;
+				}
+			}
+			mult[f[bi]]--;
+			f[bi] = s;
+			mult[s]++;
+		}
+		return f;
+	}
+	let best = null;
+	let bc = Number.POSITIVE_INFINITY;
+	const f = new Array(B);
+	const mult = new Array(S).fill(0);
+	const rec = (i, acc, covered) => {
+		if (acc >= bc || S - covered > B - i) return;
+		if (i === B) {
+			bc = acc;
+			best = f.slice();
+			return;
+		}
+		for (let s = 0; s < S; s++) {
+			f[i] = s;
+			mult[s]++;
+			rec(i + 1, acc + C[i][s], covered + (mult[s] === 1 ? 1 : 0));
+			mult[s]--;
+		}
+	};
+	rec(0, 0, 0);
+	if (!best) throw new Error("morphicons: no valid surjection (B < S)");
+	return best;
+}
+function applyGlobal(items, n) {
+	const T = items.length * n;
+	const ga = new Float64Array(2 * T);
+	const gb = new Float64Array(2 * T);
+	items.forEach((it, k) => {
+		ga.set(it.a, 2 * n * k);
+		gb.set(it.bO, 2 * n * k);
+	});
+	const gca = centroid(ga);
+	const g = procrustes(ga, gb, gca, centroid(gb));
+	if (g.res >= GLOBAL_EPS) return;
+	const cos = Math.cos(-g.theta);
+	const sin = Math.sin(-g.theta);
+	const rc = Math.cos(g.theta);
+	const rs = Math.sin(g.theta);
+	for (const it of items) {
+		let e2 = 0;
+		let nb = 0;
+		for (let i = 0; i < n; i++) {
+			const bx = it.bO[2 * i] - it.cb[0];
+			const by = it.bO[2 * i + 1] - it.cb[1];
+			it.bT[2 * i] = (bx * cos - by * sin) / g.sigma;
+			it.bT[2 * i + 1] = (bx * sin + by * cos) / g.sigma;
+			const ex = g.sigma * (rc * it.aC[2 * i] - rs * it.aC[2 * i + 1]) - bx;
+			const ey = g.sigma * (rs * it.aC[2 * i] + rc * it.aC[2 * i + 1]) - by;
+			e2 += ex * ex + ey * ey;
+			nb += bx * bx + by * by;
+		}
+		it.theta = g.theta;
+		it.lnSigma = Math.log(g.sigma);
+		it.res = nb > 1e-12 ? Math.sqrt(e2 / nb) : 0;
+		const s1 = Math.exp(it.lnSigma);
+		const c1 = Math.cos(it.theta) * s1;
+		const n1 = Math.sin(it.theta) * s1;
+		const ox = it.ca[0] - gca[0];
+		const oy = it.ca[1] - gca[1];
+		const rx = ox * c1 - oy * n1 - ox;
+		const ry = ox * n1 + oy * c1 - oy;
+		it.block = {
+			off: [ox, oy],
+			drift: [it.cb[0] - it.ca[0] - rx, it.cb[1] - it.ca[1] - ry]
+		};
+	}
+}
+/** Builds the morph plan between two lists of sampled subpaths. The plan is
+*  cacheable and serializable; it accepts any list — including intermediate
+*  shapes (interruptions). */
+function buildPlan(srcSubs, dstSubs) {
+	const p = srcSubs.length;
+	const q = dstSubs.length;
+	if (p === 0 || q === 0) throw new Error("morphicons: icon has no subpaths");
+	const A = srcSubs.map((s) => s.pts);
+	const B = dstSubs.map((s) => s.pts);
+	const pairs = [];
+	if (p === q) {
+		const perm = bestPermutation(costMatrix(A, B));
+		for (let i = 0; i < p; i++) pairs.push([i, perm[i]]);
+	} else if (p < q) {
+		const f = bestSurjection(costMatrix(B, A));
+		for (let j = 0; j < q; j++) pairs.push([f[j], j]);
+	} else {
+		const f = bestSurjection(costMatrix(A, B));
+		for (let i = 0; i < p; i++) pairs.push([i, f[i]]);
+	}
+	const n = A[0].length / 2;
+	const items = pairs.map(([si, di]) => {
+		const al = alignPair(A[si], B[di], srcSubs[si].closed, dstSubs[di].closed);
+		const a = al.a;
+		const aC = new Float64Array(2 * n);
+		const bT = new Float64Array(2 * n);
+		const bO = new Float64Array(2 * n);
+		const cos = Math.cos(-al.theta);
+		const sin = Math.sin(-al.theta);
+		for (let i = 0; i < n; i++) {
+			aC[2 * i] = a[2 * i] - al.ca[0];
+			aC[2 * i + 1] = a[2 * i + 1] - al.ca[1];
+			const bx = al.b[2 * i] - al.cb[0];
+			const by = al.b[2 * i + 1] - al.cb[1];
+			bT[2 * i] = (bx * cos - by * sin) / al.sigma;
+			bT[2 * i + 1] = (bx * sin + by * cos) / al.sigma;
+			bO[2 * i] = al.b[2 * i];
+			bO[2 * i + 1] = al.b[2 * i + 1];
+		}
+		return {
+			a,
+			aC,
+			bT,
+			bO,
+			ca: al.ca,
+			cb: al.cb,
+			theta: al.theta,
+			lnSigma: Math.log(al.sigma),
+			res: al.res,
+			closed: srcSubs[si].closed && dstSubs[di].closed,
+			block: null
+		};
+	});
+	if (items.length > 1) applyGlobal(items, n);
+	return {
+		items,
+		n
+	};
+}
+//#endregion
+//#region src/core/resample.ts
+/** Default angular threshold for a segment joint to count as a corner. */
+const CORNER_THRESHOLD = Math.PI / 8;
+const GX = [
+	.18343464249564978,
+	.525532409916329,
+	.7966664774136267,
+	.9602898564975363
+];
+const GW = [
+	.362683783378362,
+	.31370664587788727,
+	.22238103445337448,
+	.10122853629037626
+];
+function speed(p, k, t) {
+	const i = 6 * k;
+	const u = 1 - t;
+	const c0 = 3 * u * u;
+	const c1 = 6 * u * t;
+	const c2 = 3 * t * t;
+	const dx = c0 * (p[i + 2] - p[i]) + c1 * (p[i + 4] - p[i + 2]) + c2 * (p[i + 6] - p[i + 4]);
+	const dy = c0 * (p[i + 3] - p[i + 1]) + c1 * (p[i + 5] - p[i + 3]) + c2 * (p[i + 7] - p[i + 5]);
+	return Math.hypot(dx, dy);
+}
+function segLen(p, k, t1 = 1) {
+	const half = t1 / 2;
+	let s = 0;
+	for (let j = 0; j < 4; j++) s += GW[j] * (speed(p, k, half + half * GX[j]) + speed(p, k, half - half * GX[j]));
+	return s * half;
+}
+function point(p, k, t, out, o) {
+	const i = 6 * k;
+	const u = 1 - t;
+	const b0 = u * u * u;
+	const b1 = 3 * u * u * t;
+	const b2 = 3 * u * t * t;
+	const b3 = t * t * t;
+	out[o] = b0 * p[i] + b1 * p[i + 2] + b2 * p[i + 4] + b3 * p[i + 6];
+	out[o + 1] = b0 * p[i + 1] + b1 * p[i + 3] + b2 * p[i + 5] + b3 * p[i + 7];
+}
+function tangent(p, k, atEnd) {
+	const i = 6 * k;
+	const b = atEnd ? i + 6 : i;
+	const s = atEnd ? -1 : 1;
+	for (const j of atEnd ? [
+		4,
+		2,
+		0
+	] : [
+		2,
+		4,
+		6
+	]) {
+		const dx = s * (p[i + j] - p[b]);
+		const dy = s * (p[i + j + 1] - p[b + 1]);
+		if (dx * dx + dy * dy > 1e-18) return [dx, dy];
+	}
+	return null;
+}
+/** Segment boundaries (index of the segment starting at the corner) whose
+*  tangent discontinuity exceeds the threshold. For closed paths this
+*  includes the closing joint (boundary = first active segment). */
+function detectCorners(path, threshold = CORNER_THRESHOLD) {
+	const p = path.pts;
+	const m = (p.length / 2 - 1) / 3;
+	const active = [];
+	for (let k = 0; k < m; k++) if (segLen(p, k) > 1e-9) active.push(k);
+	if (active.length === 0) return [];
+	const corners = /* @__PURE__ */ new Set();
+	const test = (a, b) => {
+		const u = tangent(p, a, true);
+		const v = tangent(p, b, false);
+		if (!u || !v) return;
+		if (Math.abs(Math.atan2(u[0] * v[1] - u[1] * v[0], u[0] * v[0] + u[1] * v[1])) > threshold) corners.add(b);
+	};
+	for (let j = 0; j + 1 < active.length; j++) test(active[j], active[j + 1]);
+	if (path.closed && active.length > 1) test(active[active.length - 1], active[0]);
+	return [...corners].sort((a, b) => a - b);
+}
+function invert(p, k, s, ls) {
+	if (s <= 0) return 0;
+	if (s >= ls) return 1;
+	let lo = 0;
+	let hi = 1;
+	let t = s / ls;
+	for (let it = 0; it < 12; it++) {
+		const f = segLen(p, k, t) - s;
+		if (Math.abs(f) < 1e-10 * ls + 1e-14) break;
+		if (f > 0) hi = t;
+		else lo = t;
+		const sp = speed(p, k, t);
+		let nt = sp > 1e-12 ? t - f / sp : (lo + hi) / 2;
+		if (!(nt > lo && nt < hi)) nt = (lo + hi) / 2;
+		t = nt;
+	}
+	return t;
+}
+/** Samples a cubic subpath at N points equidistant by arc length, anchoring
+*  corners and endpoints as exact samples. Returns Float64Array(2N). Closed
+*  paths distribute N intervals around the loop (without duplicating the
+*  first point); the circular start-point freedom is resolved by the plan's
+*  circular correspondence. */
+function resamplePath(path, N = 64, cornerThreshold = CORNER_THRESHOLD) {
+	const p = path.pts;
+	const m = (p.length / 2 - 1) / 3;
+	const out = new Float64Array(2 * N);
+	const fill = () => {
+		for (let i = 0; i < N; i++) {
+			out[2 * i] = p[0];
+			out[2 * i + 1] = p[1];
+		}
+		return out;
+	};
+	if (m < 1) return fill();
+	const lens = new Array(m);
+	let L = 0;
+	for (let k = 0; k < m; k++) {
+		lens[k] = segLen(p, k);
+		L += lens[k];
+	}
+	if (L < 1e-12) return fill();
+	const cs = detectCorners(path, cornerThreshold);
+	const anchors = path.closed ? cs.length > 0 ? cs : [0] : [.../* @__PURE__ */ new Set([
+		0,
+		...cs,
+		m
+	])].sort((a, b) => a - b);
+	const runs = [];
+	if (path.closed) for (let j = 0; j < anchors.length; j++) {
+		const a = anchors[j];
+		const b = j + 1 < anchors.length ? anchors[j + 1] : anchors[0] + m;
+		runs.push([a, b]);
+	}
+	else for (let j = 0; j + 1 < anchors.length; j++) runs.push([anchors[j], anchors[j + 1]]);
+	const rl = runs.map(([a, b]) => {
+		let s = 0;
+		for (let k = a; k < b; k++) s += lens[k % m];
+		return s;
+	});
+	const intervals = path.closed ? N : N - 1;
+	if (runs.length > intervals) throw new Error(`morphicons: N=${N} too small (${runs.length} runs)`);
+	const total = rl.reduce((a, b) => a + b, 0) || 1;
+	const ideal = rl.map((l) => intervals * l / total);
+	const counts = ideal.map((q) => Math.max(1, Math.floor(q)));
+	let R = intervals - counts.reduce((a, b) => a + b, 0);
+	if (R > 0) {
+		const order = ideal.map((q, idx) => [Math.round((q - Math.floor(q)) * 1e9), idx]).sort((a, b) => b[0] - a[0] || a[1] - b[1]);
+		for (let j = 0; j < R; j++) counts[order[j % counts.length][1]]++;
+	}
+	while (R < 0) {
+		let bi = 0;
+		for (let idx = 1; idx < counts.length; idx++) if (counts[idx] > counts[bi]) bi = idx;
+		if (counts[bi] <= 1) break;
+		counts[bi]--;
+		R++;
+	}
+	let w = 0;
+	for (let r = 0; r < runs.length; r++) {
+		const [k0, k1] = runs[r];
+		const cnt = counts[r];
+		const Lr = rl[r];
+		const vi = 6 * (k0 % m);
+		out[2 * w] = p[vi];
+		out[2 * w + 1] = p[vi + 1];
+		w++;
+		let seg = k0;
+		let acc = 0;
+		for (let j = 1; j < cnt; j++) {
+			const target = Lr * j / cnt;
+			while (seg < k1 - 1 && acc + lens[seg % m] < target) {
+				acc += lens[seg % m];
+				seg++;
+			}
+			const k = seg % m;
+			const ls = lens[k];
+			point(p, k, ls > 1e-12 ? invert(p, k, target - acc, ls) : 0, out, 2 * w);
+			w++;
+		}
+	}
+	if (!path.closed) {
+		const vi = 6 * m;
+		out[2 * w] = p[vi];
+		out[2 * w + 1] = p[vi + 1];
+	}
+	return out;
+}
+/** Full input pipeline: icon → cubics → sampled subpaths with their
+*  topology (the plan needs to know which subpaths are closed loops). */
+function resampleIcon(input, N = 64) {
+	return iconToCubics(input).map((path) => ({
+		pts: resamplePath(path, N),
+		closed: path.closed
+	}));
+}
+//#endregion
+//#region src/core/spring.ts
+var Spring = class {
+	x = 1;
+	v = 0;
+	k = 250;
+	c = 24;
+	config(k, c) {
+		this.k = k;
+		this.c = c;
+	}
+	/** Starts (or restarts mid-flight) preserving velocity. */
+	start() {
+		this.x = 0;
+		if (this.v > 14) this.v = 14;
+		if (this.v < -14) this.v = -14;
+	}
+	/** Advances dt seconds. Returns true on settle (|1−x| < 0.001 ∧ |v| < 0.02). */
+	step(dt) {
+		const steps = Math.max(1, Math.min(16, Math.ceil(dt / (1 / 240))));
+		const s = dt / steps;
+		for (let i = 0; i < steps; i++) {
+			const a = this.k * (1 - this.x) - this.c * this.v;
+			this.v += a * s;
+			this.x += this.v * s;
+		}
+		return Math.abs(1 - this.x) < .001 && Math.abs(this.v) < .02;
+	}
+};
+/** Spring presets (ζ = c/(2√k)) with the API's public names. */
+const SPRING_PRESETS = {
+	/** ζ = 1.00 — critically damped, no overshoot. */
+	smooth: {
+		k: 170,
+		c: 26
+	},
+	/** ζ = 0.73 — fast, subtle overshoot. */
+	snappy: {
+		k: 420,
+		c: 30
+	},
+	/** ζ = 0.40 — playful. */
+	bouncy: {
+		k: 300,
+		c: 14
+	}
+};
+//#endregion
+
+/* ---- dist/normalize-CYnN3Npw.js ---- */
+//#region src/core/parse.ts
+const COMMANDS = "MmLlHhVvCcSsQqTtAaZz";
+function parsePath(d) {
+	const subs = [];
+	const n = d.length;
+	let i = 0;
+	let cx = 0;
+	let cy = 0;
+	let sx = 0;
+	let sy = 0;
+	let cur = null;
+	let cmd = "";
+	let px = 0;
+	let py = 0;
+	let prev = "";
+	let started = false;
+	const err = (msg) => {
+		throw new Error(`morphicons: ${msg} at d[${i}]`);
+	};
+	const isDigit = (c) => c >= 48 && c <= 57;
+	const skip = () => {
+		while (i < n) {
+			const c = d.charCodeAt(i);
+			if (c === 32 || c === 9 || c === 10 || c === 13 || c === 12 || c === 44) i++;
+			else break;
+		}
+	};
+	const num = () => {
+		skip();
+		const start = i;
+		if (i < n && (d[i] === "+" || d[i] === "-")) i++;
+		let dig = false;
+		while (i < n && isDigit(d.charCodeAt(i))) {
+			i++;
+			dig = true;
+		}
+		if (i < n && d[i] === ".") {
+			i++;
+			while (i < n && isDigit(d.charCodeAt(i))) {
+				i++;
+				dig = true;
+			}
+		}
+		if (!dig) err("expected number");
+		if (i < n && (d[i] === "e" || d[i] === "E")) {
+			const save = i;
+			i++;
+			if (i < n && (d[i] === "+" || d[i] === "-")) i++;
+			let ed = false;
+			while (i < n && isDigit(d.charCodeAt(i))) {
+				i++;
+				ed = true;
+			}
+			if (!ed) i = save;
+		}
+		return Number(d.slice(start, i));
+	};
+	const flag = () => {
+		skip();
+		const c = d[i];
+		if (c === "0" || c === "1") {
+			i++;
+			return c === "1" ? 1 : 0;
+		}
+		return err("expected arc flag (0|1)");
+	};
+	const open = () => {
+		if (!started) err("path must start with M/m");
+		if (!cur) {
+			cur = {
+				x0: cx,
+				y0: cy,
+				segs: [],
+				closed: false
+			};
+			subs.push(cur);
+		}
+		return cur;
+	};
+	let rel = false;
+	const nx = () => num() + (rel ? cx : 0);
+	const ny = () => num() + (rel ? cy : 0);
+	while (true) {
+		skip();
+		if (i >= n) break;
+		const ch = d[i];
+		if (COMMANDS.includes(ch)) {
+			cmd = ch;
+			i++;
+		} else if (cmd === "") err("path must start with M/m");
+		else if (cmd === "M") cmd = "L";
+		else if (cmd === "m") cmd = "l";
+		else if (cmd === "Z" || cmd === "z") err("stray data after Z");
+		rel = cmd >= "a";
+		switch (rel ? cmd.toUpperCase() : cmd) {
+			case "M": {
+				started = true;
+				const x = nx();
+				const y = ny();
+				cx = x;
+				cy = y;
+				sx = x;
+				sy = y;
+				cur = {
+					x0: x,
+					y0: y,
+					segs: [],
+					closed: false
+				};
+				subs.push(cur);
+				prev = "";
+				break;
+			}
+			case "L": {
+				const x = nx();
+				const y = ny();
+				open().segs.push([
+					"L",
+					x,
+					y
+				]);
+				cx = x;
+				cy = y;
+				prev = "";
+				break;
+			}
+			case "H": {
+				const x = nx();
+				open().segs.push([
+					"L",
+					x,
+					cy
+				]);
+				cx = x;
+				prev = "";
+				break;
+			}
+			case "V": {
+				const y = ny();
+				open().segs.push([
+					"L",
+					cx,
+					y
+				]);
+				cy = y;
+				prev = "";
+				break;
+			}
+			case "C":
+			case "S": {
+				let x1;
+				let y1;
+				if (cmd === "C" || cmd === "c") {
+					x1 = nx();
+					y1 = ny();
+				} else {
+					x1 = prev === "C" ? 2 * cx - px : cx;
+					y1 = prev === "C" ? 2 * cy - py : cy;
+				}
+				const x2 = nx();
+				const y2 = ny();
+				const x = nx();
+				const y = ny();
+				open().segs.push([
+					"C",
+					x1,
+					y1,
+					x2,
+					y2,
+					x,
+					y
+				]);
+				px = x2;
+				py = y2;
+				cx = x;
+				cy = y;
+				prev = "C";
+				break;
+			}
+			case "Q":
+			case "T": {
+				let x1;
+				let y1;
+				if (cmd === "Q" || cmd === "q") {
+					x1 = nx();
+					y1 = ny();
+				} else {
+					x1 = prev === "Q" ? 2 * cx - px : cx;
+					y1 = prev === "Q" ? 2 * cy - py : cy;
+				}
+				const x = nx();
+				const y = ny();
+				open().segs.push([
+					"Q",
+					x1,
+					y1,
+					x,
+					y
+				]);
+				px = x1;
+				py = y1;
+				cx = x;
+				cy = y;
+				prev = "Q";
+				break;
+			}
+			case "A": {
+				const rx = num();
+				const ry = num();
+				const rot = num();
+				const large = flag();
+				const sweep = flag();
+				const x = nx();
+				const y = ny();
+				open().segs.push([
+					"A",
+					rx,
+					ry,
+					rot,
+					large,
+					sweep,
+					x,
+					y
+				]);
+				cx = x;
+				cy = y;
+				prev = "";
+				break;
+			}
+			case "Z":
+				if (cur) {
+					cur.closed = true;
+					cur = null;
+				}
+				cx = sx;
+				cy = sy;
+				prev = "";
+				break;
+			default: err(`unsupported command "${cmd}"`);
+		}
+	}
+	return subs.filter((s) => s.segs.length > 0);
+}
+//#endregion
+//#region src/core/serialize.ts
+function fmt(v) {
+	return String(Math.round(v * 100) / 100);
+}
+/** Sampled subpaths → polyline `d` attribute. `closed[k]` appends Z to
+*  subpath k (closed loops in flight); without flags everything is open. */
+function serialize(subs, closed) {
+	let d = "";
+	for (let k = 0; k < subs.length; k++) {
+		const o = subs[k];
+		const n = o.length / 2;
+		d += `M${fmt(o[0])} ${fmt(o[1])}`;
+		for (let i = 1; i < n; i++) d += `L${fmt(o[2 * i])} ${fmt(o[2 * i + 1])}`;
+		if (closed?.[k]) d += "Z";
+	}
+	return d;
+}
+function fmtCanon(v) {
+	return String(Math.round(v * 1e4) / 1e4);
+}
+/** Cubic subpaths → canonical `d`, quantized to 4 decimals (engine-stable
+*  bytes; see fmtCanon). */
+function cubicsToPathD(paths) {
+	let d = "";
+	for (const { pts, closed } of paths) {
+		d += `M${fmtCanon(pts[0])} ${fmtCanon(pts[1])}`;
+		for (let i = 2; i < pts.length; i += 6) d += `C${fmtCanon(pts[i])} ${fmtCanon(pts[i + 1])} ${fmtCanon(pts[i + 2])} ${fmtCanon(pts[i + 3])} ${fmtCanon(pts[i + 4])} ${fmtCanon(pts[i + 5])}`;
+		if (closed) d += "Z";
+	}
+	return d;
+}
+//#endregion
+//#region src/core/normalize.ts
+/** Control-point offset for a quarter circle: (4/3)·tan(π/8) ≈ 0.5523. */
+const KAPPA = 4 / 3 * Math.tan(Math.PI / 8);
+const TAU = 2 * Math.PI;
+function builder(x0, y0) {
+	const pts = [x0, y0];
+	let cx = x0;
+	let cy = y0;
+	const cubic = (x1, y1, x2, y2, x, y) => {
+		pts.push(x1, y1, x2, y2, x, y);
+		cx = x;
+		cy = y;
+	};
+	const line = (x, y) => {
+		if (Math.abs(x - cx) < 1e-12 && Math.abs(y - cy) < 1e-12) return;
+		cubic(cx + (x - cx) / 3, cy + (y - cy) / 3, cx + 2 * (x - cx) / 3, cy + 2 * (y - cy) / 3, x, y);
+	};
+	const quad = (x1, y1, x, y) => {
+		cubic(cx + 2 / 3 * (x1 - cx), cy + 2 / 3 * (y1 - cy), x + 2 / 3 * (x1 - x), y + 2 / 3 * (y1 - y), x, y);
+	};
+	const arc = (rx0, ry0, rotDeg, large, sweep, x, y) => {
+		const x1 = cx;
+		const y1 = cy;
+		if (Math.abs(x - x1) < 1e-12 && Math.abs(y - y1) < 1e-12) return;
+		let rx = Math.abs(rx0);
+		let ry = Math.abs(ry0);
+		if (rx < 1e-12 || ry < 1e-12) {
+			line(x, y);
+			return;
+		}
+		const phi = rotDeg * Math.PI / 180;
+		const cosP = Math.cos(phi);
+		const sinP = Math.sin(phi);
+		const hx = (x1 - x) / 2;
+		const hy = (y1 - y) / 2;
+		const x1p = cosP * hx + sinP * hy;
+		const y1p = -sinP * hx + cosP * hy;
+		const lam = x1p * x1p / (rx * rx) + y1p * y1p / (ry * ry);
+		if (lam > 1) {
+			const s = Math.sqrt(lam);
+			rx *= s;
+			ry *= s;
+		}
+		const rx2 = rx * rx;
+		const ry2 = ry * ry;
+		const xp2 = x1p * x1p;
+		const yp2 = y1p * y1p;
+		let rad = (rx2 * ry2 - rx2 * yp2 - ry2 * xp2) / (rx2 * yp2 + ry2 * xp2);
+		if (rad < 0) rad = 0;
+		const co = (large === sweep ? -1 : 1) * Math.sqrt(rad);
+		const cxp = co * rx * y1p / ry;
+		const cyp = -co * ry * x1p / rx;
+		const ccx = cosP * cxp - sinP * cyp + (x1 + x) / 2;
+		const ccy = sinP * cxp + cosP * cyp + (y1 + y) / 2;
+		const th1 = Math.atan2((y1p - cyp) / ry, (x1p - cxp) / rx);
+		let dth = Math.atan2((-y1p - cyp) / ry, (-x1p - cxp) / rx) - th1;
+		if (sweep === 0 && dth > 0) dth -= TAU;
+		else if (sweep === 1 && dth < 0) dth += TAU;
+		const slices = Math.max(1, Math.ceil(Math.abs(dth) / (Math.PI / 2) - 1e-9));
+		const delta = dth / slices;
+		const alpha = 4 / 3 * Math.tan(delta / 4);
+		const ex = (t) => ccx + rx * Math.cos(t) * cosP - ry * Math.sin(t) * sinP;
+		const ey = (t) => ccy + rx * Math.cos(t) * sinP + ry * Math.sin(t) * cosP;
+		const dx = (t) => -rx * Math.sin(t) * cosP - ry * Math.cos(t) * sinP;
+		const dy = (t) => -rx * Math.sin(t) * sinP + ry * Math.cos(t) * cosP;
+		let t0 = th1;
+		let p0x = x1;
+		let p0y = y1;
+		for (let s = 1; s <= slices; s++) {
+			const t1 = th1 + delta * s;
+			const p1x = s === slices ? x : ex(t1);
+			const p1y = s === slices ? y : ey(t1);
+			cubic(p0x + alpha * dx(t0), p0y + alpha * dy(t0), p1x - alpha * dx(t1), p1y - alpha * dy(t1), p1x, p1y);
+			t0 = t1;
+			p0x = p1x;
+			p0y = p1y;
+		}
+	};
+	const finish = (closed) => {
+		if (closed) line(pts[0], pts[1]);
+		if (pts.length < 8) return null;
+		return {
+			pts: Float64Array.from(pts),
+			closed
+		};
+	};
+	return [
+		cubic,
+		line,
+		quad,
+		arc,
+		finish
+	];
+}
+function lowerSubpath(raw) {
+	const [cubic, line, quad, arc, finish] = builder(raw.x0, raw.y0);
+	for (const s of raw.segs) switch (s[0]) {
+		case "L":
+			line(s[1], s[2]);
+			break;
+		case "C":
+			cubic(s[1], s[2], s[3], s[4], s[5], s[6]);
+			break;
+		case "Q":
+			quad(s[1], s[2], s[3], s[4]);
+			break;
+		case "A": arc(s[1], s[2], s[3], s[4], s[5], s[6], s[7]);
+	}
+	return finish(raw.closed);
+}
+function attrNum(attrs, key, fallback = 0) {
+	const v = attrs[key];
+	if (v === void 0) return fallback;
+	const x = typeof v === "number" ? v : Number(v);
+	return Number.isFinite(x) ? x : fallback;
+}
+function parsePoints(v) {
+	const s = String(v ?? "").trim();
+	if (!s) return [];
+	const nums = s.split(/[\s,]+/).map(Number);
+	if (nums.some((x) => !Number.isFinite(x))) throw new Error(`morphicons: invalid points: "${s}"`);
+	return nums;
+}
+function polyPath(nums, closed) {
+	if (nums.length < 4) return null;
+	const [, line, , , finish] = builder(nums[0], nums[1]);
+	for (let i = 2; i + 1 < nums.length; i += 2) line(nums[i], nums[i + 1]);
+	return finish(closed);
+}
+function ellipsePath(cx, cy, rx, ry) {
+	if (rx < 1e-12 || ry < 1e-12) return null;
+	const kx = KAPPA * rx;
+	const ky = KAPPA * ry;
+	const e = cx + rx;
+	const w = cx - rx;
+	const s = cy + ry;
+	const n = cy - ry;
+	const [cubic, , , , finish] = builder(e, cy);
+	cubic(e, cy + ky, cx + kx, s, cx, s);
+	cubic(cx - kx, s, w, cy + ky, w, cy);
+	cubic(w, cy - ky, cx - kx, n, cx, n);
+	cubic(cx + kx, n, e, cy - ky, e, cy);
+	return finish(true);
+}
+function rectPath(attrs) {
+	const x = attrNum(attrs, "x");
+	const y = attrNum(attrs, "y");
+	const w = attrNum(attrs, "width");
+	const h = attrNum(attrs, "height");
+	if (w < 1e-12 || h < 1e-12) return null;
+	let rx = attrNum(attrs, "rx", NaN);
+	let ry = attrNum(attrs, "ry", NaN);
+	if (Number.isNaN(rx)) rx = Number.isNaN(ry) ? 0 : ry;
+	if (Number.isNaN(ry)) ry = rx;
+	rx = Math.min(Math.max(rx, 0), w / 2);
+	ry = Math.min(Math.max(ry, 0), h / 2);
+	if (rx < 1e-12 || ry < 1e-12) return polyPath([
+		x,
+		y,
+		x + w,
+		y,
+		x + w,
+		y + h,
+		x,
+		y + h
+	], true);
+	const xa = x + rx;
+	const xb = x + w - rx;
+	const xr = x + w;
+	const ya = y + ry;
+	const yb = y + h - ry;
+	const yd = y + h;
+	const kx = KAPPA * rx;
+	const ky = KAPPA * ry;
+	const [cubic, line, , , finish] = builder(xa, y);
+	line(xb, y);
+	cubic(xb + kx, y, xr, ya - ky, xr, ya);
+	line(xr, yb);
+	cubic(xr, yb + ky, xb + kx, yd, xb, yd);
+	line(xa, yd);
+	cubic(xa - kx, yd, x, yb + ky, x, yb);
+	line(x, ya);
+	cubic(x, ya - ky, xa - kx, y, xa, y);
+	return finish(true);
+}
+/** Icon (IconNode or `d` string) → list of cubic subpaths. */
+function iconToCubics(input) {
+	const out = [];
+	const push = (p) => {
+		if (p) out.push(p);
+	};
+	if (typeof input === "string") {
+		for (const s of parsePath(input)) push(lowerSubpath(s));
+		return out;
+	}
+	for (const [tag, attrs] of input) switch (tag) {
+		case "path":
+			for (const s of parsePath(String(attrs.d ?? ""))) push(lowerSubpath(s));
+			break;
+		case "line": {
+			const [, line, , , finish] = builder(attrNum(attrs, "x1"), attrNum(attrs, "y1"));
+			line(attrNum(attrs, "x2"), attrNum(attrs, "y2"));
+			push(finish(false));
+			break;
+		}
+		case "circle": {
+			const r = attrNum(attrs, "r");
+			push(ellipsePath(attrNum(attrs, "cx"), attrNum(attrs, "cy"), r, r));
+			break;
+		}
+		case "ellipse":
+			push(ellipsePath(attrNum(attrs, "cx"), attrNum(attrs, "cy"), attrNum(attrs, "rx"), attrNum(attrs, "ry")));
+			break;
+		case "rect":
+			push(rectPath(attrs));
+			break;
+		case "polyline":
+			push(polyPath(parsePoints(attrs.points), false));
+			break;
+		case "polygon":
+			push(polyPath(parsePoints(attrs.points), true));
+			break;
+		default: throw new Error(`morphicons: unsupported tag <${tag}>`);
+	}
+	return out;
+}
+function parseViewBox(vb) {
+	const v = typeof vb === "number" ? [
+		0,
+		0,
+		vb,
+		vb
+	] : typeof vb === "string" ? vb.trim().split(/[\s,]+/).map(Number) : vb;
+	const [minX, minY, w, h] = v;
+	if (v.length !== 4 || !(w > 0) || !(h > 0) || !Number.isFinite(minX) || !Number.isFinite(minY)) throw new Error(`morphicons: invalid viewBox "${String(vb)}"`);
+	return [
+		minX,
+		minY,
+		w,
+		h
+	];
+}
+/** Re-grids an icon drawn on `viewBox` onto the shared `grid` (24 by default),
+*  centred and preserving aspect ratio — the SVG `xMidYMid meet` rule.
+*
+*  Both endpoints of a morph must live on the same coordinate space. Lucide and
+*  Tabler already draw on 24×24; packs on 20 (Heroicons solid) or 32 (Carbon)
+*  do not, and mixing them unfitted makes Procrustes read the scale/offset gap
+*  as rotation. Apply once at module scope (not per render) and pass the
+*  resulting `d` anywhere an icon is accepted. */
+function fitIcon(input, viewBox, grid = 24) {
+	const [minX, minY, w, h] = parseViewBox(viewBox);
+	const s = Math.min(grid / w, grid / h);
+	const tx = (grid - w * s) / 2 - minX * s;
+	const ty = (grid - h * s) / 2 - minY * s;
+	const paths = iconToCubics(input);
+	for (const { pts } of paths) for (let i = 0; i < pts.length; i += 2) {
+		pts[i] = pts[i] * s + tx;
+		pts[i + 1] = pts[i + 1] * s + ty;
+	}
+	return cubicsToPathD(paths);
+}
+//#endregion
+
+/* ---- dist/dom.js ---- */
+//#region src/dom/index.ts
+const tickers = /* @__PURE__ */ new Set();
+let rafId = 0;
+let last = -1;
+function loop(ts) {
+	const dt = last < 0 ? 0 : Math.min(Math.max((ts - last) / 1e3, 0), .1);
+	last = ts;
+	for (const tick of [...tickers]) tick(dt);
+	if (tickers.size > 0) rafId = requestAnimationFrame(loop);
+	else {
+		rafId = 0;
+		last = -1;
+	}
+}
+function addTicker(tick) {
+	tickers.add(tick);
+	if (rafId === 0) {
+		last = -1;
+		rafId = requestAnimationFrame(loop);
+	}
+}
+function removeTicker(tick) {
+	tickers.delete(tick);
+	if (tickers.size === 0 && rafId !== 0) {
+		cancelAnimationFrame(rafId);
+		rafId = 0;
+		last = -1;
+	}
+}
+const samples = /* @__PURE__ */ new WeakMap();
+const canon = /* @__PURE__ */ new WeakMap();
+const plans = /* @__PURE__ */ new WeakMap();
+function sampledOf(icon) {
+	if (typeof icon === "string") return resampleIcon(icon);
+	let s = samples.get(icon);
+	if (!s) {
+		s = resampleIcon(icon);
+		samples.set(icon, s);
+	}
+	return s;
+}
+/** Canonical `d` of an icon: the input string verbatim, or the real cubics
+*  quantized to 4 decimals (the at-rest snap; engine-stable bytes so SSR
+*  hydration matches, see fmtCanon in core/serialize). Exported because it
+*  is what a binding renders at SSR/rest before any runtime exists. */
+function canonicalD(icon) {
+	if (typeof icon === "string") return icon;
+	let d = canon.get(icon);
+	if (!d) {
+		d = cubicsToPathD(iconToCubics(icon));
+		canon.set(icon, d);
+	}
+	return d;
+}
+function planBetween(src, dst) {
+	if (typeof src === "string" || typeof dst === "string") return buildPlan(sampledOf(src), sampledOf(dst));
+	let inner = plans.get(src);
+	if (!inner) {
+		inner = /* @__PURE__ */ new WeakMap();
+		plans.set(src, inner);
+	}
+	let p = inner.get(dst);
+	if (!p) {
+		p = buildPlan(sampledOf(src), sampledOf(dst));
+		inner.set(dst, p);
+	}
+	return p;
+}
+function resolveSpring(s) {
+	if (typeof s === "string") return SPRING_PRESETS[s];
+	const d = SPRING_PRESETS.snappy;
+	return {
+		k: s?.stiffness ?? d.k,
+		c: s?.damping ?? d.c
+	};
+}
+/** Creates the morph instance over a `<path>` and paints the initial icon. */
+function createMorph(el, icon, options) {
+	const spring = new Spring();
+	let reducedMotion = options?.reducedMotion ?? "never";
+	let target = icon;
+	let rest = true;
+	let plan = null;
+	let out = null;
+	let closed = null;
+	let t = 1;
+	let flying = false;
+	let dead = false;
+	el.setAttribute("d", canonicalD(icon));
+	const render = (tt) => {
+		const p = plan;
+		const o = out;
+		const cl = closed;
+		if (!p || !o || !cl) return;
+		t = tt;
+		interpPolar(p, tt, o);
+		el.setAttribute("d", serialize(o, cl));
+	};
+	const stop = () => {
+		if (!flying) return;
+		flying = false;
+		removeTicker(tick);
+	};
+	const tick = (dt) => {
+		const settled = spring.step(dt);
+		render(spring.x);
+		if (settled) {
+			stop();
+			settle();
+		}
+	};
+	const settle = () => {
+		rest = true;
+		plan = null;
+		out = null;
+		closed = null;
+		t = 1;
+		spring.x = 1;
+		spring.v = 0;
+		el.setAttribute("d", canonicalD(target));
+	};
+	/** The current shape as plan source: the at-rest icon, or the rendered
+	*  buffers (already N points per subpath). */
+	const snapshot = () => {
+		const p = plan;
+		const o = out;
+		if (rest || !p || !o) return sampledOf(target);
+		return o.map((buf, k) => ({
+			pts: Float64Array.from(buf),
+			closed: p.items[k].closed
+		}));
+	};
+	const retarget = (icon) => {
+		plan = rest ? planBetween(target, icon) : buildPlan(snapshot(), sampledOf(icon));
+		out = allocOutputs(plan);
+		closed = plan.items.map((it) => it.closed);
+		target = icon;
+		rest = false;
+	};
+	const setNow = (icon) => {
+		stop();
+		target = icon;
+		settle();
+	};
+	/** True when the policy says this morphTo must jump instead of flying. */
+	const motionOff = () => {
+		if (reducedMotion === "always") return true;
+		if (reducedMotion !== "user") return false;
+		if (typeof matchMedia === "undefined") return false;
+		return matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+	};
+	const seek = (icon, tt) => {
+		if (dead) return;
+		const reuse = !rest && plan !== null && icon === target;
+		stop();
+		spring.v = 0;
+		if (!reuse) retarget(icon);
+		render(tt);
+	};
+	return {
+		morphTo(icon, sp) {
+			if (dead) return;
+			if (icon === target && (rest || flying)) return;
+			if (motionOff()) {
+				setNow(icon);
+				return;
+			}
+			const { k, c } = resolveSpring(sp);
+			spring.config(k, c);
+			retarget(icon);
+			spring.start();
+			if (!flying) {
+				flying = true;
+				addTicker(tick);
+			}
+		},
+		set(icon) {
+			if (dead) return;
+			setNow(icon);
+		},
+		seek,
+		get progress() {
+			return rest ? 1 : t;
+		},
+		set progress(v) {
+			if (!dead) seek(target, v);
+		},
+		get reducedMotion() {
+			return reducedMotion;
+		},
+		set reducedMotion(v) {
+			reducedMotion = v;
+		},
+		destroy() {
+			stop();
+			dead = true;
+			plan = null;
+			out = null;
+			closed = null;
+		}
+	};
+}
+//#endregion
+
+/* ---- dist/controller-CXZuwJ_M.js ---- */
+//#region src/dom/controller.ts
+/** Frozen shape of the from→to pair at t, using the pure core (SSR-safe).
+*  At exact endpoints returns the canonical `d` (real curves, not polyline). */
+function frozenD(from, to, t) {
+	if (t <= 0) return canonicalD(from);
+	if (t >= 1) return canonicalD(to);
+	const plan = buildPlan(resampleIcon(from), resampleIcon(to));
+	const out = allocOutputs(plan);
+	interpPolar(plan, t, out);
+	return serialize(out, plan.items.map((it) => it.closed));
+}
+/** The initial d is a constant for every binding: computed once from the
+*  mount-time props (server and client produce the same string → hydration
+*  without mismatch) and from then on only the driver mutates it outside the
+*  template. */
+function computeInitialD({ icon, from, to, progress }) {
+	if (from !== void 0 && to !== void 0) return frozenD(from, to, progress ?? 0);
+	const first = icon ?? from ?? to;
+	return first !== void 0 ? canonicalD(first) : "";
+}
+/** Per-instance driver state — the exact logic of the React/Vue bindings
+*  (mount, mode watch, controlled seek with re-basing, imperative). Takes the
+*  init-time props: they seed the watch baselines so a watcher that fires on
+*  mount (Svelte's $effect, unlike Vue's watch) is a no-op. All change
+*  detection lives HERE, under tsc — the shells only wire their reactive
+*  surface to these methods.
+*
+*  Lifecycle contract (shared verbatim by the bindings):
+*  - Lazy driver: an iconless mount keeps the element and births the driver
+*    on the FIRST icon that shows up (prop or imperative). `morphTo` with no
+*    driver behaves as `set` — there is nothing to fly from.
+*  - Controlled wins: while `from` and `to` are both present the pair owns
+*    the path and `icon` changes are ignored; dropping the pair hands the
+*    path back to `icon`.
+*  - Every exit from controlled mode (imperative call or icon takeover)
+*    invalidates the frozen pair, so returning to it re-bases on `from`. */
+function createController({ icon, from, to, progress, reducedMotion }) {
+	let el = null;
+	let dead = false;
+	let morph = null;
+	let rm = reducedMotion ?? "never";
+	let based = false;
+	let pair = null;
+	let prevIcon = icon;
+	let prevControlled = from !== void 0 && to !== void 0;
+	let prevFrom = from;
+	let prevTo = to;
+	let prevProgress = progress;
+	/** Driver birth, lazy included: the first icon to show up creates it. */
+	const ensure = (birth) => {
+		if (morph) return morph;
+		if (dead || !el) return null;
+		morph = createMorph(el, birth, { reducedMotion: rm });
+		return morph;
+	};
+	/** Controlled mode: freeze the pair at `progress` via seek (no spring). */
+	const applyPair = (from, to, progress) => {
+		const m = morph;
+		if (!m) return;
+		const t = progress ?? 0;
+		if (!pair || pair[0] !== from || pair[1] !== to) {
+			pair = [from, to];
+			based = false;
+		}
+		if (t <= 0) {
+			m.set(from);
+			based = false;
+		} else if (t >= 1) {
+			m.set(to);
+			based = false;
+		} else {
+			if (!based) {
+				m.set(from);
+				based = true;
+			}
+			m.seek(to, t);
+		}
+	};
+	return {
+		mount(mountEl, { icon, from, to, progress, reducedMotion }) {
+			el = mountEl;
+			rm = reducedMotion ?? rm;
+			const controlled = from !== void 0 && to !== void 0;
+			const initialIcon = icon ?? from ?? to;
+			if (initialIcon === void 0) return;
+			const m = createMorph(el, controlled ? from : initialIcon, { reducedMotion: rm });
+			morph = m;
+			if (controlled) {
+				pair = [from, to];
+				const t = progress ?? 0;
+				if (t <= 0) m.set(from);
+				else if (t >= 1) m.set(to);
+				else {
+					m.seek(to, t);
+					based = true;
+				}
+			}
+		},
+		destroy() {
+			dead = true;
+			el = null;
+			morph?.destroy();
+			morph = null;
+			based = false;
+			pair = null;
+		},
+		/** Prop watcher: ONE owner decides per run — the controlled pair while it
+		*  is fully present, `icon` otherwise (mount doesn't fire thanks to the
+		*  init-time baselines). */
+		watch({ icon, from, to, progress, spring, reducedMotion }) {
+			rm = reducedMotion ?? "never";
+			if (morph) morph.reducedMotion = rm;
+			const controlled = from !== void 0 && to !== void 0;
+			const left = prevControlled && !controlled;
+			const iconChanged = icon !== prevIcon;
+			const pairChanged = from !== prevFrom || to !== prevTo || progress !== prevProgress;
+			prevControlled = controlled;
+			prevIcon = icon;
+			prevFrom = from;
+			prevTo = to;
+			prevProgress = progress;
+			if (controlled) {
+				if (!pairChanged) return;
+				if (!(morph ?? ensure(from))) return;
+				applyPair(from, to, progress);
+				return;
+			}
+			if (icon === void 0 || !iconChanged && !left) return;
+			pair = null;
+			based = false;
+			if (morph) morph.morphTo(icon, spring);
+			else ensure(icon);
+		},
+		morphTo(icon, spring) {
+			pair = null;
+			based = false;
+			if (morph) morph.morphTo(icon, spring);
+			else ensure(icon);
+		},
+		set(icon) {
+			pair = null;
+			based = false;
+			if (morph) morph.set(icon);
+			else ensure(icon);
+		}
+	};
+}
+//#endregion
+
+window.PiMorph = { createMorph: createMorph, canonicalD: canonicalD, version: "1.7.1" };
+})();
+
+/* ------------------------------------------------------------------------
+ * 数学曲线加载动效 —— 粒子轨迹（rose / 七瓣花环）
+ * 上游：https://github.com/Paidax01/math-curve-loaders   （original.js / original.html, main 分支）
+ * 许可证：MIT   原作者：Paidax01
+ *
+ * 本文件由 tools/fetch-curve-loader.mjs 生成，请勿手改。
+ * 生成方式：下载上游 original.js，**原样取出**它的 9 个常量与 5 个函数
+ * （normalizeProgress / getPoint / buildPath / getDetailScale / getRotation /
+ * getParticle），只把外面的壳换掉 —— 上游用模块级 document.querySelector 绑死
+ * 单个固定 id，这里改成 PiCurve.create(host) 并让所有实例共用一条 rAF。
+ * 曲线参数一个都没动：64 粒子、7 瓣、4.6s 一圈、4.2s 呼吸、28s 自转。
+ *
+ * 用法：PiCurve.create(document.getElementById("statusAnim"))
+ *       → { destroy() }
+ * ------------------------------------------------------------------------ */
+(function () {
+"use strict";
+
+const PARTICLE_COUNT = 64;
+const BASE_RADIUS = 7;
+const PETALS = 7;
+const DETAIL = 3;
+const SCALE = 3.9;
+const TRAIL_SPAN = 0.38;
+const ROTATION_DURATION_MS = 28000;
+const PULSE_DURATION_MS = 4200;
+const DURATION_MS = 4600;
+var STROKE_WIDTH = 5.5;
+
+function normalizeProgress(progress) {
+  return ((progress % 1) + 1) % 1;
+}
+
+function getPoint(progress, detailScale) {
+  const t = normalizeProgress(progress) * Math.PI * 2;
+  const x = BASE_RADIUS * Math.cos(t) - DETAIL * detailScale * Math.cos(PETALS * t);
+  const y = BASE_RADIUS * Math.sin(t) - DETAIL * detailScale * Math.sin(PETALS * t);
+
+  return {
+    x: 50 + x * SCALE,
+    y: 50 + y * SCALE,
+  };
+}
+
+function buildPath(detailScale, steps = 360) {
+  return Array.from({ length: steps + 1 }, (_, index) => {
+    const point = getPoint(index / steps, detailScale);
+    return `${index === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`;
+  }).join(" ");
+}
+
+function getDetailScale(time) {
+  const pulseProgress = (time % PULSE_DURATION_MS) / PULSE_DURATION_MS;
+  const pulseAngle = pulseProgress * Math.PI * 2;
+  return 0.5 + ((Math.sin(pulseAngle + 0.55) + 1) / 2) * 0.45;
+}
+
+function getRotation(time) {
+  return -((time % ROTATION_DURATION_MS) / ROTATION_DURATION_MS) * 360;
+}
+
+function getParticle(index, progress, detailScale) {
+  const tailOffset = index / (PARTICLE_COUNT - 1);
+  const point = getPoint(progress - tailOffset * TRAIL_SPAN, detailScale);
+  const fade = Math.pow(1 - tailOffset, 0.58);
+
+  return {
+    x: point.x,
+    y: point.y,
+    radius: 1.05 + fade * 2.75,
+    opacity: 0.08 + fade * 0.92,
+  };
+}
+
+// ---------------------------------------------------------------- 实例外壳
+// 上游在一个模块里只驱动一个固定 id 的 SVG；插件里状态行动画、工具条目动画
+// 都可能同时存在，所以这里按实例管理，并且**共用一条 rAF**：N 个实例也只跑
+// 一个回调（上游画廊就是一个卡片一条 rAF，那是它自己的场景）。
+var instances = [];
+var running = false;
+var SVG_NS = "http://www.w3.org/2000/svg";
+
+function createSvg() {
+  var svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("viewBox", "0 0 100 100");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("aria-hidden", "true");
+  var group = document.createElementNS(SVG_NS, "g");
+  var path = document.createElementNS(SVG_NS, "path");
+  path.setAttribute("class", "trail");
+  path.setAttribute("stroke-width", String(STROKE_WIDTH));
+  path.setAttribute("stroke-linecap", "round");
+  path.setAttribute("stroke-linejoin", "round");
+  group.appendChild(path);
+  svg.appendChild(group);
+  var dots = [];
+  for (var i = 0; i < PARTICLE_COUNT; i++) {
+    var circle = document.createElementNS(SVG_NS, "circle");
+    circle.setAttribute("class", "dot");
+    group.appendChild(circle);
+    dots.push(circle);
+  }
+  return { svg: svg, group: group, path: path, dots: dots };
+}
+
+function renderInstance(instance, time) {
+  var progress = (time % DURATION_MS) / DURATION_MS;
+  var detailScale = getDetailScale(time);
+  instance.group.setAttribute("transform", "rotate(" + getRotation(time) + " 50 50)");
+  instance.path.setAttribute("d", buildPath(detailScale));
+  for (var i = 0; i < instance.dots.length; i++) {
+    var particle = getParticle(i, progress, detailScale);
+    var node = instance.dots[i];
+    node.setAttribute("cx", particle.x.toFixed(2));
+    node.setAttribute("cy", particle.y.toFixed(2));
+    node.setAttribute("r", particle.radius.toFixed(2));
+    node.setAttribute("opacity", particle.opacity.toFixed(3));
+  }
+}
+
+function tick(now) {
+  for (var i = 0; i < instances.length; i++) {
+    renderInstance(instances[i], now - instances[i].startedAt);
+  }
+  if (instances.length) requestAnimationFrame(tick);
+  else running = false;
+}
+
+function start() {
+  if (running) return;
+  running = true;
+  requestAnimationFrame(tick);
+}
+
+/**
+ * 把动效挂到 host 元素里。host 里已有的内容会被清掉 —— 调用方每次重建即可，
+ * 重复 create 同一个 host 不会叠加元素。
+ *
+ * opts.animate === false（宿主开了 prefers-reduced-motion）时**照样画第一帧**，
+ * 只是不启动 rAF。页面把「减少动态效果」当成「不要这个状态指示器」是错的。
+ */
+function create(host, opts) {
+  if (!host) return { destroy: function () {} };
+  var animate = !(opts && opts.animate === false);
+  var built = createSvg();
+  host.textContent = "";
+  host.appendChild(built.svg);
+  var instance = {
+    host: host,
+    group: built.group,
+    path: built.path,
+    dots: built.dots,
+    startedAt: performance.now(),
+  };
+  renderInstance(instance, 0);
+  if (animate) {
+    instances.push(instance);
+    start();
+  }
+  return {
+    destroy: function () {
+      var at = instances.indexOf(instance);
+      if (at !== -1) instances.splice(at, 1);
+      if (built.svg.parentNode) built.svg.parentNode.removeChild(built.svg);
+    },
+  };
+}
+
+window.PiCurve = { create: create };
+})();
+    </script>
   </head>
   <body>
     <!-- 设计系统图标 sprite（由 tools/build-renderer.mjs 注入，22 个 symbol） -->
@@ -677,26 +2802,26 @@ details.think > .body {
     </svg>
 
     <div class="win" id="win">
-      <div class="titlebar">
-        <svg class="tb-ic"><use href="#i-spark" /></svg>
-        <span>鲸唤 Summon</span>
-        <span class="wbtns">
-          <button class="iconbtn closebtn" id="btnClose" title="隐藏窗口" aria-label="隐藏窗口"><svg><use href="#i-close" /></svg></button>
-        </span>
-      </div>
-
+      <!-- panel 形态下标题栏与窗口按钮由宿主自己画（顶部 46px 拖拽带 + 胶囊），
+           所以这里不再自绘 titlebar：重复一个「鲸唤 Summon」标题和关闭按钮
+           会和宿主胶囊在同一个角落抢位置。 -->
       <div class="wview">
         <!-- ============ 对话态（唯一视图，呼出即对话） ============ -->
         <div class="view on" id="view-chat">
+          <!-- 这一排控件进入宿主顶部那条拖拽带，和窗口按钮胶囊同一行（见下 .pi-has-band 规则）。
+               带子归宿主管：它的「拖拽地图」只在**认得出来的控件**上挖洞
+               （plugin-panel.ts 的 PAINT_THROUGH_NO_DRAG_SELECTOR），所以每个可点的控件
+               都标 data-pi-plugin-no-drag —— 否则会被拖拽段盖住点不到。
+               左上角仍留出空白给拖动窗口。 -->
           <div class="topbar">
             <div class="grow">
-              <button class="iconbtn" id="btnNewChat" title="新对话"><svg><use href="#i-new" /></svg></button>
-              <button class="iconbtn" id="btnHist" title="对话历史"><svg><use href="#i-history" /></svg></button>
-              <button class="chip" id="cModel" title="模型"><svg><use href="#i-spark" /></svg><b class="chip-txt">模型</b><svg><use href="#i-chev" /></svg></button>
-              <button class="chip" id="cRole" title="角色"><svg><use href="#i-eye" /></svg><b class="chip-txt">角色</b><svg><use href="#i-chev" /></svg></button>
+              <button class="iconbtn" id="btnNewChat" title="新对话" data-pi-plugin-no-drag><svg><use href="#i-new" /></svg></button>
+              <button class="iconbtn" id="btnHist" title="对话历史" data-pi-plugin-no-drag><svg><use href="#i-history" /></svg></button>
+              <button class="chip" id="cModel" title="模型" data-pi-plugin-no-drag><svg><use href="#i-spark" /></svg><b class="chip-txt">模型</b><svg><use href="#i-chev" /></svg></button>
+              <button class="chip" id="cRole" title="角色" data-pi-plugin-no-drag><svg><use href="#i-eye" /></svg><b class="chip-txt">角色</b><svg><use href="#i-chev" /></svg></button>
             </div>
-            <button class="iconbtn" id="btnMore" title="更多"><svg><use href="#i-menu" /></svg></button>
-            <button class="iconbtn" id="btnSettings" title="设置"><svg><use href="#i-settings" /></svg></button>
+            <button class="iconbtn" id="btnMore" title="更多" data-pi-plugin-no-drag><svg><use href="#i-menu" /></svg></button>
+            <button class="iconbtn" id="btnSettings" title="设置" data-pi-plugin-no-drag><svg><use href="#i-settings" /></svg></button>
           </div>
 
           <div class="chatbody">
@@ -706,28 +2831,30 @@ details.think > .body {
           </div>
 
           <div class="statusline" id="statusline" hidden>
-            <span class="spin"></span><span id="statusText">正在思考…</span>
+            <span class="curve-box" id="statusAnim"></span><span id="statusText">正在思考…</span>
           </div>
 
           <div class="queue-strip" id="queueStrip" hidden></div>
 
           <div class="composer" data-pi-plugin-no-drag>
             <div class="cinbox">
-              <textarea class="bare-input comp" id="chatInput" rows="1" placeholder="问点什么…" aria-label="提问输入框"></textarea>
+              <textarea class="bare-input comp" id="chatInput" rows="2" placeholder="问点什么…" aria-label="提问输入框"></textarea>
               <button class="iconbtn" id="btnProject" title="项目文件夹" hidden><svg><use href="#i-folder" /></svg></button>
               <button class="iconbtn" id="btnPerm" title="权限模式" hidden><svg><use href="#i-key" /></svg></button>
               <button class="iconbtn" id="btnEnhance" title="增强提示词"><svg><use href="#i-spark" /></svg></button>
               <button class="sendkey" id="sendKey" title="发送" disabled><svg><use id="sendIcon" href="#i-send" /></svg></button>
             </div>
-            <div class="comp-hint" id="compHint">Enter 发送 · Shift+Enter 换行</div>
+            <!-- 「Enter 发送 · Shift+Enter 换行」那行提示已按用户要求删除：
+                 输入区直接铺到底部，四个按钮贴着窗口下沿。
+                 忙时的语义（Enter 是排队还是引导）改由上面的状态行说明，见 setBusy()。 -->
           </div>
         </div>
 
         <!-- ============ 设置态 ============ -->
         <div class="view" id="view-set">
           <div class="topbar">
-            <button class="iconbtn" id="btnBack" title="返回"><svg><use href="#i-left" /></svg></button>
-            <span style="font-size:.875rem; font-weight:600">设置</span>
+            <button class="iconbtn" id="btnBack" title="返回" data-pi-plugin-no-drag><svg><use href="#i-left" /></svg></button>
+            <span class="tb-title" style="font-size:.875rem; font-weight:600">设置</span>
           </div>
           <div class="settings-body">
             <nav class="set-nav" id="setNav">
@@ -758,7 +2885,10 @@ details.think > .body {
                     <div class="comp-hint" style="text-align:left">用 <code>/技能名</code> 引用技能（与主窗口语法一致），例如「先按 /tavily-search 的说明来」—— 被引用的技能文档会作为背景知识注入。</div>
                     <div class="field-label-row"><label>可用工具</label></div>
                     <div class="fieldrow" style="margin-top:.1rem">
-                      <label class="checkrow" id="roleToolWrap"><span class="box"><svg><use href="#i-check" /></svg></span><span class="ct">联网搜索<span class="sub">快捷对话目前只支持这一个工具</span></span></label>
+                      <label class="checkrow on" id="roleToolTime"><span class="box"><svg><use href="#i-check" /></svg></span><span class="ct">当前时间<span class="sub">始终可用：本地读时钟，不走网、不花钱</span></span></label>
+                    </div>
+                    <div class="fieldrow" style="margin-top:.35rem">
+                      <label class="checkrow" id="roleToolWrap"><span class="box"><svg><use href="#i-check" /></svg></span><span class="ct">联网搜索<span class="sub">快捷对话目前只支持这一个联网工具</span></span></label>
                     </div>
                     <div class="fieldrow" style="justify-content:flex-end; margin-top:.5rem">
                       <button class="btn" id="roleCancel">取消</button>
@@ -782,9 +2912,9 @@ details.think > .body {
                 <div data-panel="look" hidden>
                   <h4>外观</h4>
                   <div class="set-row">
-                    <div class="k">主题</div>
+                    <div class="k">主题<span class="sub">默认跟随主软件（PI-Desktop）的配色与主题</span></div>
                     <div class="seg" id="themeSeg">
-                      <button data-theme="light">浅色</button><button data-theme="dark">深色</button><button data-theme="system" class="on">跟随系统</button>
+                      <button data-theme="host" class="on">跟随主软件</button><button data-theme="dark">深色</button><button data-theme="light">浅色</button><button data-theme="system">跟随系统</button>
                     </div>
                   </div>
                   <div class="set-row">
@@ -809,12 +2939,22 @@ details.think > .body {
                     <input class="input" id="setRounds" type="number" min="0" max="5" style="width:5rem" />
                   </div>
                   <div class="set-row">
-                    <div class="k">自定义搜索端点<span class="sub">留空则用内置 DuckDuckGo</span></div>
-                    <input class="input" id="setEndpoint" style="width:14rem" placeholder="https://…" />
+                    <div class="k">自定义搜索端点<span class="sub">留空则用内置（先 DuckDuckGo，不通退 Bing）</span></div>
+                    <input class="input" id="setEndpoint" style="width:14rem" placeholder="https://api.tavily.com" />
+                  </div>
+                  <div class="comp-hint" style="text-align:left">
+                    填 <code>https://api.tavily.com</code>（只写域名也行，会自动补上 <code>/search</code>）——
+                    Tavily 这类 API 只接受 POST，插件会按端点自动换成正确的请求方式；
+                    SearXNG 之类的 GET 端点照旧。留空就用内置搜索。
                   </div>
                   <div class="set-row">
                     <div class="k">搜索 API Key<span class="sub" id="setKeyState">可选</span></div>
-                    <input class="input" id="setApiKey" type="password" style="width:14rem" placeholder="Bearer …" />
+                    <input class="input" id="setApiKey" type="password" style="width:14rem" placeholder="tvly-… 或 Bearer …" />
+                  </div>
+                  <div class="comp-hint" style="text-align:left">
+                    Key 以 <code>Authorization: Bearer</code> 发送（Tavily 的 key 形如 <code>tvly-…</code>）。
+                    保存后可以先在「角色预设」里确认角色的「联网搜索」是打开的，
+                    再问一个需要最新信息的问题看「处理过程」里那一行是否变成绿色。
                   </div>
                 </div>
 
@@ -870,6 +3010,9 @@ details.think > .body {
 
         var HEARTBEAT_MS = 2000;
         var AGENT_POLL_MS = 1500;
+        // 轮次运行中的节奏。见 renderTranscript 下方 setAgentPollingRate 的说明：
+        // 工具行是「边跑边落盘」的，1.5s 一次会让它们一顿一顿地冒出来。
+        var AGENT_POLL_FAST_MS = 600;
         var PROGRESS_POLL_MS = 500;
 
         // 设计 §12.1 / 档位标签：选项里只放档位词，含义放 title。
@@ -886,13 +3029,23 @@ details.think > .body {
           });
         }
 
+        /**
+         * 主软件的配色。来源有两条，都来自宿主：
+         *   · bootstrap 里带上的一份快照（打开窗口时立即正确，不用等事件）；
+         *   · `appearance:changed` 面板事件（主软件换主题/语言时实时跟随）。
+         * 结构见宿主 `plugin-sdk` 的 PluginAppearance：{ theme, base, locale }。
+         */
+        var hostAppearance = { theme: "system", base: "system", locale: "", fontScale: 1 };
         var state = {
           view: "chat",
           roles: [], problems: [], defaultRoleId: "quick",
           settings: {}, shortcut: null, thinkingDisplayMode: "compact", appDefaultModelKey: null,
         };
         var models = { list: [], selected: "", fromAppDefault: false };
-        var agent = { sessionId: "", sessions: [], quick: [], timer: null, transcript: null, lastCount: -1, lastChangeAt: 0 };
+        var agent = {
+          sessionId: "", sessions: [], quick: [], timer: null, timerMs: 0,
+          transcript: null, lastCount: -1, lastRenderedCount: 0, lastChangeAt: 0,
+        };
         var history = [];
         // 当前快捷对话的 id。插件按它把这一串问答存进「悬浮窗历史」——
         // 快捷对话不是宿主会话，宿主的历史里看不到它。
@@ -951,15 +3104,114 @@ details.think > .body {
         }
 
         // ------------------------------------------------------------ 外观
+        /**
+         * 「跟随主软件」：整个界面用 PI-Desktop 自己的设计 Token
+         * （tokens.css 的灰阶 + 中性强调色），主题也跟着主软件走。
+         */
+        function followingHost() {
+          return (state.settings.appearance || "host") === "host";
+        }
+        /** 主软件当前实际画的是哪一套：base 是宿主解析后的结果。 */
+        function hostBase() {
+          if (hostAppearance.base === "light" || hostAppearance.base === "dark") {
+            return hostAppearance.base;
+          }
+          return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
+            ? "dark" : "light";
+        }
+        /** 把宿主广播的 { theme, base, locale } 收进来。 */
+        function adoptHostAppearance(appearance) {
+          if (!appearance || typeof appearance !== "object") return;
+          hostAppearance = {
+            theme: appearance.theme || "system",
+            base: appearance.base === "light" || appearance.base === "dark" ? appearance.base : "system",
+            locale: typeof appearance.locale === "string" ? appearance.locale : "",
+            fontScale: typeof appearance.fontScale === "number" && isFinite(appearance.fontScale)
+              ? Math.max(0.8, Math.min(1.6, appearance.fontScale)) : 1,
+          };
+          if (followingHost()) applyAppearance();
+        }
+        /**
+         * 输入区的高度：底部那**一整块都是可输入区域**，不是一条窄框。
+         *
+         * 设计里 `.bare-input` 是 `min-height: 2.5rem; padding: 0`（单行窄框）。
+         * 但悬浮窗底部本来就有大片空白，用户要的正是「红框那块能输入文字」：
+         * 文字从顶部开始换行，发送键/提示行留在底部。
+         *
+         * 为什么必须写内联样式：`.bare-input.comp` 与设计基座的规则特异性相同，
+         * 会被源码顺序压掉（实测 padding / min-height 都没生效），提到
+         * `#view-chat …` 也没能稳定生效。内联值不参与层叠竞争，行为确定。
+         * 多行时 autoGrow 覆盖 height（它写的也是内联样式，后写者胜），
+         * 上限 `max-height: 10rem` 由设计给出。
+         */
+        /**
+         * 底部输入区的高度：**固定 140px**（约 6 行）。
+         *
+         * 写法上必须用内联样式：`.bare-input.comp` 与设计基座同特异性，会被源码顺序压掉
+         * （实测 padding / min-height 都没生效）。内容多了在框内滚动即可 ——
+         * 这里**不**设 flex、**不**设 height，也不接 autoGrow：高度只有一个来源。
+         */
+        var COMPOSER_INPUT_HEIGHT = "140px"; // 约 6 行；超出部分在框内滚动
+        function fitComposerInput() {
+          var inputs = document.querySelectorAll(".bare-input.comp");
+          for (var i = 0; i < inputs.length; i++) {
+            inputs[i].style.height = COMPOSER_INPUT_HEIGHT;
+            inputs[i].style.minHeight = COMPOSER_INPUT_HEIGHT;
+            inputs[i].style.maxHeight = "none";
+            inputs[i].style.paddingTop = "0";
+            inputs[i].style.paddingBottom = "0";
+          }
+        }
+
+        /**
+         * 宿主在面板形态下会预留顶部 46px 拖拽带（窗口按钮胶囊在那儿）。
+         * 这一步只负责**标记**这件事：有这段高度时给 <html> 加 `.pi-has-band`，
+         * 让顶栏画一条分界线 —— 否则那 46px 读起来就是凭空多出来的一行空白。
+         * 宿主通过 preload 发布的 --pi-plugin-titlebar-height 就是权威值
+         * （widget 形态是 0px，所以那时不会加）。
+         *
+         * 这里同时把这排控件**推进**那条带子（负 margin-top），并且是**内联样式**：
+         * 内联值不参与层叠竞争，所以「顶栏到底在不在带子里」不再取决于某条规则
+         * 有没有胜出。实测中 .pi-has-band .topbar 这条规则在可见视图上被忽略了
+         * （同一份 CSS 在隐藏的设置视图上却生效），这种依赖级联的做法太脆；
+         * CSS 里的规则保留作 JS 未执行时的兜底。
+         */
+        function markTitlebarBand() {
+          var raw = "";
+          try {
+            raw = getComputedStyle(document.documentElement)
+              .getPropertyValue("--pi-plugin-titlebar-height");
+          } catch (err) { /* 极老的宿主没有这个变量 */ }
+          var px = parseFloat(raw) || 0;
+          document.documentElement.classList.toggle("pi-has-band", px > 0);
+
+          var bars = document.querySelectorAll(".topbar");
+          for (var i = 0; i < bars.length; i++) {
+            var bar = bars[i];
+            if (px > 0) {
+              bar.style.marginTop = "-" + px + "px";
+              bar.style.height = px + "px";
+              // 右侧让开宿主胶囊（96px 宽、距右边 8px），再留 8px 余量。
+              bar.style.paddingRight = "112px";
+            } else {
+              bar.style.marginTop = "";
+              bar.style.height = "";
+              bar.style.paddingRight = "";
+            }
+          }
+          return px;
+        }
         function applyAppearance() {
-          var mode = state.settings.appearance || "system";
-          if (mode === "system") {
+          var mode = state.settings.appearance || "host";
+          if (mode === "host") mode = hostBase();
+          else if (mode === "system") {
             mode = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
               ? "dark" : "light";
           }
           document.documentElement.setAttribute("data-theme", mode);
           var px = state.settings.fontSize || 15;
-          document.documentElement.style.fontSize = px + "px";
+          if (followingHost()) px = px * (hostAppearance.fontScale || 1);
+          document.documentElement.style.fontSize = px.toFixed(2) + "px";
           var pct = state.settings.opacity == null ? 100 : state.settings.opacity;
           var clamped = Math.max(0.5, Math.min(1, pct / 100));
           $("win").style.opacity = String(clamped);
@@ -1119,10 +3371,109 @@ details.think > .body {
           if (name === "chat") setTimeout(function () { $("chatInput").focus(); }, 30);
         }
 
+        // ============================================ 动效（模糊的进度指示器）
+        /**
+         * 曲线轨迹 + 粒子拖尾的加载指示器。
+         *
+         * 来源：Paidax01/math-curve-loaders（MIT，见 docs/vendor/README.md）。
+         * 设计基座原来的 `.statusline .spin` 是 0.8s 转一圈的圆环，用户反馈「太快」；
+         * 曲线加载器的节奏是 4.6s 一圈 + 4.2s 呼吸 + 28s 自转，读起来像流动而不是打转。
+         *
+         * ⚠️ **无论 reduceMotion 与否都要画**。之前这里写成「reduced motion 就不装」，
+         * 而 `prefers-reduced-motion: reduce` 在只影响动画，不该让一个**状态指示器
+         * 整个消失** —— 用户看到的就是「没加载动效」。现在照样建出 SVG 并画出静止的
+         * 那一帧，只是不跑 rAF。morphicons 那边也是同样的处理（`reducedMotion: "user"`
+         * 是降到「直接到位」，不是不渲染）。
+         */
+        var reduceMotion = false;
+        try {
+          reduceMotion = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+        } catch (err) { /* 极老的宿主 */ }
+
+        function newSpinner(size) {
+          var box = el("span", "curvespin" + (size ? " " + size : ""));
+          if (window.PiCurve) {
+            try {
+              window.PiCurve.create(box, { animate: !reduceMotion });
+            } catch (err) { /* 动效装不上不该让消息画不出来 */ }
+          }
+          return box;
+        }
+
+        /**
+         * 手写的描边图标：**只存 `d` 字符串**。
+         *
+         * morphicons 的输入是「IconNode 或原始 `d`」，不是 `<path>` 标签字符串 ——
+         * 传 `'<path d="…"/>'` 会在解析阶段就抛 `path must start with M/m`。
+         * 一个图标有多条子路径时（例如 Menu 的三条横线）把 `d` 直接连起来即可。
+         *
+         * 设计源包的 22 个图标是**填充**型（`fill="currentColor"`），而 morphicons
+         * 需要描边几何（fill:none + stroke + 统一的 24×24 网格），所以这一组是
+         * 照着原型轮廓另画的：24 网格、stroke-width 1.75、圆头圆角。
+         */
+        var MORPH_ICONS = {
+          send: "M3.4 11.9 20.6 4.3c.6-.28 1.25.37.97.97L14.1 20.6c-.28.6-1.17.6-1.45 0l-2.3-5.2-4.6-1.8c-.62-.24-.6-1.14.05-1.4",
+          stop: "M9.2 5.2h5.6a4 4 0 0 1 4 4v5.6a4 4 0 0 1-4 4H9.2a4 4 0 0 1-4-4V9.2a4 4 0 0 1 4-4Z",
+        };
+
+        /**
+         * 把 morphicons 挂到按钮里的 <svg> 上。失败时**保留原有图标**：
+         * 动效是装饰，不能因为它没装上就让一个操作入口变成空白按钮。
+         * 返回 null 表示「这里用不了动效，请照旧走 <use> 那条路」。
+         */
+        function attachMorph(target, name) {
+          if (reduceMotion || !window.PiMorph || !target) return null;
+          var d = MORPH_ICONS[name];
+          if (!d) return null;
+          var svg = target.querySelector("svg");
+          if (!svg) return null;
+          try {
+            var path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            path.setAttribute("stroke", "currentColor");
+            path.setAttribute("stroke-width", "1.75");
+            path.setAttribute("stroke-linecap", "round");
+            path.setAttribute("stroke-linejoin", "round");
+            // 先建实例再换掉旧图标：createMorph 自己会写第一个 d，
+            // 万一它抛错，下面那步 replaceChildren 就不会执行，旧图标还在。
+            var morph = window.PiMorph.createMorph(path, d, { reducedMotion: "user" });
+            svg.textContent = "";
+            svg.setAttribute("viewBox", "0 0 24 24");
+            svg.setAttribute("fill", "none");
+            svg.appendChild(path);
+            return morph;
+          } catch (err) {
+            return null;
+          }
+        }
+        /** 切到另一个图标：能动就形变，不能动就换 <use> 的 href。 */
+        function morphToIcon(target, morph, name, symbolId) {
+          if (morph && MORPH_ICONS[name]) {
+            try { morph.morphTo(MORPH_ICONS[name], "snappy"); return; } catch (err) { /* 退回静态图标 */ }
+          }
+          if (!target) return;
+          var svg = target.querySelector("svg");
+          if (!svg) return;
+          svg.textContent = "";
+          svg.setAttribute("viewBox", "0 0 16 16");
+          svg.removeAttribute("fill");
+          var use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+          use.setAttribute("href", "#" + symbolId);
+          svg.appendChild(use);
+        }
+        var sendMorph = null;
+
         // -------------------------------------------------------- 状态行
+        var statusSpinner = null;
         function setStatus(text) {
           $("statusline").hidden = !text;
-          if (text) $("statusText").textContent = text;
+          if (!text) return;
+          $("statusText").textContent = text;
+          // 左侧是曲线加载动效。只在第一次需要时创建、之后复用 ——
+          // 每 400ms 重建一个 SVG 会让动画不停从头开始。
+          if (!statusSpinner) {
+            statusSpinner = newSpinner();
+            $("statusAnim").appendChild(statusSpinner);
+          }
         }
         function stopProgress() {
           // 快捷对话的状态行现在由 pollQuickTurn 全权负责（它每 400ms 读插件的
@@ -1136,6 +3487,10 @@ details.think > .body {
          * `sendQuick` 只回「已受理」，答案留在插件的 progress 里由页面取走 ——
          * 因为宿主给每次面板调用定了 30 秒硬超时（PLUGIN_PANEL_TIMEOUT_MS），
          * 而一轮问答要联网搜索 + 多次 agent.complete，同步等必然超时。
+         *
+         * 每 400ms 的轮询同时把插件的**真实步骤**画成时间线：这一步是「让用户知道
+         * 它做了什么」的全部来源 —— 搜索关键词、轮次、工具结果都在 `progress.steps`
+         * 里，而不是猜出来的。
          */
         function pollQuickTurn(turnId) {
           return new Promise(function (resolve) {
@@ -1146,25 +3501,274 @@ details.think > .body {
                 resolve({ failed: true, message: "等待超时（4 分钟）" });
                 return;
               }
-              invoke("summon.chat.progress", {}).then(function (res) {
-                var p = res && res.progress;
-                if (!p || p.turnId !== turnId) return;
-                if (p.inFlight) {
-                  if (p.detail) setStatus(p.detail);
-                  return;
-                }
+              tickQuickTurn(turnId).then(function (fin) {
+                if (!fin) return;
                 clearInterval(timer);
-                // 用户按了停止：插件把这一轮标成 cancelled，结果会被丢弃。
-                if (p.phase === "cancelled") { resolve({ cancelled: true }); return; }
-                resolve(p.error ? { failed: true, message: p.error.message } : { result: p.result });
-              }).catch(function () {});
+                resolve(fin);
+              });
             }, 400);
           });
+        }
+        /**
+         * 一次轮询。抽出来是为了让离线预览能**手动步进**这一轮：
+         * 无头浏览器不会推进 setInterval，只有手动调用才看得到「边跑边出现」。
+         * 返回 null 表示「还在跑」，否则返回终结状态。
+         */
+        function tickQuickTurn(turnId) {
+          return invoke("summon.chat.progress", {}).then(function (res) {
+            var p = res && res.progress;
+            if (!p || (turnId && p.turnId !== turnId)) return null;
+            if (p.inFlight) {
+              if (p.detail) setStatus(p.detail);
+              agent.lastTurnSteps = p.steps || [];
+              showLiveTrace(agent.lastTurnSteps);
+              return null;
+            }
+            // 用户按了停止：插件把这一轮标成 cancelled，结果会被丢弃。
+            if (p.phase === "cancelled") return { cancelled: true };
+            // 收尾时把最后一份步骤也记下来：轮询可能正好停在最后一个 inFlight 上，
+            // 那一步（例如「思考完成」）不记就会在作答后缺一行。
+            if (p.steps && p.steps.length) agent.lastTurnSteps = p.steps;
+            return p.error ? { failed: true, message: p.error.message } : { result: p.result };
+          }).catch(function () { return null; });
+        }
+        /**
+         * 快捷对话「正在跑」的那一轮时间线。
+         *
+         * Agent 模式的时间线来自 transcript（工具行边跑边落盘），快捷对话没有
+         * transcript —— 它由插件自己上报 `progress.steps`。所以这里把它变成
+         * 时间线的最后一块，跑完后再由真实结果替换。
+         */
+        var liveTraceGroup = null;
+        /**
+         * 插件上报的实时步骤 → 时间线的步骤对象。
+         *
+         * 直接产出**最终形状**，而不是先翻译成「假消息」再翻译回来：本轮跑完后，
+         * 这些对象会原样留进时间线（见 renderQuickTurn）。之前那版翻译成
+         * `{thinking}` / `{tool}` 的假消息，于是「作答后只按 res.trace 重画」时
+         * 思考那几行就丢了。
+         */
+        function quickStepObjects(steps, finished) {
+          return (steps || []).map(function (step) {
+            var status = step.status === "running" && finished ? "done" : step.status;
+            if (step.kind === "search") {
+              return {
+                kind: "search",
+                status: status,
+                tookMs: step.tookMs || 0,
+                round: step.round,
+                label: "联网搜索" + (step.query ? "「" + step.query + "」" : ""),
+                sub: step.count != null ? step.count + " 条" + (step.provider ? " · " + step.provider : "") : "",
+                urls: (step.results || []).map(function (r) { return r && r.url ? r.url : ""; }).filter(Boolean),
+                thinking: step.error ? "搜索失败：" + step.error : "",
+                live: true,
+              };
+            }
+            if (step.kind === "thinking") {
+              var link = String(step.detail || "").trim();
+              // 插件上报的是**阶段文案**（「正在思考…」），不是模型想过什么 ——
+              // 只有它不是这句占位文案时，才值得当作内容展示；否则展开后是一个
+              // 原地复述标签的空块（用户看到的「展开后前面又加一个『思考』」）。
+              var placeholder = !link || link.indexOf("正在") === 0 || /^thinking/i.test(link);
+              return {
+                kind: "thinking",
+                status: status,
+                tookMs: step.tookMs || 0,
+                round: step.round,
+                label: placeholder ? (link || "正在思考…") : link,
+                thinking: placeholder ? "" : link,
+                thinkingFull: placeholder ? "" : link,
+                urls: [],
+                live: true,
+              };
+            }
+            return {
+              kind: "tool",
+              status: status,
+              tookMs: step.tookMs || 0,
+              label: step.detail || "处理中",
+              sub: "",
+              urls: [],
+              live: true,
+            };
+          });
+        }
+        function showLiveTrace(steps) {
+          if (!steps || !steps.length) return;
+          if (!liveTraceGroup) liveTraceGroup = newGroup();
+          liveTraceGroup.steps = quickStepObjects(steps, false);
+          invalidateTrace(liveTraceGroup);
+          var block = renderTraceBlock(liveTraceGroup, true);
+          var wrap = liveTraceGroup.traceWrap;
+          if (!wrap) {
+            wrap = el("div", "msg trace-msg live");
+            wrap.appendChild(block.node);
+            liveTraceGroup.traceWrap = wrap;
+            $("msgArea").appendChild(wrap);
+          } else if (wrap.firstChild !== block.node) {
+            wrap.textContent = "";
+            wrap.appendChild(block.node);
+          }
+          if (stickBottom) {
+            var area = $("msgArea");
+            area.scrollTop = area.scrollHeight;
+          }
+        }
+        function clearLiveTrace() {
+          if (liveTraceGroup && liveTraceGroup.traceWrap && liveTraceGroup.traceWrap.parentNode) {
+            liveTraceGroup.traceWrap.parentNode.removeChild(liveTraceGroup.traceWrap);
+          }
+          liveTraceGroup = null;
+        }
+
+        // -------------------------------------------------- 快捷对话的一轮
+        /**
+         * 快捷对话**没有 transcript**：那一轮是本插件自己跑的，宿主会话里没有它。
+         * 所以页面自己维护这一屏的消息列表（`quickMessages`），格式与 transcript
+         * 的消息一致，好让同一套 diff 渲染器与同一条时间线复用 —— 否则快捷对话
+         * 又会退回「一次性吐出一段文字」的老样子。
+         */
+        function quickSeed() {
+          if (!agent.quickMessages) agent.quickMessages = [];
+          if (!agent.quickSeq) agent.quickSeq = 0;
+        }
+        function pushQuickUser(text) {
+          quickSeed();
+          agent.quickSeq++;
+          agent.quickMessages.push({ id: "qu" + agent.quickSeq, role: "user", text: text });
+        }
+        /**
+         * 插件上报的「已完成的搜索轮次」→ 时间线的步骤对象。
+         *
+         * 一条 trace 记录里带 `query` 的是搜索轮次；其余元素是
+         * `quickStepObjects()` 已经产出的步骤对象（思考阶段等），原样透传。
+         */
+        function traceToSteps(trace, messageId) {
+          var steps = [];
+          (trace || []).forEach(function (step, index) {
+            if (!step) return;
+            if (!step.query && step.kind) { steps.push(step); return; }
+            // `current_time` 那条没有 query：它是本地读的时钟，不是搜索轮次。
+            if (!step.query && step.tool === "current_time") {
+              steps.push({
+                kind: "tool",
+                status: step.ok ? "success" : "error",
+                tookMs: 0,
+                label: "当前时间" + (step.detail ? "：" + step.detail.split(" · ")[0].replace(/^当前时间：/, "") : ""),
+                sub: step.detail || "",
+                urls: [],
+                result: step.detail || null,
+                live: true,
+                round: index,
+              });
+              return;
+            }
+            var urls = (step.results || [])
+              .map(function (row) { return row && row.url ? String(row.url) : ""; })
+              .filter(Boolean);
+            // 失败时把**每一家的原因**放进明细（`result` 那一栏）：
+            // 标题上只写得下一句「联网搜索失败」，而用户需要知道到底是连不上、
+            // 被限流，还是页面结构变了 —— 三种要做的事完全不同。
+            var detail = null;
+            if (!step.ok) {
+              var why = (step.failures || []).slice();
+              if (!why.length && step.error) why.push(step.error);
+              detail = why.join("\n");
+            }
+            steps.push({
+              kind: "search",
+              status: step.ok ? "done" : "error",
+              tookMs: 0,
+              label: "联网搜索「" + (step.query || "") + "」" + (step.ok ? "" : " 失败"),
+              sub: step.ok
+                ? (step.count || 0) + " 条 · " + (step.provider || "?")
+                : (step.error || "未知错误"),
+              urls: urls,
+              result: detail,
+              // 快捷对话的每一步都是「同一轮里后来居上」的，用稳定键让展开状态不丢。
+              live: true,
+              round: index,
+            });
+          });
+          return steps;
+        }
+        /**
+         * 一轮快捷对话画完：过程进时间线，答案逐字出现。
+         *
+         * ⚠️ 这里必须把**插件上报的那条实时时间线一起带进最终结果**。
+         * 原来的写法是「作答后 `clearLiveTrace()`，再只按 `res.trace` 重画」——
+         * 而思考步骤（`progress.steps` 里的 `kind: "thinking"`）**不在** `res.trace`
+         * 里（那条只有搜索轮次），于是模型一给出正式回复，思考那几行就凭空消失了。
+         * 用户的原话：「在模型输出正式回复后，思考过程和工具调用就消失了，看不到记录了」。
+         *
+         * 现在：`agent.lastTurnSteps`（这一轮上报过的全部步骤）原样成为时间线的开头，
+         * 后面再补 `res.trace`（有搜索轮次才补，避免同一轮重复一行）。
+         */
+        function renderQuickTurn(res) {
+          quickSeed();
+          agent.quickSeq++;
+          // 这一轮跑过的**全部**步骤：思考阶段 + 搜索轮次。作答后必须原样留着 ——
+          // 这正是「模型输出正式回复后，思考过程和工具调用就消失了」的修复点。
+          var prior = quickStepObjects(agent.lastTurnSteps || [], true);
+          var trace = (res && res.trace) || [];
+          var merged = [];
+          var searchFromTrace = trace.length > 0;
+          prior.forEach(function (step) {
+            // 真实搜索轮次比实时那份权威（实时可能停在 running、也可能漏掉后半段），
+            // 所以有 res.trace 时用它，避免同一轮出现两行搜索。
+            if (searchFromTrace && step.kind === "search") return;
+            merged.push(step);
+          });
+          trace.forEach(function (step) {
+            merged.push(step);
+          });
+          agent.quickMessages.push({
+            id: "qa" + agent.quickSeq,
+            role: "assistant",
+            text: (res && res.text) || "",
+            usage: (res && res.usage) || null,
+            trace: merged,
+          });
+          agent.lastTurnSteps = [];
+          renderKeyed(agent.quickMessages.slice(), { running: false });
+        }
+
+        /** 打开一段历史快捷对话：同样走 diff 渲染器，时间线跟着回来。 */
+        function openQuickConversation(conv) {
+          stopAgentPolling();
+          agent.sessionId = "";
+          agent.transcript = null;
+          quickConvId = conv.id;
+          history = [];
+          pendingThinking = "";
+          closeHistory();
+          clearMessages();
+          agent.quickMessages = [];
+          agent.quickSeq = 0;
+          (conv.messages || []).forEach(function (m) {
+            agent.quickSeq++;
+            if (m.role === "user") {
+              agent.quickMessages.push({ id: "qu" + agent.quickSeq, role: "user", text: m.text });
+            } else {
+              agent.quickMessages.push({
+                id: "qa" + agent.quickSeq, role: "assistant", text: m.text,
+                trace: m.trace || [],
+              });
+            }
+          });
+          renderKeyed(agent.quickMessages.slice(), { running: false });
+          rebuildTicks();
+          showView("chat");
+          toast("已载入悬浮窗对话");
         }
 
         // -------------------------------------------------------- 消息渲染
         function clearMessages() {
           $("msgArea").innerHTML = "";
+          resetRendered();
+          revealQueue = [];
+          if (revealTimer) { cancelAnimationFrame(revealTimer); revealTimer = null; }
+          liveTraceGroup = null;
         }
         function emptyState() {
           clearMessages();
@@ -1186,24 +3790,388 @@ details.think > .body {
           var area = $("msgArea");
           area.scrollTop = area.scrollHeight;
         }
-        function addThinking(text) {
-          var compact = state.thinkingDisplayMode !== "detailed";
-          var shown = text, cut = false;
-          if (compact && text.length > 180) {
-            shown = text.slice(0, 180).replace(/\s+\S*$/, "") + "…";
-            cut = true;
+        function nearBottom() {
+          var area = $("msgArea");
+          return area.scrollHeight - area.scrollTop - area.clientHeight < 320;
+        }
+
+        // ============== 「处理过程」时间线：把真实字段画出来 ==============
+        /**
+         * 数据来源全部是宿主 `session/get` 已经落盘的字段（见 main.js 的
+         * normalizeTranscript 注释），这里只负责把它们变成可读的几行：
+         *
+         *   思考过程      message.thinking
+         *   工具调用      message.tool.{name, args, status, durationMs}
+         *   联网搜索      message.hostedSearch.rounds[].{query, sources[].url}
+         *   用时          message.durationMs / tool.durationMs
+         *   用量          message.usage
+         *
+         * 之前这些字段全被丢掉了，界面上只剩下一行被压平的 JSON —— 用户的原话是
+         * 「联网搜索了也不会像图四这样展现搜索的关键词、搜索的网址」。 */
+        function formatDuration(ms) {
+          var n = Number(ms);
+          // 低于 5ms 不显示：那只是 Date.now() 的分辨率，不是「耗时」。
+          if (!isFinite(n) || n < 5) return "";
+          if (n < 1000) return Math.round(n) + "ms";
+          var s = n / 1000;
+          if (s < 60) return (s < 10 ? s.toFixed(1) : String(Math.round(s))) + "s";
+          var m = Math.floor(s / 60);
+          var rest = Math.round(s - m * 60);
+          return m + "m" + (rest < 10 ? "0" : "") + rest + "s";
+        }
+        function formatCount(n) {
+          return n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + "k" : String(n);
+        }
+        function firstLineOf(text, limit) {
+          var line = String(text == null ? "" : text).split(/\r?\n/)[0].trim();
+          return line.length > limit ? line.slice(0, limit - 1) + "…" : line;
+        }
+        /** 把参数压成一行摘要：优先展示「关键字」类的值，那才是用户想看的。 */
+        function summarizeArgs(args) {
+          if (args == null) return "";
+          if (typeof args === "string") return firstLineOf(args, 90);
+          if (typeof args !== "object") return String(args);
+          var keys = ["query", "q", "command", "cmd", "pattern", "path", "file", "url", "prompt"];
+          for (var i = 0; i < keys.length; i++) {
+            var v = args[keys[i]];
+            if (typeof v === "string" && v.trim()) return firstLineOf(v, 90);
           }
+          try {
+            var flat = JSON.stringify(args);
+            return flat && flat !== "{}" ? (flat.length > 90 ? flat.slice(0, 89) + "…" : flat) : "";
+          } catch (err) { return ""; }
+        }
+        /** 退出码 / 成败：工具结果里最该被一眼看到的东西。 */
+        function exitSummary(result) {
+          if (result == null || typeof result !== "object") return "";
+          if (typeof result.exitCode === "number") return "退出码 " + result.exitCode;
+          if (typeof result.exit_code === "number") return "退出码 " + result.exit_code;
+          if (typeof result.status === "number") return "状态 " + result.status;
+          if (typeof result.ok === "boolean") return result.ok ? "成功" : "失败";
+          if (result.error) return firstLineOf(result.error, 60);
+          return "";
+        }
+        function stringifyValue(value, limit) {
+          if (value == null) return "";
+          var text = typeof value === "string" ? value : (function () {
+            try { return JSON.stringify(value, null, 2); } catch (err) { return String(value); }
+          })();
+          return text.length > limit ? text.slice(0, limit - 1) + "…" : text;
+        }
+        /**
+         * 从任意结构里捞网址。工具结果与 hostedSearch 的字段名没有公开契约，
+         * 所以这里按「是不是 http(s) URL」判定，而不是按字段名猜。
+         * 同时顺带捞「像搜索关键字」的字段（query / q / keywords）。
+         */
+        function collectFrom(value, out, depth) {
+          if (depth > 3 || value == null) return;
+          if (typeof value === "string") {
+            if (/^https?:\/\//i.test(value) && out.urls.indexOf(value) === -1) out.urls.push(value);
+            return;
+          }
+          if (Array.isArray(value)) {
+            for (var i = 0; i < value.length && out.urls.length < 12; i++) collectFrom(value[i], out, depth + 1);
+            return;
+          }
+          if (typeof value !== "object") return;
+          var keys = Object.keys(value);
+          for (var k = 0; k < keys.length; k++) {
+            var key = keys[k];
+            var child = value[key];
+            if (typeof child === "string" && /^(query|q|keywords?|search_?query)$/i.test(key)) {
+              if (child.trim() && out.queries.indexOf(child.trim()) === -1) out.queries.push(child.trim());
+            }
+            collectFrom(child, out, depth + 1);
+          }
+        }
+        function harvest(value) {
+          var out = { urls: [], queries: [] };
+          try { collectFrom(value, out, 0); } catch (err) { /* 坏数据不该让消息画不出来 */ }
+          return out;
+        }
+        /** 只显示主机名，路径太长会把一行撑爆。 */
+        function hostOf(url) {
+          var m = /^https?:\/\/([^/?#]+)/i.exec(url);
+          return m ? m[1] : "";
+        }
+        function titleOf(url) {
+          var host = hostOf(url) || url;
+          return host.replace(/^www\./, "");
+        }
+
+        /**
+         * 时间线每一行左边那个图标。
+         *
+         * 「思考」用的是**设计源包自己的 `#i-spark`**（`<use>` 引用 sprite）——
+         * 主窗口那一条也是这个图标，两处保持一致比自己再画一个更省事；
+         * 其余几个语义（工具 / 搜索 / 完成 / 警告）源包里没有，是照着同一套
+         * 16 网格、1.4 描边自绘的。
+         */
+        function traceIcon(name) {
+          var box = el("span", "si");
+          if (name === "think") {
+            box.appendChild(icon("i-spark"));
+            return box;
+          }
+          var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+          svg.setAttribute("viewBox", "0 0 16 16");
+          svg.setAttribute("fill", "none");
+          var path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+          path.setAttribute("stroke", "currentColor");
+          path.setAttribute("stroke-width", "1.4");
+          path.setAttribute("stroke-linecap", "round");
+          path.setAttribute("stroke-linejoin", "round");
+          var shapes = {
+            tool: ["M9.6 2.4a3.2 3.2 0 0 0-3.9 4.2L2.4 9.9a1.3 1.3 0 0 0 1.8 1.8l3.3-3.3a3.2 3.2 0 0 0 4.2-3.9l-1.9 1.9-1.5-.4-.4-1.5 1.7-2.1Z"],
+            search: ["M7.1 2.6a4.5 4.5 0 1 0 2.85 7.98l2.6 2.6a.7.7 0 0 0 1-1l-2.6-2.6A4.5 4.5 0 0 0 7.1 2.6Z"],
+            check: ["m4.2 8.4 2.6 2.6 5-5.4"],
+            warn: ["M8 2.6v5.6 M8 11.4v.8"],
+            globe: ["M8 1.9a6.1 6.1 0 1 0 0 12.2A6.1 6.1 0 0 0 8 1.9Z M2.2 8h11.6 M8 1.9c1.7 1.8 2.5 3.9 2.5 6.1S9.7 12.3 8 14.1C6.3 12.3 5.5 10.2 5.5 8S6.3 3.7 8 1.9Z"],
+          };
+          var list = shapes[name] || shapes.tool;
+          path.setAttribute("d", list.join(" "));
+          svg.appendChild(path);
+          box.appendChild(svg);
+          return box;
+        }
+        /**
+         * 一行步骤。`openIds` 是这一组上次渲染时被展开的行 —— 重画时把展开状态
+         * 还回去，否则每 0.6s 一次轮询都会把用户刚点开的那一行合上。
+         * `marker` 是**复用的加载动效节点**：正在跑的那一行换行时把同一个节点
+         * 搬过去，动画不会从头开始。
+         */
+        function traceStep(step, index, openIds, marker) {
+          var row = el("details", "trace-step" + (step.status === "running" ? " running" : "") +
+            (step.status === "done" || step.status === "success" ? " ok" : "") +
+            (step.status === "error" ? " err" : ""));
+          var key = traceStepKey(step);
+          row.dataset.key = key;
+          var sum = el("summary");
+          if (step.status === "running") {
+            sum.appendChild(marker || newSpinner());
+          } else {
+            sum.appendChild(traceIcon(step.status === "error" ? "warn"
+              : step.kind === "search" ? "search"
+              : step.kind === "tool" ? (step.status === "success" ? "check" : "tool")
+              : step.kind === "thinking" ? "think" : "check"));
+          }
+          sum.appendChild(el("span", "lb", step.label || ""));
+          if (step.sub) sum.appendChild(el("span", "sub", step.sub));
+          var ms = formatDuration(step.tookMs);
+          if (ms) sum.appendChild(el("span", "ms", ms));
+          sum.appendChild(el("span", "arrow", "›"));
+          row.appendChild(sum);
+
+          var hasDetail = step.args || step.result || step.thinking || step.urls.length;
+          if (!hasDetail) return row;
+          var box = el("div", "trace-detail");
+          if (step.args) {
+            var kvA = el("div", "kv");
+            kvA.appendChild(el("span", null, "参数"));
+            kvA.appendChild(el("span", null, stringifyValue(step.args, 900)));
+            box.appendChild(kvA);
+          }
+          if (step.thinking) {
+            // 展开后**直接是思考内容** —— 没有「思考」这两个字的标签。
+            var thinkBody = el("div", "trace-think", step.thinking);
+            if (step.thinkingFull && !step.thinkingIsFull) {
+              // 折叠时给的是精简版；展开时补全文，一次就够。
+              row.addEventListener("toggle", function () {
+                if (row.open && thinkBody.textContent !== step.thinkingFull) {
+                  thinkBody.textContent = step.thinkingFull;
+                }
+              });
+            }
+            box.appendChild(thinkBody);
+          }
+          if (step.result) {
+            var kvR = el("div", "kv");
+            kvR.appendChild(el("span", null, "结果"));
+            kvR.appendChild(el("span", null, stringifyValue(step.result, 900)));
+            box.appendChild(kvR);
+          }
+          if (step.urls.length) {
+            var srcs = el("div", "trace-src");
+            step.urls.forEach(function (url) {
+              var a = el("a", null, titleOf(url));
+              a.href = url;
+              a.target = "_blank";
+              a.rel = "noreferrer noopener";
+              a.title = url;
+              srcs.appendChild(a);
+              srcs.appendChild(el("span", "u", url));
+            });
+            box.appendChild(srcs);
+          }
+          row.appendChild(box);
+          row.open = !!openIds[key];
+          return row;
+        }
+
+        /** 一行思考的摘要文案：优先展示**内容本身**，不能只写「思考」两个字。 */
+        function thinkingSummary(text, compact) {
+          var flat = String(text || "").replace(/\s+/g, " ").trim();
+          if (!flat) return "思考过程";
+          var cut = flat.length > 120 ? flat.slice(0, 120) + "…" : flat;
+          return cut;
+        }
+        /** 一步是不是「有内容可展开」——决定要不要画那个展开箭头。 */
+        function stepHasDetail(step) {
+          return !!(step.args || step.result || step.thinking || step.urls.length);
+        }
+        /**
+         * 行数变了也要能把展开状态对回去。
+         * `live` 只用于「正在跑的这条搜索」/ 快捷对话上报的步骤：它们每 400ms
+         * 就被整块替换一次，用内容做键会让展开状态一直丢。
+         * 其余步骤用「语义 + 轮次」做键 —— **不能用 label**：思考那一行的 label
+         * 就是内容摘要，内容一变键就变，用户刚展开的那一行会被合上。
+         */
+        function traceStepKey(step) {
+          if (step.live) return "live";
+          return [step.kind, step.round == null ? "" : step.round, step.sub || ""].join("~");
+        }
+        /**
+         * 把一次提问处理的全部痕迹拼成一条可折叠的时间线。
+         *
+         * 外观刻意与**主窗口那条「已处理 15s 2 个工具」**一致：没有外框、没有底色，
+         * 只是一行灰字 + 若干可展开的步骤行。
+         *
+         * ⚠️ 折叠策略改过一次：原来「跑完就只留标题那一行」，用户反馈
+         * **「有正式输出之后思考过程就没了，要留着的呀」** —— 现在只要有过程
+         * 就把步骤行**都显示出来**，不再自动收起。仍在跑、而且确实有内容可展开的
+         * 那一步默认展开（「它现在在干什么」是此刻唯一想知道的事），
+         * 其余步骤折叠（点一下看参数 / 结果 / 来源）。
+         */
+        function buildTrace(steps, opts) {
+          var box = el("details", "trace");
+          var summary = el("summary");
+          summary.appendChild(el("span", "arrow", "›"));
+          summary.appendChild(el("span", "tt", opts.title || "处理过程"));
+          if (opts.elapsed) summary.appendChild(el("span", "elapsed", opts.elapsed));
+          var state = el("span", "state", opts.running ? "" : (opts.failed ? "失败" : "完成"));
+          summary.appendChild(state);
+          box.appendChild(summary);
+          var body = el("div", "trace-body");
+          var openIds = (opts.openIds || {});
+          steps.forEach(function (step, index) {
+            var row = traceStep(step, index, openIds, opts.marker);
+            if (stepHasDetail(step) && !openIds[traceStepKey(step)]) {
+              row.open = step.status === "running";
+            }
+            body.appendChild(row);
+          });
+          if (opts.usage) body.appendChild(el("div", "trace-usage", opts.usage));
+          box.appendChild(body);
+          box.open = !!opts.open;
+          return box;
+        }
+
+        /** 一次提问处理的全部痕迹 → 时间线的步骤列表。 */
+        function stepsFromMessages(messages, upto, running) {
+          var steps = [];
+          var count = upto == null ? messages.length : upto;
+          for (var i = 0; i <= count && i < messages.length; i++) {
+            var m = messages[i];
+            if (!m) continue;
+            if (m.thinking) {
+              var compact = state.thinkingDisplayMode !== "detailed";
+              var text = m.thinking;
+              var shown = compact && text.length > 240
+                ? text.slice(0, 240).replace(/\s+\S*$/, "") + "…"
+                : text;
+              steps.push({
+                kind: "thinking", status: "done", tookMs: 0,
+                label: thinkingSummary(text, compact),
+                // 展开后**直接就是思考内容**，不再在前面加一个「思考」标签占位置：
+                // 有真实思考文本时用 label 承载预览、details 承载全文，两者角色明确。
+                thinking: compact && text.length > 240 ? text : "",
+                thinkingFull: text,
+                urls: [],
+              });
+            }
+            if (m.tool) {
+              var t = m.tool;
+              var harvestArgs = harvest(t.args);
+              var harvestResult = harvest(t.result);
+              var urls = harvestResult.urls.slice();
+              harvestArgs.urls.forEach(function (u) { if (urls.indexOf(u) === -1) urls.push(u); });
+              var sub = summarizeArgs(t.args) || harvestArgs.queries[0] || "";
+              if (t.durationMs) sub = (sub ? sub + " · " : "") + formatDuration(t.durationMs);
+              steps.push({
+                kind: "tool",
+                status: t.status === "error" || t.status === "denied" ? "error" : "success",
+                tookMs: t.durationMs || 0,
+                label: t.name || "工具",
+                sub: sub,
+                args: t.args, result: t.result, urls: urls.slice(0, 8),
+              });
+            }
+            // 厂商托管搜索（provider-hosted web search）：关键词与来源网址。
+            if (m.hostedSearch && m.hostedSearch.rounds) {
+              m.hostedSearch.rounds.forEach(function (round) {
+                var urls = (round.sources || []).map(function (s) { return s.url; });
+                if (round.url) urls.unshift(round.url);
+                steps.push({
+                  kind: "search",
+                  status: round.status === "failed" ? "error" : (round.status === "searching" ? "running" : "done"),
+                  tookMs: 0,
+                  label: (round.kind === "openPage" ? "打开网页" : round.kind === "findInPage" ? "页内查找" : "联网搜索") +
+                    (round.query ? "「" + round.query + "」" : ""),
+                  sub: urls.length ? urls.length + " 个来源" : "",
+                  urls: urls.slice(0, 12),
+                });
+              });
+            }
+            // 快捷对话的检索轨迹：插件自己上报，形状与 transcript 不同，单独转。
+            if (m.trace && m.trace.length) {
+              steps = steps.concat(traceToSteps(m.trace, m.id));
+            }          }
+          if (running && steps.length && steps[steps.length - 1].status !== "error") {
+            steps[steps.length - 1].status = "running";
+          }
+          return steps;
+        }
+
+        /** 一轮结束后的用量行：token 数（宿主报多少写多少，不推算）。 */
+        function usageLine(messages) {
+          var parts = [];
+          var input = 0, output = 0, reasoning = 0;
+          messages.forEach(function (m) {
+            if (!m.usage) return;
+            input += m.usage.inputTokens || 0;
+            output += m.usage.outputTokens || 0;
+            reasoning += m.usage.reasoningTokens || 0;
+          });
+          if (input) parts.push("输入 " + formatCount(input));
+          if (output) parts.push("输出 " + formatCount(output));
+          if (reasoning) parts.push("思考 " + formatCount(reasoning));
+          return parts.join(" · ");
+        }
+        function messageElapsed(messages) {
+          var total = 0;
+          messages.forEach(function (m) { if (m.durationMs) total += m.durationMs; });
+          return total;
+        }
+        function traceTitle(steps, elapsed) {
+          var tools = steps.filter(function (s) { return s.kind === "tool"; }).length;
+          var searches = steps.filter(function (s) { return s.kind === "search"; }).length;
+          var bits = [];
+          if (tools) bits.push(tools + " 个工具");
+          if (searches) bits.push(searches + " 次搜索");
+          // 与主窗口同形：「已处理 15s 2 个工具」，空格分隔而不是圆点。
+          var head = elapsed ? "已处理 " + formatDuration(elapsed) : "处理过程";
+          return bits.length ? head + " " + bits.join(" ") : head;
+        }
+
+        function addThinking(text) {
+          // 仍然被 tools/measure-layout.mjs 之类的排查脚本引用过，且「思考过程」
+          // 现在由时间线负责；这里保留一个最小可用的独立实现，供将来的折叠块复用。
           var box = el("details", "think");
           var sum = el("summary");
           sum.appendChild(el("span", "arrow", "›"));
-          sum.appendChild(el("span", null, "思考过程" + (cut ? "（精简）" : "") + " · " + text.length + " 字"));
+          sum.appendChild(el("span", null, "思考过程 · " + text.length + " 字"));
           box.appendChild(sum);
-          box.appendChild(el("div", "body", shown));
-          if (cut) {
-            box.addEventListener("toggle", function () {
-              if (box.open) box.querySelector(".body").textContent = text;
-            });
-          }
+          box.appendChild(el("div", "body", text));
           return box;
         }
         /**
@@ -1215,6 +4183,10 @@ details.think > .body {
           var flat = raw.replace(/\s+/g, " ").trim();
           var isLong = flat.length > 160 || raw.split("\n").length > 3;
           if (!isLong) return el("div", "tool-line", flat);
+          // A tool row whose body is empty happens (the host keeps the identity in
+          // toolName/args/result, which the timeline shows instead). Leaving a
+          // zero-height `<details>` there just steals a line of margin.
+          if (!flat) return el("div", "tool-line", "");
           var box = el("details", "think");
           var sum = el("summary");
           sum.appendChild(el("span", "arrow", "›"));
@@ -1226,29 +4198,529 @@ details.think > .body {
           return box;
         }
 
+        // ============================================================ 打字机
+        /**
+         * 助手回复逐字出现。
+         *
+         * 需要说清楚的事实：**这不是流式传输**。宿主给插件的接口里没有任何增量
+         * 通道 —— `agent.complete` 只回一次性 text，`session/get` 读到的是落盘
+         * transcript，正在生成的回复只写在 `.inflight.json` 检查点里、不进
+         * session/get（host-core `read_transcript_window_with_layout` 只读
+         * transcript 文件），插件也收不到任何增量事件。所以文本是**宿主给出
+         * 完整答案之后**才开始逐字显示的：这是表现层的揭示效果，不是网络流。
+         *
+         * 真正边跑边出现的是**过程**（时间线里那几行），那部分数据是真的。
+         *
+         * 关于速率：按「固定时长」铺开，短答案慢、长答案快；上限 2.8s，
+         * 避免一篇长回答让人干等。同一条消息分多次到达（引用、再生）时
+         * 只补差量，不从头再打一遍。
+         */
+        var TYPE_MS_MIN = 500, TYPE_MS_MAX = 2800;
+        var revealQueue = [];   // 正在打字的条目，先来的先打完
+        var revealTimer = null, revealLastAt = 0, revealWatchdog = null, revealFrames = 0;
+
+        /**
+         * 「逐字显示」绝不能变成「什么都没有」。
+         *
+         * 打字机把文本挂在一个**先空着**的占位节点上，靠 rAF 一帧帧填 —— 所以一旦
+         * 帧不来（无头浏览器截图、被节流的后台标签页、某些 GPU 异常），那条回答
+         * 就是一个永远空白的占位：看起来像「思考的框一闪，然后什么都不输出」。
+         * 这里放一个看门狗：启动打字后 600ms 内一帧都没跑到，就立刻把**全部**待打
+         * 文本直接填上（等于退化成非动画渲染），而不是继续等。
+         */
+        function armRevealWatchdog() {
+          if (revealWatchdog) return;
+          var framesAtArm = revealFrames;
+          revealWatchdog = setTimeout(function () {
+            revealWatchdog = null;
+            if (revealFrames > framesAtArm) return; // 帧在跑，打字机正常工作
+            if (revealTimer) { cancelAnimationFrame(revealTimer); revealTimer = null; }
+            revealQueue.slice().forEach(function (entry) {
+              if (!entry.reveal) return;
+              entry.reveal.shown = entry.reveal.total;
+              punchText(entry);
+              finishReveal(entry);
+            });
+            revealQueue = [];
+          }, 600);
+          revealWatchdog.unref && revealWatchdog.unref();
+        }
+
+        /** entry 上打字机用到的三个位置：外层正文、纯文本节点、Markdown 落点。 */
+        function makeTypeTarget(entry, body) {
+          var text = el("div", "plain md typing");
+          body.appendChild(text);
+          entry.body = body;
+          entry.textNode = text;
+          return { text: text, shown: 0, total: 0 };
+        }
+        function startTyping(entry, text) {
+          entry.reveal = { text: text, shown: 0, total: text.length };
+          entry.revealing = true;
+          // ⚠️ 系统开了「减少动态效果」时必须**直接整段收尾**，不能只把 shown 归零
+          // 交给 punchText —— 那样写进去的是 0 个字符，而且 finishReveal 也不会被
+          // 调用，于是这条回答永远是个**空占位**。这正是「思考的框一闪、什么都没
+          // 输出」的成因（本机 prefers-reduced-motion 就是开的）。
+          if (reduceMotion) {
+            entry.reveal.shown = entry.reveal.total;
+            punchText(entry);
+            finishReveal(entry);
+            return;
+          }
+          revealQueue.push(entry);
+          tickReveal();
+        }
+        /**
+         * 只暴露一个只读快照，给 `tools/preview-panel.mjs` + `tools/inspect-panel-layout.mjs`
+         * 那种离线排查用（`window.__summonState()`）。它不改变任何行为，
+         * 只是把「现在这一屏到底是什么状态」变成可读的 —— 上一轮
+         * 「回答是个空占位」就是靠它定位的。
+         */
+        function exposeDebugState() {
+          window.__summonState = function () {
+            return {
+              rows: renderedRows.map(function (row) {
+                return {
+                  id: row.id, kind: row.kind,
+                  reveal: row.reveal ? { shown: row.reveal.shown, total: row.reveal.total } : null,
+                  text: row.message ? String(row.message.text || "").slice(0, 40) : null,
+                  body: row.body ? String(row.body.textContent || "").slice(0, 40) : null,
+                };
+              }),
+              queue: revealQueue.length,
+              frames: revealFrames,
+              watchdog: !!revealWatchdog,
+              timer: !!revealTimer,
+              reduceMotion: reduceMotion,
+              seen: seenIds.size,
+            };
+          };
+          // Only for offline tooling: lets the preview step the transcript by hand
+          // instead of waiting on the 1.5s poll (headless virtual time does not
+          // advance setInterval the way it advances setTimeout).
+          window.__summonRefresh = function () { return refreshTranscript(false); };
+          // Steps one quick-chat progress tick. `noTurnId` skips the id check: the
+          // offline preview has to drive the turn it scripted, while the page's own
+          // interval supplies the real one.
+          window.__summonPollQuick = function (noTurnId) { return tickQuickTurn(noTurnId ? "" : undefined); };
+        }
+        /**
+         * 只追加新字符，不重建文本节点：每帧重设 textContent 会让整段文字在
+         * 换行处反复重排，长回答会肉眼可见地抖。
+         */
+        function punchText(entry) {
+          var info = entry.reveal;
+          var shown = Math.min(info.total, Math.floor(info.shown));
+          entry.textNode.textContent = info.text.slice(0, shown);
+          if (stickBottom) {
+            var area = $("msgArea");
+            area.scrollTop = area.scrollHeight;
+          }
+        }
+        function finishReveal(entry) {
+          entry.revealing = false;
+          if (!entry.textNode) return;
+          entry.textNode.classList.remove("typing");
+          // 打完了才交给 Markdown 渲染器。逐字渲染 Markdown 会把 `**` 这类
+          // 中间态画成字面量，观感比纯文本更差。
+          entry.body.textContent = "";
+          entry.body.classList.remove("plain");
+          entry.body.appendChild(renderMarkdown(entry.reveal.text));
+        }
+        function tickReveal() {
+          if (revealTimer || !revealQueue.length) return;
+          revealLastAt = 0;
+          revealTimer = requestAnimationFrame(stepReveal);
+          armRevealWatchdog();
+        }
+        function stepReveal(now) {
+          revealTimer = null;
+          revealFrames++;
+          if (!revealQueue.length) return;
+          // 旧的回复先打完，一次只打一条。
+          var entry = revealQueue[0];
+          var info = entry.reveal;
+          var elapsed = revealLastAt ? Math.min(120, now - revealLastAt) : 16;
+          revealLastAt = now;
+          var ms = Math.min(TYPE_MS_MAX, Math.max(TYPE_MS_MIN, info.total * 12));
+          info.shown = Math.min(info.total, info.shown + Math.max(1, (info.total / ms) * elapsed));
+          if (info.shown >= info.total) {
+            punchText(entry);
+            revealQueue.shift();
+            revealLastAt = 0;
+            finishReveal(entry);
+          } else {
+            punchText(entry);
+          }
+          if (revealQueue.length) revealTimer = requestAnimationFrame(stepReveal);
+        }
+        /** 用户自己发了新消息：正在打的那条立刻收尾，别让老回答拖着。 */
+        function flushTyping() {
+          if (revealTimer) { cancelAnimationFrame(revealTimer); revealTimer = null; }
+          revealQueue.slice().forEach(function (entry) {
+            if (!entry.reveal) return;
+            entry.reveal.shown = entry.reveal.total;
+            punchText(entry);
+            finishReveal(entry);
+          });
+          revealQueue = [];
+        }
+
+        // ================================================== 增量渲染（diff）
+        /**
+         * 一次问答由好几条消息组成，工具调用还会**边跑边落盘**（tool_start 先落一行
+         * running、tool_end 再补结果）。所以重绘必须按 id 对齐：
+         *
+         *   · 只有 id 变了才新建 DOM；
+         *   · 只有签名变了才换这一行的内容；
+         *   · 其余节点原地不动 —— 滚动位置、展开状态、正在播的动画都保住。
+         *
+         * 以前是「每次轮询清空重画」，所以既没法往上翻，也看不到工具行逐渐出现。
+         */
+        var renderedRows = [];
+        /**
+         * 已经画过的消息 id。用来判断「这条是不是刚出现的」——
+         * 位置不可靠（transcript 与本地那份会差一条），id 可靠。
+         * 换会话 / 开新对话时由 resetRendered() 清空。
+         */
+        var seenIds = new Set();
+        function resetRendered() {
+          renderedRows = [];
+          seenIds = new Set();
+        }
+        function rowMode(role) {
+          return role === "user" ? "user"
+            : role === "assistant" || role === "system" ? "assistant"
+            : role === "tool" ? "tool" : "error";
+        }
+        function rowSignature(m) {
+          return [
+            m.role, m.thinking || "", m.text || "",
+            m.tool ? [m.tool.name, m.tool.status, m.tool.durationMs,
+              stringifyValue(m.tool.args, 400), stringifyValue(m.tool.result, 400)].join("\u0001") : "",
+            m.hostedSearch ? JSON.stringify(m.hostedSearch) : "",
+            m.trace ? JSON.stringify(m.trace) : "",
+            m.usage ? JSON.stringify(m.usage) : "",
+            m.durationMs || 0, m.error ? JSON.stringify(m.error) : "",
+          ].join("\u0002");
+        }
+        function newGroup() {
+          return {
+            messages: [], traceBoxEl: null, traceNode: null, traceKey: null,
+            // 组里共享的那一个加载动效节点：步骤换行时搬过去，动画不中断。
+            marker: null,
+            // 插件上报的步骤（快捷对话专用；Agent 模式走 transcript）。
+            steps: null,
+          };
+        }
+        /** 改 `group.steps` 之后要让 `renderTraceBlock` 知道内容变了。 */
+        function invalidateTrace(group) {
+          if (group) group.traceKey = null;
+          return group;
+        }
+        /** 时间线里传进来的是「某一轮」的消息，这里只挑出真正有痕迹的部分。 */
+        function groupHasTrace(group) {
+          return !!(group.steps && group.steps.length) || group.messages.some(function (m) {
+            return !!(m && (m.thinking || m.tool || m.hostedSearch || (m.trace && m.trace.length)));
+          });
+        }
+        function groupSteps(group, running) {
+          var list = group.messages.filter(Boolean);
+          var steps = stepsFromMessages(list, list.length - 1, running);
+          // 快捷对话的过程由插件上报（`group.steps`），不是 transcript 的消息行。
+          (group.steps || []).forEach(function (step) { steps.push(step); });
+          return steps;
+        }
+        /**
+         * 把这一组的时间线画出来。
+         *
+         * 它是**自己一个块**（`.trace-msg`），不塞进任何一条消息的正文里：一轮问答
+         * 里「思考 → 工具 → 回答」会被拆成好几条消息，时间线要能跨着它们更新，
+         * 挂在第一条消息里就得在别的节点上做 replaceChild，脆弱且会丢掉展开状态。
+         *
+         * 内容没变就**原样返回上次那个节点**：重建会重启里面正在播的加载动效，
+         * 而快捷对话每 400ms 就会问一次进度，动画会一直在原地重来。
+         */
+        function renderTraceBlock(group, running) {
+          var steps = groupSteps(group, running);
+          var list = group.messages.filter(Boolean);
+          var key = (running ? "run" : "done") + "|" + steps.map(function (s) {
+            return [s.kind, s.status, s.label, s.sub, s.tookMs, s.urls.length].join("~");
+          }).join("||");
+          if (group.traceKey === key && group.traceNode) {
+            return { node: group.traceNode, key: key };
+          }
+          // 这一次是不是「同一轮里多了一步」（而不是全新的一块）：是的话把用户
+          // 展开过的行原样保留，并把正在跑的那一个动效节点搬过去。
+          var sameBlock = group.traceNode && group.traceStepsSeen;
+          var openIds = {};
+          if (sameBlock && group.traceNode.querySelectorAll) {
+            var rows = group.traceNode.querySelectorAll(".trace-step");
+            for (var i = 0; i < rows.length; i++) {
+              if (rows[i].open) openIds[rows[i].dataset.key] = true;
+            }
+          }
+          var hasRunning = steps.some(function (s) { return s.status === "running"; });
+          if (running && !group.marker) group.marker = newSpinner();
+          var fresh = buildTrace(steps, {
+            title: traceTitle(steps, messageElapsed(list)),
+            usage: usageLine(list),
+            running: running,
+            marker: hasRunning && sameBlock ? group.marker : (group.marker || newSpinner()),
+            openIds: openIds,
+            // ⚠️ 这里曾经是「跑完就收起成一行」，于是有正式输出之后过程就看不见了
+            // （用户反馈：「思考过程和调用工具的那个就消失了，要留着的呀」）。
+            // 现在只要有步骤就保持展开；用户自己收起过的，重画时照样尊重。
+            open: sameBlock && group.traceNode ? group.traceNode.open : true,
+          });
+          group.traceStepsSeen = true;
+          group.traceKey = key;
+          group.traceNode = fresh;
+          return { node: fresh, key: key };
+        }
+        function makeAssistantContent(m, entry, typeMode) {
+          var body = el("div", "ai-body");
+          entry.body = body;
+          // ⚠️ 以前这里是「有 thinking 就只画时间线、正文留空」，于是**带思考的回答
+          // 一个字都不显示** —— 思考过程进了时间线，正文却连挂载点都没有。
+          // thinking 只决定时间线里那一行，正文永远照常渲染。
+          if (!m.text) {
+            // 还没有正文（这一轮还在写，或这一条只剩过程）：给个光标占位。
+            body.appendChild(el("span", "caret"));
+            return body;
+          }
+          if (typeMode) {
+            entry.reveal = makeTypeTarget(entry, body);
+          } else {
+            body.appendChild(renderMarkdown(m.text));
+          }
+          return body;
+        }
+        function buildRow(m, typeMode, group) {
+          var kind = rowMode(m.role);
+          if (kind === "user") {
+            var u = el("div", "msg msg-user");
+            u.appendChild(el("div", "bubble", m.text));
+            return { id: m.id, kind: kind, node: u, group: null, sig: rowSignature(m), message: m };
+          }
+          var msg = el("div", "msg");
+          if (kind === "tool") {
+            msg.appendChild(renderToolRow(m.text));
+            return { id: m.id, kind: kind, node: msg, group: null, sig: rowSignature(m), message: m };
+          }
+          if (kind === "error") {
+            var e = el("div", "err-line");
+            e.appendChild(icon("i-warn"));
+            e.appendChild(el("span", null, m.text || (m.error && m.error.message) || "出错"));
+            msg.appendChild(e);
+            return { id: m.id, kind: kind, node: msg, group: null, sig: rowSignature(m), message: m };
+          }
+          var entry = {
+            id: m.id, kind: kind, node: msg, group: group || null,
+            sig: rowSignature(m), message: m,
+            body: null, textNode: null, reveal: null, revealing: false,
+          };
+          msg.appendChild(makeAssistantContent(m, entry, typeMode));
+          return entry;
+        }
+        /**
+         * 同一行内容变了：换掉正文容器，节点本身留在原地。
+         * 节点留在原地 = 滚动位置、折叠状态、后面的行全都不动。
+         */
+        function rebuildRow(old, m) {
+          // 这一行正在逐字显示时**必须先把旧的那条收尾**。
+          // 否则 `makeAssistantContent` 会在新节点上把**整段**正文画好，紧接着
+          // `entry.textNode = old.textNode` 又把打字机指向**已经被替换掉**的旧节点 ——
+          // 之后每一帧都在往一个不在文档里的节点写，正文就永远停在被打断的那个字上
+          // （用户看到的「正式输出被强制截断」：一句话断在半个词上）。
+          if (old.revealing) finishReveal(old);
+          var msg = el("div", "msg");
+          var entry = {
+            id: m.id, kind: old.kind, node: msg, group: old.group,
+            sig: rowSignature(m), message: m,
+            body: null, textNode: null,
+            reveal: null, revealing: false,
+          };
+          msg.appendChild(makeAssistantContent(m, entry, false));
+          if (old.node.parentNode) old.node.parentNode.replaceChild(msg, old.node);
+          else $("msgArea").appendChild(msg);
+          if (entry.group) {
+            var found = false;
+            entry.group.messages = entry.group.messages.map(function (row) {
+              if (row && row.id === m.id) { found = true; return m; }
+              return row;
+            });
+            if (!found) entry.group.messages.push(m);
+          }
+          return entry;
+        }
+        /**
+         * 工具 / 出错行就地更新正文。它们没有正文容器（不是 ai-body），
+         * 所以不能走 rebuildRow —— 就地换内容是这里唯一正确的做法，
+         * 否则这一行的时间线归属会跟着节点一起断掉。
+         */
+        function updateInPlace(row, m) {
+          row.node.textContent = "";
+          row.node.appendChild(row.kind === "tool"
+            ? renderToolRow(m.text)
+            : (function () {
+                var e = el("div", "err-line");
+                e.appendChild(icon("i-warn"));
+                e.appendChild(el("span", null, m.text || "出错"));
+                return e;
+              })());
+          row.message = m;
+          row.sig = rowSignature(m);
+          if (row.group) {
+            row.group.messages = row.group.messages.map(function (x) {
+              return x && x.id === m.id ? m : x;
+            });
+          }
+        }
+        /**
+         * transcript → DOM。返回这次是否新增了行（调用方据此重建刻度条）。
+         *
+         * 关键点：**按 id 对齐**，只重建真正变了的那一行。只有「上一屏里没有、
+         * 这一屏才出现」的助手回复才交给打字机 —— 打开一段历史会话时不应该把
+         * 几十条老回答重新打一遍。
+         */
+        function renderKeyed(messages, live) {
+          var area = $("msgArea");
+          if (!messages.length) { emptyState(); return false; }
+          // `is-empty` 让消息区变成「居中 flex 行」（见上面的 .msg-area.is-empty）。
+          // 有消息时必须摘掉它，否则每条消息是一个 flex 项：它们会**并排**排成
+          // 一格一格，宽度按内容收缩，整屏就碎了 —— 实测面板 420px 里第一条消息
+          // 只有 42px 宽、时间线 166px 宽，横向还溢出到负坐标。
+          // 旧实现靠 addMessage() 顺手摘这一条，改成按 id 对齐渲染后没人摘了。
+          area.classList.remove("is-empty");
+          var prev = renderedRows;
+          if (prev.length && prev[0].kind === "empty") prev = [];
+          var next = [];
+          var added = false;
+          for (var j = 0; j < messages.length; j++) {
+            var m = messages[j];
+            var sig = rowSignature(m);
+            var old = prev[j];
+            if (old && old.id === m.id && old.kind === rowMode(m.role) && old.sig === sig) {
+              old.message = m;
+              next.push(old);
+              continue;
+            }
+            if (old && old.id === m.id) {
+              if (old.kind === "user" || old.kind === "tool" || old.kind === "error") {
+                if (old.kind === "user") {
+                  old.node.firstChild.textContent = m.text;
+                  old.sig = sig;
+                  old.message = m;
+                } else {
+                  updateInPlace(old, m);
+                }
+                next.push(old);
+                continue;
+              }
+              next.push(rebuildRow(old, m));
+              continue;
+            }
+            // 「这一条以前画过吗」用**见过的 id 集合**判断，不用位置：
+            // 在 transcript 里本地那条用户消息会先被挤掉，位置一变整段就会
+            // 被当成新消息，于是重放一遍打字机。首次画（集合空）不打字 ——
+            // 打开一段历史会话时不该把几十条老回答重新打一遍。
+            //
+            // ⚠️ 这一个 isFresh 同时决定两件事，必须一致：`buildRow` 是否建**打字机
+            // 容器**（纯文本、先空着），以及随后是否真的**启动打字**。曾经这里给
+            // buildRow 传了别的判断、给 startTyping 传了 isFresh，于是「容器建了、
+            // 动画没启动」，那条回答就是一个永远空着的占位 —— 看起来就是
+            // 「思考的框一闪，然后什么都没输出」。
+            var isFresh = seenIds.size > 0 && !seenIds.has(m.id);
+
+            // 本地先画的那条用户消息，等 transcript 回来时可能带着**另一个 id**
+            // 出现在同一个位置（宿主给的是它的真实消息 id）。按 id 对不上就会并排
+            // 画出两个一模一样的「你好」气泡 —— 实测就是这样。所以：紧接着的一条
+            // 同角色、同文本，直接认作同一条，复用那个节点。
+            if (isFresh && old && old.kind === "user" && rowMode(m.role) === "user" &&
+                (old.message ? old.message.text : "") === m.text) {
+              old.id = m.id;
+              old.message = m;
+              old.sig = sig;
+              next.push(old);
+              seenIds.add(m.id);
+              continue;
+            }
+
+            var grouping = rowMode(m.role) === "assistant" || rowMode(m.role) === "tool";
+            var group = grouping
+              ? ((next.length && next[next.length - 1].group) || newGroup())
+              : null;
+            var entry = buildRow(m, isFresh, group);
+            if (group) group.messages.push(m);
+            next.push(entry);
+            if (m.id !== (old ? old.id : null)) added = true;
+            seenIds.add(m.id);
+            if (isFresh && entry.kind === "assistant" && m.text) startTyping(entry, m.text);
+          }          for (var k = next.length; k < prev.length; k++) {
+            if (prev[k].node.parentNode) prev[k].node.parentNode.removeChild(prev[k].node);
+          }
+          // 组合 DOM：把每一组的时间线插到该组第一条消息之前。
+          // 只有**真的有过程**（思考 / 工具 / 托管搜索）的组才画时间线：一条纯文本
+          // 回答不该顶着一行「已处理 0s」的空框。
+          var flat = [];
+          var currentGroup = null;
+          next.forEach(function (row) {
+            if (row.group !== currentGroup && row.group) {
+              currentGroup = row.group;
+              var wrap = row.group.traceWrap;
+              if (groupHasTrace(row.group)) {
+                var block = renderTraceBlock(row.group, !!(live && live.running));
+                if (!wrap) {
+                  wrap = el("div", "msg trace-msg");
+                  wrap.appendChild(block.node);
+                  row.group.traceWrap = wrap;
+                } else if (wrap.firstChild !== block.node) {
+                  wrap.textContent = "";
+                  wrap.appendChild(block.node);
+                }
+                flat.push(wrap);
+              }
+            } else if (!row.group) {
+              currentGroup = null;
+            }
+            flat.push(row.node);
+          });
+          if (live && live.liveGroup) {
+            var liveBlock = renderTraceBlock(live.liveGroup, true);
+            var liveWrap = live.liveGroup.traceWrap;
+            if (!liveWrap) {
+              liveWrap = el("div", "msg trace-msg live");
+              liveWrap.appendChild(liveBlock.node);
+              live.liveGroup.traceWrap = liveWrap;
+            } else if (liveWrap.firstChild !== liveBlock.node) {
+              liveWrap.textContent = "";
+              liveWrap.appendChild(liveBlock.node);
+            }
+            flat.push(liveWrap);
+          }          flat.forEach(function (node, index) {
+            var current = area.children[index];
+            if (current !== node) area.insertBefore(node, current || null);
+          });
+          while (area.children.length > flat.length) area.removeChild(area.lastChild);
+          renderedRows = next;
+          return added;
+        }
+
         function addMessage(kind, payload) {
           var center = $("msgArea").querySelector(".center-block");
           if (center) center.parentNode.removeChild(center);
+          if (kind === "user" || kind === "tool") flushTyping();
           $("msgArea").classList.remove("is-empty");
-          var msg = el("div", "msg" + (kind === "user" ? " msg-user" : ""));
-          if (kind === "user") {
-            msg.appendChild(el("div", "bubble", payload));
-          } else if (kind === "error") {
-            var e = el("div", "err-line");
-            e.appendChild(icon("i-warn"));
-            e.appendChild(el("span", null, payload));
-            msg.appendChild(e);
-          } else if (kind === "tool") {
-            msg.appendChild(renderToolRow(payload));
-          } else {
-            var body = el("div", "ai-body");
-            body.appendChild(renderMarkdown(payload));
-            msg.appendChild(body);
-          }
-          $("msgArea").appendChild(msg);
+          var m = { id: "", role: kind === "tool" ? "tool" : kind === "user" ? "user" : "assistant", text: payload };
+          var row = buildRow(m, false);
+          row.id = "";
+          row.message = m;
+          $("msgArea").appendChild(row.node);
           scrollDown();
-          return msg;
+          return row.node;
         }
+        /** 兼容旧签名：把已经渲染好的节点塞进一条 assistant 消息里。 */
         function addAssistantNode(node) {
           var center = $("msgArea").querySelector(".center-block");
           if (center) center.parentNode.removeChild(center);
@@ -1294,12 +4766,6 @@ details.think > .body {
         }
 
         // -------------------------------------------------------- 输入/发送
-        function autoGrow(ta) {
-          ta.style.height = "auto";
-          // min-height 由 CSS 决定（可能是 rem），读计算值才不会和样式脱节。
-          var min = parseFloat(window.getComputedStyle(ta).minHeight) || 0;
-          ta.style.height = Math.min(Math.max(ta.scrollHeight, min), 130) + "px";
-        }
         function refreshSendKey() {
           // 忙时它是「停止」，必须可点；闲时按输入框是否为空决定。
           $("sendKey").disabled = busy ? false : !$("chatInput").value.trim();
@@ -1308,13 +4774,15 @@ details.think > .body {
         function setBusy(v) {
           busy = v;
           var key = $("sendKey");
-          // 忙时发送键变成停止键（设计里就有 .sendkey.stop / #i-stop）
+          // 忙时发送键变成停止键（设计里就有 .sendkey.stop / #i-stop）。
+          // 图标切换走 morphicons 的形变（纸张 → 方块），装不上时退回换 symbol。
           key.classList.toggle("stop", v);
           key.title = v ? "停止" : "发送";
-          $("sendIcon").setAttribute("href", v ? "#i-stop" : "#i-send");
-          $("compHint").textContent = v
-            ? (isAgent() ? "Enter 直接发送（引导正在跑的这一轮）" : "Enter 排队，本轮结束后自动发送")
-            : "Enter 发送 · Shift+Enter 换行";
+          morphToIcon(key, sendMorph, v ? "stop" : "send", v ? "i-stop" : "i-send");
+          // 「Enter 发送 · Shift+Enter 换行」那行提示已删除，忙时的语义改由状态行说明。
+          if (v) {
+            setStatus(isAgent() ? "Enter 直接发送（引导正在跑的这一轮）" : "Enter 排队，本轮结束后自动发送");
+          }
           refreshSendKey();
           if (!v) { setStatus(""); stopProgress(); flushQueue(); }
         }
@@ -1395,8 +4863,15 @@ details.think > .body {
           var role = currentRole();
           showView("chat");
           $("chatInput").value = "";
-          autoGrow($("chatInput"));
-          addMessage("user", text);
+          if (role.mode === "agent") {
+            // Agent 模式的消息来自 transcript 轮询，本地这份只是先画出来。
+            addMessage("user", text);
+          } else {
+            // 快捷对话没有 transcript：这一屏的消息由页面自己维护，
+            // 所以走同一个 diff 渲染器，工具时间线与答案才能跟着一起更新。
+            pushQuickUser(text);
+            renderKeyed(agent.quickMessages.slice(), { running: false });
+          }
           rebuildTicks();
           setBusy(true);
 
@@ -1450,16 +4925,13 @@ details.think > .body {
                   return;
                 }
                 var res = fin.result || {};
-                (res.trace || []).forEach(function (step) {
-                  addMessage("tool", step.ok
-                    ? "🔍 " + step.query + " → " + step.count + " 条（" + (step.provider || "?") + "）"
-                    : "🔍 " + step.query + " 失败：" + step.error);
-                });
+                // 结果落盘：把「正在跑」的那块临时时间线收掉，换成真实的一轮。
+                clearLiveTrace();
                 if (res.ok) {
                   history.push({ role: "user", content: text });
                   history.push({ role: "assistant", content: res.text });
                   if (history.length > 40) history = history.slice(-40);
-                  addMessage("assistant", res.text);
+                  renderQuickTurn(res);
                 } else {
                   addMessage("error", (res.message ? res.message : "调用失败") +
                     (res.error ? "（" + res.error + "）" : ""));
@@ -1516,6 +4988,9 @@ details.think > .body {
               }
               renderTranscript(res.transcript);
               var status = res.transcript && res.transcript.status;
+              // 跑着的时候把轮询加快，停下来就退回去 —— 工具行是边跑边落盘的，
+              // 1.5s 的间隔会让它们一顿一顿地出现。
+              setAgentPollingRate(status === "running");
               if (status === "running") {
                 // 悬浮窗看不到也答不了宿主的授权卡片（插件事件目录里没有权限事件，
                 // 也没有「列出待批请求」的操作），所以长时间没变化时明确告诉用户
@@ -1529,62 +5004,61 @@ details.think > .body {
             .catch(function () {});
         }
         function renderTranscript(t) {
-          // 整段重绘会丢掉滚动位置（轮询每 1.5s 一次，用户根本没法往上翻）。
-          // 所以先记下位置，画完再还原；本来贴着底部就继续贴底。
+          // 增量渲染：按消息 id 对齐，只重建真正变了的那一行 ——
+          // 整段重绘会丢掉滚动位置与展开状态（轮询在跑的时候每 0.7s 一次，
+          // 用户根本没法往上翻）。滚动位置由 renderKeyed 的原地更新天然保住。
           var area = $("msgArea");
-          var prevTop = area.scrollTop;
           var wasSticky = stickBottom;
-          clearMessages();
-          var msgs = (t && t.messages) || [];
+          var msgs = ((t && t.messages) || []).slice();
           if (!msgs.length) { emptyState(); rebuildTicks(); return; }
-          msgs.forEach(function (m) {
-            if (m.thinking) {
-              var holder = el("div", "msg");
-              var b = el("div", "ai-body");
-              b.appendChild(addThinking(m.thinking));
-              holder.appendChild(b);
-              $("msgArea").appendChild(holder);
+          var running = !!(t && t.status === "running");
+          // 出错但没有正文的行也要显示：错误本身就是这一行的内容。
+          // 正文为空的工具行**不显示**：它的全部信息（工具名、参数、结果、用时）
+          // 已经在时间线里了，再画一行空白只是白占一行高度。
+          msgs = msgs.filter(function (m) {
+            return !(m.role === "tool" && !m.text);
+          }).map(function (m) {
+            if (m.error && !m.text) {
+              return Object.assign({}, m, {
+                text: "出错" + (m.error.code ? "（" + m.error.code + "）" : "") +
+                  (m.error.message ? "：" + m.error.message : ""),
+              });
             }
-            if (m.error) {
-              addMessage("error", "出错" + (m.error.code ? "（" + m.error.code + "）" : "") +
-                (m.error.message ? "：" + m.error.message : ""));
-              return;
-            }
-            if (!m.text) return;
-            if (m.role === "tool") addMessage("tool", m.text);
-            else if (m.role === "user") addMessage("user", m.text);
-            else if (m.role === "system") addMessage("assistant", m.text);
-            else addMessage("assistant", m.text);
+            return m;
           });
-          rebuildTicks();
-          area.scrollTop = wasSticky ? area.scrollHeight : prevTop;
+          // 正在跑但正文还没落盘的那一条：时间线要显示「正在进行」。
+          var added = renderKeyed(msgs, { running: running });
+          if (added || !agent.lastRenderedCount || agent.lastRenderedCount !== msgs.length) {
+            rebuildTicks();
+          }
+          agent.lastRenderedCount = msgs.length;
+          if (wasSticky) area.scrollTop = area.scrollHeight;
         }
-        function startAgentPolling() {
-          if (agent.timer) return;
+        /**
+         * Agent 模式的轮询节奏：**跑着的时候更快**。
+         *
+         * 宿主把「正在生成」的回复只写进 `.inflight.json` 检查点，`session/get`
+         * 读不到（host-core `read_transcript_window_with_layout` 只读 transcript
+         * 文件），所以逐字文本拿不到；能拿到的是**工具行**：tool_start 先落一行
+         * running、tool_end 再补结果 —— 那才是「边跑边出现的处理过程」。
+         * 1.5s 一次会让工具行一顿一顿地冒出来，0.6s 更接近实时；
+         * 轮次结束就退回 1.5s，别白烧 CPU。
+         */
+        function setAgentPollingRate(fast) {
+          var want = fast ? AGENT_POLL_FAST_MS : AGENT_POLL_MS;
+          if (agent.timer && agent.timerMs === want) return;
+          if (agent.timer) { clearInterval(agent.timer); agent.timer = null; }
+          agent.timerMs = want;
           agent.timer = setInterval(function () {
             if (!document.hidden) refreshTranscript(false);
-          }, AGENT_POLL_MS);
+          }, want);
+        }
+        function startAgentPolling() {
+          setAgentPollingRate(false);
         }
         function stopAgentPolling() {
           if (agent.timer) { clearInterval(agent.timer); agent.timer = null; }
-        }
-
-        function openQuickConversation(conv) {
-          stopAgentPolling();
-          agent.sessionId = "";
-          agent.transcript = null;
-          quickConvId = conv.id;
-          history = [];
-          pendingThinking = "";
-          closeHistory();
-          clearMessages();
-          (conv.messages || []).forEach(function (m) {
-            if (m.role === "user") addMessage("user", m.text);
-            else addMessage("assistant", m.text);
-          });
-          rebuildTicks();
-          showView("chat");
-          toast("已载入悬浮窗对话");
+          agent.timerMs = 0;
         }
 
         function historyRow(title, sub, time, isCur, onPick) {
@@ -1676,7 +5150,7 @@ details.think > .body {
         }
         function renderSettings() {
           $("hkMain").textContent = state.settings.accelerator || "未设置";
-          markSeg("themeSeg", "data-theme", state.settings.appearance || "system");
+          markSeg("themeSeg", "data-theme", state.settings.appearance || "host");
           markSeg("fontSeg", "data-fs", state.settings.fontSize || 15);
           markSeg("opacitySeg", "data-op", state.settings.opacity == null ? 100 : state.settings.opacity);
           markSeg("startSeg", "data-start", state.settings.agentStartMode || "new");
@@ -1764,6 +5238,10 @@ details.think > .body {
             renderRoleList(); renderChips();
             if (note) toast(note);
             if (selectId) openRoleEditor(selectId);
+            // 删掉的正是正在编辑的那个角色时，编辑框必须一起收掉 ——
+            // 否则会留下一只「编辑着不存在的角色」的卡片：点保存也只会
+            // 在 roleById() 里返回 null 而毫无反应，看起来就是个删不掉的残留块。
+            if (editingRoleId && !roleById(state.roles, editingRoleId)) closeRoleEditor();
           }).catch(function (err) {
             $("sfBanner").hidden = false;
             $("sfBannerTxt").textContent = "角色保存失败：" + (err && err.message ? err.message : err);
@@ -1773,7 +5251,7 @@ details.think > .body {
         function saveSettings() {
           var patch = {
             accelerator: $("hkMain").textContent.trim(),
-            appearance: state.settings.appearance || "system",
+            appearance: state.settings.appearance || "host",
             fontSize: Number(state.settings.fontSize || 15),
             opacity: Number(state.settings.opacity == null ? 100 : state.settings.opacity),
             agentStartMode: state.settings.agentStartMode || "new",
@@ -1934,6 +5412,7 @@ details.think > .body {
             state.shortcut = res.shortcut || null;
             state.thinkingDisplayMode = res.thinkingDisplayMode || "compact";
             state.appDefaultModelKey = res.appDefaultModelKey || null;
+            adoptHostAppearance(res.hostAppearance);
             applyAppearance();
             renderSettings();
             renderRoleList();
@@ -1971,13 +5450,18 @@ details.think > .body {
         }
 
         // ---------------------------------------------------------- 事件绑定
-        $("btnClose").addEventListener("click", function () { invoke("summon.chat.dismiss", {}).catch(function () {}); });
         $("btnSettings").addEventListener("click", function () { closeMenu(); showView("set"); });
         $("btnBack").addEventListener("click", function () { showView("chat"); });
         $("btnNewChat").addEventListener("click", function () {
-          closeMenu(); stopAgentPolling();
+          closeMenu(); stopAgentPolling(); flushTyping();
           agent.sessionId = ""; agent.transcript = null; history = []; pendingThinking = "";
+          clearLiveTrace();
           quickConvId = newQuickConvId();
+          // 快捷对话那一屏的消息是页面自己维护的，新对话必须一起清掉，
+          // 否则下一次 send 会把旧对话的内容又画回来。
+          agent.quickMessages = [];
+          agent.quickSeq = 0;
+          agent.lastRenderedCount = 0;
           emptyState(); rebuildTicks(); showView("chat"); renderChips();
           toast("已开新对话");
         });
@@ -2070,7 +5554,6 @@ details.think > .body {
               return;
             }
             $("chatInput").value = res.text;
-            autoGrow($("chatInput"));
             refreshSendKey();
             toast("已增强");
           }).catch(function (err) {
@@ -2128,7 +5611,6 @@ details.think > .body {
           showMenu($("btnPerm"), [group]);
         });
         $("chatInput").addEventListener("input", function () {
-          autoGrow($("chatInput"));
           refreshSendKey();
         });
         $("chatInput").addEventListener("keydown", function (e) {
@@ -2137,7 +5619,6 @@ details.think > .body {
           var text = $("chatInput").value;
           if (!text.trim()) return;
           $("chatInput").value = "";
-          autoGrow($("chatInput"));
           refreshSendKey();
           if (!busy) { send(text); return; }
           // 忙时：Agent 模式直接发送当引导（宿主接受往正在跑的会话再投一条），
@@ -2209,6 +5690,81 @@ details.think > .body {
           markSeg("startSeg", "data-start", state.settings.agentStartMode);
         });
 
+        /**
+         * 快捷键录制：产生**宿主自己的**键位语法。
+         *
+         * 宿主 grammar 见 `packages/shared/src/keyboard-shortcuts.ts`：
+         * 修饰键只有 Mod / Ctrl / Alt / Shift（**没有 Control / Meta**），
+         * 主键是 A–Z、0–9、F1–F12 或具名键（Comma / Period / Equal / Minus /
+         * Space / ArrowUp …）。旧实现直接写 `Control`/`Meta`/`=`，
+         * 宿主 `normalizeKeybinding` 一律返回 null → `INVALID_ACCELERATOR`，
+         * 于是「录了一个新键，保存后热键反而没了」。所以这里逐字照宿主的词表映射，
+         * 并且**录不出来就当场说清楚**，不再假装成功。
+         */
+        var HOST_MODIFIER_ORDER = ["Mod", "Ctrl", "Alt", "Shift"];
+        var MODIFIER_KEY_VALUES = ["Alt", "AltGraph", "Control", "Meta", "Shift"];
+        var NAMED_KEY_CODES = [
+          "Escape", "Enter", "Space", "Tab", "Backspace", "Delete", "Insert", "Home", "End",
+          "PageUp", "PageDown", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight",
+          "Comma", "Period", "Equal", "Minus", "Slash", "Backslash", "Semicolon", "Quote",
+          "BracketLeft", "BracketRight", "Backquote",
+        ];
+        var KEY_ALIASES = {
+          " ": "Space", ",": "Comma", ".": "Period", "=": "Equal", "+": "Equal",
+          "-": "Minus", "/": "Slash", "\\": "Backslash", ";": "Semicolon", "'": "Quote",
+          "[": "BracketLeft", "]": "BracketRight", "`": "Backquote",
+        };
+        function recordingPlatform() {
+          var ua = navigator.userAgent || "";
+          if (/Mac|iPhone|iPad/i.test(ua)) return "darwin";
+          if (/Linux/i.test(ua)) return "linux";
+          return "win32";
+        }
+        /** 与宿主 `keyFromEvent` 等价的主键名，认不出来就返回 ""。 */
+        function hostKeyName(e) {
+          if (MODIFIER_KEY_VALUES.indexOf(e.key) !== -1) return "";
+          if (/^(Alt|Control|Meta|Shift)(Left|Right)$/.test(e.code || "")) return "";
+          var code = e.code || "";
+          if (/^Key[A-Z]$/.test(code)) return code.slice(3);
+          if (/^Digit[0-9]$/.test(code)) return code.slice(5);
+          if (/^F([1-9]|1[0-2])$/.test(code)) return code;
+          if (NAMED_KEY_CODES.indexOf(code) !== -1) return code;
+          var named = KEY_ALIASES[e.key] || e.key;
+          if (NAMED_KEY_CODES.indexOf(named) !== -1) return named;
+          if (/^[a-zA-Z]$/.test(named)) return named.toUpperCase();
+          if (/^[0-9]$/.test(named)) return named;
+          if (/^F([1-9]|1[0-2])$/i.test(named)) return named.toUpperCase();
+          return "";
+        }
+        /** 与宿主 `keybindingFromEvent` + `normalizeKeybinding` 等价。 */
+        function hostBindingFromEvent(e) {
+          var key = hostKeyName(e);
+          if (!key) return null;
+          var darwin = recordingPlatform() === "darwin";
+          var mods = {};
+          if (darwin ? e.metaKey : e.ctrlKey) mods.Mod = true;
+          if (darwin && e.ctrlKey) mods.Ctrl = true;
+          if (e.altKey) mods.Alt = true;
+          if (e.shiftKey) mods.Shift = true;
+          var parts = HOST_MODIFIER_ORDER.filter(function (m) { return mods[m]; });
+          // Escape 只有单独按才有意义（宿主 grammar 同此规则）。
+          if (key === "Escape" && parts.length) return null;
+          return parts.concat([key]).join("+");
+        }
+        /** 与宿主 `isAllowedKeybinding` / `isReservedKeybinding` 等价。 */
+        function hostBindingRejection(binding) {
+          if (!binding) return "这个键宿主的快捷键语法不认（主键要用 A–Z、0–9、F1–F12 或具名键）";
+          var parts = binding.split("+");
+          var key = parts[parts.length - 1];
+          if (parts.length < 2 && !/^F([1-9]|1[0-2])$/.test(key)) {
+            return "至少要带一个修饰键（Ctrl / Alt / Shift）或使用 F1–F12";
+          }
+          var reserved = ["Mod+A", "Mod+C", "Mod+V", "Mod+X", "Mod+Z", "Mod+Shift+Z", "Mod+R", "Mod+Enter"];
+          if (recordingPlatform() === "darwin") reserved.push("Mod+Q", "Mod+H", "Mod+W");
+          else reserved.push("Mod+Y", "Alt+F4");
+          if (reserved.indexOf(binding) !== -1) return binding + " 被系统或宿主保留，换一个";
+          return "";
+        }
         // 快捷键录制：点击 kbd.rec 后捕获按键，语法与宿主一致
         var capturing = false;
         $("hkMain").addEventListener("click", function () {
@@ -2228,17 +5784,22 @@ details.think > .body {
               return;
             }
             var mods = [];
-            if (e.ctrlKey) mods.push("Control");
+            if (e.ctrlKey || e.metaKey) mods.push(recordingPlatform() === "darwin" ? "⌘" : "Ctrl");
             if (e.altKey) mods.push("Alt");
             if (e.shiftKey) mods.push("Shift");
-            if (e.metaKey) mods.push("Meta");
-            if (["Control", "Alt", "Shift", "Meta"].indexOf(e.key) !== -1) {
+            if (MODIFIER_KEY_VALUES.indexOf(e.key) !== -1) {
               $("hkMain").textContent = mods.join("+") + "+…";
               return;
             }
-            var key = e.key.length === 1 ? e.key.toUpperCase() : e.key;
-            if (key === " ") key = "Space";
-            $("hkMain").textContent = mods.concat([key]).join("+");
+            var binding = hostBindingFromEvent(e);
+            var rejection = hostBindingRejection(binding);
+            if (rejection) {
+              // 录不出来就留在录制态：既不写进输入框，也不让用户以为录上了。
+              $("hkMain").textContent = mods.concat([hostKeyName(e) || e.key]).join("+");
+              $("hkState").textContent = rejection;
+              return;
+            }
+            $("hkMain").textContent = binding;
             capturing = false;
             $("hkMain").classList.remove("conflict");
             $("hkState").textContent = "点「保存」生效";
@@ -2258,16 +5819,59 @@ details.think > .body {
         });
         if (window.matchMedia) {
           window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", function () {
-            if ((state.settings.appearance || "system") === "system") applyAppearance();
+            // 「跟随主软件」不看系统：主软件自己会广播它的解析结果。
+            if ((state.settings.appearance || "host") === "system") applyAppearance();
           });
         }
-        window.addEventListener("pagehide", function () {
-          if (heartbeatTimer) clearInterval(heartbeatTimer);
+        /**
+         * 窗口「在不在」由页面自己如实上报，插件进程不再靠心跳时长猜。
+         *
+         * 这是快捷键手感的关键：最小化一个窗口并不会让页面停下来，所以
+         * 「页面还活着」推不出「窗口在屏幕上」，而旧实现正是这么推的 ——
+         * 结果按一下快捷键看起来没反应（其实它以为窗口开着，去执行关闭了）。
+         *
+         *   visibilitychange: 窗口被最小化/重新显示时 document 会变 hidden/visible
+         *   pagehide:         页面真的要走了（关闭、重载、宿主退出）
+         */
+        function sendVisibility(visible) {
+          var payload = { visible: !!visible };
+          // pagehide 之后 DOM 可能已经在拆，所以这里不走 invoke 的 DOM 路径。
+          try { bridge.invoke("summon.chat.visibility", payload).catch(function () {}); } catch (err) { /* teardown */ }
+        }
+        function onVisibilityChange() {
+          sendVisibility(document.visibilityState !== "hidden");
+        }
+        function onPageHide() {
+          if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
           stopAgentPolling(); stopProgress();
           try { bridge.invoke("summon.chat.closed", {}); } catch (err) { /* teardown */ }
-        });
+        }
+        function onHostAppearance(appearance) { adoptHostAppearance(appearance); }
+
+        document.addEventListener("visibilitychange", onVisibilityChange);
+        window.addEventListener("pagehide", onPageHide);
+        if (bridge && typeof bridge.on === "function") {
+          // 宿主向所有打开的插件面板广播外观变化（主题 / 语言 / 字体缩放）。
+          bridge.on("appearance:changed", onHostAppearance);
+        } else {
+          // 没有事件通道就退回到主动问一次，保证主题至少是对的。
+          invoke("summon.chat.hostAppearance", {}).then(function (res) {
+            if (res && res.ok) adoptHostAppearance(res.appearance);
+          }).catch(function () {});
+        }
+        sendVisibility(true);
+        // The host publishes the drag-band height before page scripts run, so
+        // this can be decided now. Re-checked on the first appearance event too,
+        // in case the host applied it after load.
+        markTitlebarBand();
+        fitComposerInput();
+        // 图标形变（morphicons）。装不上就保持设计源包原来的 <use> 图标 ——
+        // 动效是装饰，不该让任何按钮变成空白。
+        sendMorph = attachMorph($("sendKey"), "send");
+        exposeDebugState();
 
         heartbeatTimer = setInterval(function () {
+          if (document.visibilityState === "hidden") return;
           invoke("summon.chat.heartbeat", {}).catch(function () {});
         }, HEARTBEAT_MS);
 

@@ -48,6 +48,7 @@ function makeHost(options = {}) {
     skillLists: 0,
     desktopInvokes: [],
     appSettingsReads: 0,
+    appearanceReads: 0,
   };
   // A real store, so save -> reload actually round-trips.
   const store = { settings: options.settings ? JSON.parse(JSON.stringify(options.settings)) : {} };
@@ -62,6 +63,18 @@ function makeHost(options = {}) {
       async openPanel(o) { calls.openPanel.push(o); },
       async closePanel() { calls.closePanel++; },
       async notify(p) { calls.notify.push(p); },
+    },
+    /**
+     * `pi.app.getAppearance` — the host's own palette (plugin-sdk
+     * `PluginAppearance`). Scripted through `options.hostAppearance`; the default
+     * mirrors the host's shipped default ("system" preference).
+     */
+    app: {
+      async getAppearance() {
+        calls.appearanceReads++;
+        if (options.hostAppearance instanceof Error) throw options.hostAppearance;
+        return options.hostAppearance || { theme: "system", base: "system", locale: "zh-CN", pluginTheme: null };
+      },
     },
     commands: {
       registered: {},
@@ -383,23 +396,62 @@ console.log("\n=== a default pointing at a deleted role falls back ===");
 }
 
 // ============================================================== window
-console.log("\n=== heartbeat drives liveness + toggle ===");
+console.log("\n=== the plugin's own state decides open/closed, not a heartbeat timeout ===");
 {
   const { host, calls } = makeHost();
   const mod = load(host);
   await mod.onLoad();
 
-  check("no heartbeat -> not visible", (await mod.onPanelInvoke("summon.chat.probe", {})).panelLikelyVisible, false);
+  const fresh = await mod.onPanelInvoke("summon.chat.probe", {});
+  check("a freshly loaded process has no panel", fresh.panelOpen, false);
+  check("...and is not visible", fresh.panelLikelyVisible, false);
 
-  await mod.onPanelInvoke("summon.chat.heartbeat", {});
-  check("after heartbeat -> visible", (await mod.onPanelInvoke("summon.chat.probe", {})).panelLikelyVisible, true);
+  // First press: open. The window is up before its page has answered.
+  await host.commands.registered["summon.chat.toggle"].run();
+  check("first press opens", calls.openPanel.length, 1);
+  const opened = await mod.onPanelInvoke("summon.chat.probe", {});
+  check("open is recorded", opened.panelOpen, true);
+
+  // Second press while it is on screen: close. No TTL to wait out.
+  await wait(400);
+  await host.commands.registered["summon.chat.toggle"].run();
+  check("second press closes", calls.closePanel, 1);
+  const closed = await mod.onPanelInvoke("summon.chat.probe", {});
+  check("closed is recorded", closed.panelOpen, false);
+
+  // Third press: open again, immediately — this is the regression the heartbeat
+  // TTL caused (after the TTL, a press meant to re-open actually closed).
+  await wait(400);
+  await host.commands.registered["summon.chat.toggle"].run();
+  check("third press opens again", calls.openPanel.length, 2);
+}
+
+console.log("\n=== a minimized window is reopened, not closed ===");
+{
+  const { host, calls } = makeHost();
+  const mod = load(host);
+  await mod.onLoad();
 
   await host.commands.registered["summon.chat.toggle"].run();
-  check("toggle while open -> closePanel", calls.closePanel, 1);
+  check("open", calls.openPanel.length, 1);
+
+  // The page reports itself hidden — this is what a minimized (or occluded)
+  // window does through `visibilitychange`. The renderer keeps running, so a
+  // heartbeat-only design would still say "visible" and close it.
+  await mod.onPanelInvoke("summon.chat.visibility", { visible: false });
+  const hidden = await mod.onPanelInvoke("summon.chat.probe", {});
+  check("hidden is recorded", hidden.panelLikelyVisible, false);
 
   await wait(400);
   await host.commands.registered["summon.chat.toggle"].run();
-  check("toggle while closed -> openPanel", calls.openPanel.length, 1);
+  check("a hidden window is shown again, not closed", calls.closePanel, 0);
+  check("...by re-opening the same panel", calls.openPanel.length, 2);
+
+  // The page answers visible again: now the press closes.
+  await mod.onPanelInvoke("summon.chat.visibility", { visible: true });
+  await wait(400);
+  await host.commands.registered["summon.chat.toggle"].run();
+  check("a visible window closes", calls.closePanel, 1);
 }
 
 console.log("\n=== a double-delivered keypress toggles once ===");
@@ -412,7 +464,9 @@ console.log("\n=== a double-delivered keypress toggles once ===");
   await host.commands.registered["summon.chat.toggle"].run();
   check("second delivery swallowed", calls.closePanel, 0);
   await mod.onPanelInvoke("summon.chat.closed", {});
-  check("summon.chat.closed resets liveness", (await mod.onPanelInvoke("summon.chat.probe", {})).panelLikelyVisible, false);
+  const after = await mod.onPanelInvoke("summon.chat.probe", {});
+  check("summon.chat.closed resets the state", after.panelOpen, false);
+  check("...and liveness", after.panelLikelyVisible, false);
 }
 
 console.log("\n=== dismiss + unknown channel ===");
@@ -502,12 +556,118 @@ console.log("\n=== transcript normalisation ===");
   check("session meta", [res.transcript.sessionId, res.transcript.status], ["s1", "running"]);
   check("text message kept", res.transcript.messages[0], {
     id: "m1", role: "user", text: "你好", thinking: "", status: null,
-    modelId: null, providerId: null, usage: null, error: null, at: null,
+    modelId: null, providerId: null, streaming: false, modelSystem: false,
+    durationMs: null, createdAt: null, tool: null, hostedSearch: null,
+    usage: null, error: null, at: null,
   });
   check("typed parts joined as a fallback", res.transcript.messages[1].text, "部分一\n部分二");
   check("tool rows are their own message", res.transcript.messages[2].role, "tool");
   check("tool row text kept", res.transcript.messages[2].text, "Bash: ls");
   check("empty row dropped", res.transcript.messages.length, 3);
+}
+
+// The widget's "what did it actually do" panel is built entirely out of these
+// fields. They are already persisted by the host (ui_to_record -> MessageRecord
+// -> record_to_ui), so this is purely a matter of not dropping them on the floor
+// on the way to the page — which is what the old reader did.
+console.log("\n=== transcript keeps the fields the timeline is built from ===");
+{
+  const toolCall = {
+    session: {
+      id: "s1",
+      title: "T",
+      status: "running",
+      messages: [
+        // An assistant turn that is still being written, with the host's own
+        // elapsed-time and usage numbers.
+        {
+          id: "a1",
+          role: "assistant",
+          content: "正在写的回答",
+          status: "streaming",
+          thinking: "先看看需要不需要联网",
+          createdAt: "2026-10-06T10:25:07.000Z",
+          responseDurationMs: 131000,
+          modelId: "qwen3.8-27b-long",
+          providerId: "local",
+          usage: { inputTokens: 1200, outputTokens: 300, totalTokens: 1500, cacheReadTokens: 40 },
+          // Provider-hosted search: the keywords AND the pages it read.
+          hostedSearch: {
+            status: "completed",
+            rounds: [
+              {
+                id: "r1",
+                status: "completed",
+                kind: "search",
+                query: "刘备 去世时间 卒",
+                sources: [
+                  { url: "https://zh.wikipedia.org/wiki/刘备", title: "刘备 - 维基百科" },
+                  { url: "https://baike.baidu.com/item/刘备", title: "刘备 - 百度百科" },
+                ],
+              },
+            ],
+          },
+        },
+        // A tool row: name, args, result, status, exit code, duration.
+        {
+          id: "t1",
+          role: "tool",
+          content: "刘备 223年6月10日 白帝城",
+          toolName: "tavily-search",
+          toolCallId: "call_1",
+          toolStatus: "success",
+          toolArgs: { query: "刘备 去世时间 卒", max_results: 5 },
+          toolResult: { exitCode: 0, results: 5 },
+          toolDurationMs: 2400,
+          toolCompletedAt: "2026-10-06T10:26:01.000Z",
+          createdAt: "2026-10-06T10:25:58.000Z",
+        },
+        // A tool row that produced no text at all: its identity lives in the
+        // structured fields, so it must not be dropped.
+        { id: "t2", role: "tool", content: "", toolName: "Bash", toolStatus: "error", isError: true },
+        // Internal model instructions ride along with text but are not chat rows.
+        { id: "x1", role: "system", content: "工具声明……", modelSystem: { version: 1, messageJson: "{}" } },
+      ],
+    },
+  };
+  const { host, calls } = makeHost({ desktop: [toolCall] });
+  const mod = load(host);
+  await mod.onLoad();
+  const res = await mod.onPanelInvoke("summon.chat.readTranscript", { sessionId: "s1", messageLimit: 40 });
+  check("read ok", res.ok, true);
+  check("messageLimit passes through", calls.desktopInvokes[0].args[0].messageLimit, 40);
+  const messages = res.transcript.messages;
+  check("internal model context is not a chat row", messages.length, 3);
+
+  const assistant = messages[0];
+  check("live turn is flagged streaming", assistant.streaming, true);
+  check("elapsed model time kept", assistant.durationMs, 131000);
+  check("provider/model kept", [assistant.providerId, assistant.modelId], ["local", "qwen3.8-27b-long"]);
+  check("token usage kept", assistant.usage, {
+    inputTokens: 1200, outputTokens: 300, reasoningTokens: null, cacheReadTokens: 40, totalTokens: 1500,
+  });
+  check("hosted search round kept", assistant.hostedSearch.rounds[0], {
+    id: "r1", status: "completed", kind: "search", query: "刘备 去世时间 卒",
+    url: null,
+    sources: [
+      { url: "https://zh.wikipedia.org/wiki/刘备", title: "刘备 - 维基百科" },
+      { url: "https://baike.baidu.com/item/刘备", title: "刘备 - 百度百科" },
+    ],
+  });
+
+  const tool = messages[1];
+  check("tool name kept", tool.tool.name, "tavily-search");
+  check("tool call id kept", tool.tool.callId, "call_1");
+  check("tool status kept", tool.tool.status, "success");
+  check("tool args kept (the search keywords)", tool.tool.args, { query: "刘备 去世时间 卒", max_results: 5 });
+  check("tool result kept", tool.tool.result, { exitCode: 0, results: 5 });
+  check("tool duration kept", tool.tool.durationMs, 2400);
+  check("tool completion time kept", tool.tool.completedAt, "2026-10-06T10:26:01.000Z");
+
+  const empty = messages[2];
+  check("a text-less tool row survives on its metadata", empty.tool.name, "Bash");
+  check("and reports the error status", empty.tool.status, "error");
+  check("its text stays empty", empty.text, "");
 }
 
 console.log("\n=== transcript arg validation ===");
@@ -718,6 +878,74 @@ console.log("\n=== quick chat: a plain answer, no tools ===");
   check("last message is the user turn", calls.completeInputs[0].messages.at(-1), { role: "user", content: "你好" });
 }
 
+/**
+ * Bing's search page shape: one `li.b_algo` per result with an `<h2><a>` title and
+ * a `<p>` snippet. Recorded from a real response, so the parser is tested against
+ * markup that actually exists rather than markup invented to match the regex.
+ */
+const BING_HTML = [
+  "<ol id=\"b_results\">",
+  '<li class="b_algo" data-id="iid=1"><h2><a href="https://tianqi.eastday.com/shenzhen/" h="ID=SERP">深圳天气_【深圳今天天气预报】</a></h2>',
+  '<div class="b_caption"><p class="b_lineclamp2">东方天气为您提供深圳天气预报24小时详情、深圳今日天气预报，包括今日实时温度。</p></div></li>',
+  '<li class="b_algo" data-id="iid=2"><h2><a href="https://www.tianqi.com/shenzhen" h="ID=SERP">【深圳天气预报】深圳天气预报一周</a></h2>',
+  '<div class="b_caption"><p class="b_lineclamp2">天气网提供深圳天气预报15天,30天,今日天气,明天天气。</p></div></li>',
+  "</ol>",
+].join("\n");
+
+console.log("\n=== 内置搜索：DuckDuckGo 不通时退到 Bing ===");
+{
+  // 本机实测 DDG 三个域名全部超时，而 Bing 是通的 —— 这条就是那次「无法联网搜索」
+  // 的回归：两个 DDG 尝试都失败，第三次换成 Bing，必须能拿到结果并标注 provider。
+  const { host, calls } = makeHost({
+    settings: MODEL,
+    completions: ['{"tool":"web_search","query":"深圳 今天 天气"}', "搜到了，答案是……"],
+    fetches: [
+      new Error("FETCH_FAILED"),
+      new Error("FETCH_FAILED"),
+      { status: 200, headers: {}, bodyText: BING_HTML },
+    ],
+  });
+  const mod = load(host);
+  await mod.onLoad();
+
+  const res = await mod.onPanelInvoke("summon.chat.sendQuick", { roleId: "quick", text: "今天深圳天气" });
+  check("三次尝试都发生了", calls.fetches.length, 3);
+  check("第三次请求的是 Bing", calls.fetches[2].url.indexOf("bing.com") !== -1, true);
+  check("答案照常返回", res.ok, true);
+  check("trace 记下了 Bing 这个来源", res.trace[0].provider, "bing");
+  check("解析出两条结果", res.trace[0].count, 2);
+  check("标题解析正确", res.trace[0].results[0].title, "深圳天气_【深圳今天天气预报】");
+  check("网址解析正确", res.trace[0].results[0].url, "https://tianqi.eastday.com/shenzhen/");
+  check("摘要解析正确", res.trace[0].results[0].snippet.indexOf("24小时详情") !== -1, true);
+}
+
+console.log("\n=== 内置搜索全挂时，错误里要写清是哪一步挂的 ===");
+{
+  const { host, calls } = makeHost({
+    settings: MODEL,
+    // 第一轮必须**要求搜索**，否则模型直接作答、三次尝试根本不会发生。
+    completions: ['{"tool":"web_search","query":"查一下"}', "答案"],
+    // 三种失败各来一次：被限流（403）、页面结构变了（解析 0 条）、网络不通。
+    fetches: [
+      { status: 403, headers: {}, bodyText: "" },
+      { status: 200, headers: {}, bodyText: "<html>nothing here</html>" },
+      new Error("ENOTFOUND"),
+    ],
+  });
+  const mod = load(host);
+  await mod.onLoad();
+  const res = await mod.onPanelInvoke("summon.chat.sendQuick", { roleId: "quick", text: "查一下" });
+  check("三次尝试都发生了", calls.fetches.length, 3);
+  check("trace 里记录了失败", res.trace[0].ok, false);
+  // 「联网搜索没成功」这种话对用户没有用；要能区分「连不上」「被限流」「结构变了」。
+  const why = (res.trace[0].failures || []).join(" | ");
+  check("三家的原因都带回来了", res.trace[0].failures.length, 3);
+  check("点名了被限流的那一家", why.indexOf("duckduckgo 返回 HTTP 403") !== -1, true);
+  check("点名了结构变了的那一家", why.indexOf("没解析到结果") !== -1, true);
+  check("点名了连不上的那一家", why.indexOf("bing 连不上") !== -1, true);
+  check("给用户的说明里也带着这些原因", String(res.trace[0].message).indexOf("HTTP 403") !== -1, true);
+}
+
 console.log("\n=== quick chat: the web_search tool loop ===");
 {
   const { host, calls } = makeHost({
@@ -875,6 +1103,167 @@ console.log("\n=== custom search endpoint ===");
   ok("query shared the q param", sent.url.includes("q=hello") || sent.url.includes("q=hello&") || sent.url.includes("hello"));
 }
 
+/**
+ * Tavily is a POST-only JSON API: `GET /search` answers **405 Method Not Allowed**
+ * (verified against the live endpoint), which is why a configured Tavily key used
+ * to look like "search still doesn't work". The plugin must detect it and switch
+ * method, path and body.
+ */
+console.log("\n=== Tavily 端点：必须用 POST + JSON body ===");
+{
+  const { host, calls } = makeHost({
+    settings: { ...MODEL, searchEndpoint: "https://api.tavily.com", searchApiKey: "tvly-test" },
+    completions: ['{"tool":"web_search","query":"深圳天气"}', "ok"],
+    fetches: [
+      {
+        status: 200,
+        headers: {},
+        bodyText: JSON.stringify({
+          results: [
+            { title: "深圳天气", url: "https://tianqi.eastday.com/shenzhen/", content: "24小时详情" },
+            { title: "深圳气象局", url: "https://weather.sz.gov.cn/", content: "趋势" },
+          ],
+        }),
+      },
+    ],
+  });
+  const mod = load(host);
+  await mod.onLoad();
+  const res = await mod.onPanelInvoke("summon.chat.sendQuick", { roleId: "quick", text: "q" });
+  const sent = calls.fetches[0];
+  check("只写 host 也补上了 /search", sent.url, "https://api.tavily.com/search");
+  check("用的是 POST", sent.method, "POST");
+  check("key 走 Authorization 头", sent.headers.Authorization, "Bearer tvly-test");
+  check("body 里带 query", JSON.parse(sent.body).query, "深圳天气");
+  check("body 里带 max_results", typeof JSON.parse(sent.body).max_results, "number");
+  check("provider 标成 tavily", res.trace[0].provider, "tavily");
+  check("解析出两条结果", res.trace[0].count, 2);
+}
+
+console.log("\n=== 自填端点的失败要能自己解释 ===");
+{
+  const cases = [
+    [{ status: 405, headers: {}, bodyText: "" }, "HTTP_405", "不接受 GET"],
+    [{ status: 401, headers: {}, bodyText: "" }, "HTTP_401", "API Key"],
+    [{ status: 432, headers: {}, bodyText: "" }, "HTTP_432", "用量已达上限"],
+  ];
+  for (const [reply, code, hint] of cases) {
+    const { host } = makeHost({
+      settings: { ...MODEL, searchEndpoint: "https://api.tavily.com/search", searchApiKey: "tvly-x" },
+      completions: ['{"tool":"web_search","query":"q"}', "ok"],
+      fetches: [reply],
+    });
+    const mod = load(host);
+    await mod.onLoad();
+    const res = await mod.onPanelInvoke("summon.chat.sendQuick", { roleId: "quick", text: "q" });
+    check(`${code} 保留为错误码`, res.trace[0].error, code);
+    check(`${code} 的说明里点了关键原因`, String(res.trace[0].message).indexOf(hint) !== -1, true);
+  }
+
+  // 非 Tavily 的端点在 4xx 时不该被加上 Tavily 的说明。
+  const { host } = makeHost({
+    settings: { ...MODEL, searchEndpoint: "https://searx.example/search", searchApiKey: "" },
+    completions: ['{"tool":"web_search","query":"q"}', "ok"],
+    fetches: [{ status: 500, headers: {}, bodyText: "" }],
+  });
+  const mod = load(host);
+  await mod.onLoad();
+  const res = await mod.onPanelInvoke("summon.chat.sendQuick", { roleId: "quick", text: "q" });
+  check("别的端点照旧报 HTTP_500", res.trace[0].error, "HTTP_500");
+}
+
+/**
+ * Pin the wall clock so "does the model see a real date" is deterministic.
+ * Only `new Date()` / `Date.now()` are faked; the constructor still accepts an
+ * argument so `new Date(x)` inside the plugin keeps working.
+ */
+function withFakeClock(iso, fn) {
+  const Real = Date;
+  const fixed = Real.parse(iso);
+  class Fake extends Real {
+    constructor(...args) { if (args.length === 0) super(fixed); else super(...args); }
+    static now() { return fixed; }
+  }
+  globalThis.Date = Fake;
+  return Promise.resolve().then(fn).finally(() => { globalThis.Date = Real; });
+}
+
+console.log("\n=== 当前时间工具：不联网也能用，而且模型真的拿到日期 ===");
+{
+  await withFakeClock("2026-10-06T10:25:07+08:00", async () => {
+    const { host, calls } = makeHost({
+      // 这个角色**没有**联网搜索，只有时钟 —— 它必须照样能用。
+      settings: { ...MODEL, roles: { roles: [{ id: "clock", mode: "quick", tools: [] }] } },
+      completions: ['{"tool":"current_time"}', "今天是 2026 年 10 月 6 日。"],
+    });
+    const mod = load(host);
+    await mod.onLoad();
+    const res = await mod.onPanelInvoke("summon.chat.sendQuick", { roleId: "clock", text: "今天几号？" });
+
+    check("没有联网搜索也能作答", res.ok, true);
+    check("没有发出任何网络请求", calls.fetches.length, 0);
+    check("两次补全（问时间 + 作答）", calls.completeInputs.length, 2);
+    check("trace 里有一行 current_time", res.trace[0].tool, "current_time");
+    check("这一行是本地结果", res.trace[0].provider, "local");
+    check("时间行里有真实日期", String(res.trace[0].detail).indexOf("2026-10-06") !== -1, true);
+    check("时间行里有星期", String(res.trace[0].detail).indexOf("周") !== -1, true);
+
+    // system prompt 必须先告诉模型有这个工具，否则它不会去问。
+    const sys = calls.completeInputs[0].system;
+    check("系统提示词里声明了 current_time", sys.indexOf("current_time") !== -1, true);
+    check("没开联网就不提 web_search", sys.indexOf("web_search") === -1, true);
+
+    // 关键一步：结果必须回灌给模型，否则它还是在猜。
+    const fed = calls.completeInputs[1].messages.at(-1);
+    check("时间结果作为一条 user 消息回灌", fed.role, "user");
+    check("回灌内容里有 ISO 时间", fed.content.indexOf("2026-10-06T02:25:07.000Z") !== -1, true);
+    check("回灌内容里有本地时区", fed.content.indexOf("时区：") !== -1, true);
+  });
+}
+
+console.log("\n=== 时钟每轮只给一次，不浪费模型调用 ===");
+{
+  await withFakeClock("2026-10-06T10:25:07+08:00", async () => {
+    const { host, calls } = makeHost({
+      settings: { ...MODEL, roles: { roles: [{ id: "clock", mode: "quick", tools: [] }] } },
+      // 模型一直要时间：第二次的 JSON 就是最终回答（原样呈现），不会再来一圈。
+      completions: ['{"tool":"current_time"}', '{"tool":"current_time"}'],
+    });
+    const mod = load(host);
+    await mod.onLoad();
+    const res = await mod.onPanelInvoke("summon.chat.sendQuick", { roleId: "clock", text: "几号" });
+    check("只补全了两次", calls.completeInputs.length, 2);
+    check("trace 里只有一行时间", res.trace.length, 1);
+    check("答案就是第二次的输出", res.text, '{"tool":"current_time"}');
+  });
+}
+
+console.log("\n=== 开联网时，提示词同时给两个工具 ===");
+{
+  await withFakeClock("2026-10-06T10:25:07+08:00", async () => {
+    const { host, calls } = makeHost({
+      settings: MODEL,
+      // 先问时间，再搜（用真实年份），最后作答。
+      completions: [
+        '{"tool":"current_time"}',
+        '{"tool":"web_search","query":"深圳 2026年10月 天气"}',
+        "搜到了。",
+      ],
+      fetches: [{ status: 200, headers: {}, bodyText: DDG_HTML }],
+    });
+    const mod = load(host);
+    await mod.onLoad();
+    const res = await mod.onPanelInvoke("summon.chat.sendQuick", { roleId: "quick", text: "深圳天气" });
+    const sys = calls.completeInputs[0].system;
+    check("提示词里有 current_time", sys.indexOf("current_time") !== -1, true);
+    check("提示词里有 web_search", sys.indexOf("web_search") !== -1, true);
+    check("两次工具都发生了", res.trace.length, 2);
+    check("第一行是时间", res.trace[0].tool, "current_time");
+    check("第二行是搜索", res.trace[1].tool, "web_search");
+    check("搜索用的是真实年份", calls.fetches[0].url.indexOf("2026") !== -1, true);
+  });
+}
+
 console.log("\n=== no model available is reported clearly ===");
 {
   const { host, calls } = makeHost({
@@ -1020,13 +1409,18 @@ console.log("\n=== a 429 from search is surfaced, not hidden ===");
     fetches: [
       { status: 429, headers: { "retry-after": "30" }, bodyText: "" },
       { status: 429, headers: { "retry-after": "30" }, bodyText: "" },
+      // 第三次是免配置兜底（Bing）：它也被限流，这样三家全挂。
+      { status: 429, headers: { "retry-after": "30" }, bodyText: "" },
     ],
   });
   const mod = load(host);
   await mod.onLoad();
   const res = await mod.onPanelInvoke("summon.chat.sendQuick", { roleId: "quick", text: "q" });
-  check("trace says HTTP_429", res.trace[0].error, "HTTP_429");
-  check("user still got an answer", res.text, "answered anyway");
+  // 顶层 error 是给程序看的稳定码；**具体原因在 failures 里**（哪一家、什么状态）。
+  check("trace says SEARCH_FAILED", res.trace[0].error, "SEARCH_FAILED");
+  check("三家都被限流，逐条记下来了", res.trace[0].failures.length, 3);
+  check("每次尝试都点了名", res.trace[0].failures[0], "duckduckgo 返回 HTTP 429");
+  check("用户仍拿到回答", res.text, "answered anyway");
 }
 
 // ===================================== app-default mirroring + thinking (P5)
@@ -1135,6 +1529,76 @@ console.log("\n=== the live phase is exposed for the thinking indicator ===");
   await pending;
   const after = await mod.onPanelInvoke("summon.chat.progress", {});
   check("cleared afterwards", after.progress.inFlight, false);
+}
+
+// The live timeline is what lets the panel show the search keyword *while* the
+// turn runs instead of only a phase word — and it is the same data the finished
+// trace is drawn from, so the two can never disagree.
+console.log("\n=== the in-flight timeline names the step and its search keyword ===");
+{
+  // The fetch is held open by a latch rather than a sleep: the state that has to
+  // be observed ("the search row is running") exists only while the request is
+  // in flight, so timing-based waiting would be flaky by construction.
+  let releaseFetch = null;
+  const fetchGate = new Promise((resolve) => { releaseFetch = resolve; });
+  const { host } = makeHost({
+    settings: MODEL,
+    completions: ['{"tool":"web_search","query":"刘备 去世时间 卒"}', "刘备于 223 年去世"],
+    // Two entries: the built-in provider tries the html endpoint and then the
+    // lite one, so a single scripted response would leave the second attempt
+    // unscripted (which the fake host reports as a fetch failure).
+    fetches: [
+      async function () {
+        await fetchGate;
+        return { status: 200, headers: {}, bodyText: DDG_HTML };
+      },
+      { status: 200, headers: {}, bodyText: DDG_HTML },
+    ],
+  });
+  const mod = load(host);
+  await mod.onLoad();
+
+  const pending = mod.onPanelInvoke("summon.chat.sendQuick", { roleId: "quick", text: "刘备什么时候去世的" });
+  const raw = mod.__rawPanelInvoke.bind(mod);
+
+  // Wait for the search row to appear and be the running one.
+  let mid = null;
+  for (let i = 0; i < 100; i++) {
+    const p = (await raw("summon.chat.progress", {})).progress;
+    const steps = p.steps || [];
+    if (steps.length && steps[steps.length - 1].kind === "search" && steps[steps.length - 1].status === "running") {
+      mid = p;
+      break;
+    }
+    await wait(5);
+  }
+
+  ok("the search row becomes the running step while the request is in flight", !!mid);
+  if (mid) {
+    ok("there is at least a thinking row", mid.steps.some((s) => s.kind === "thinking"));
+    const search = mid.steps[mid.steps.length - 1];
+    check("it carries the real search keyword", search.query, "刘备 去世时间 卒");
+    check("its round number is 1-based", search.round, 1);
+    // The answer must not travel while the page is polling 2.5x/second.
+    check("in-flight payload carries no answer", mid.result, null);
+    check("in-flight payload carries no error", mid.error, null);
+  }
+
+  releaseFetch();
+  await pending;
+  const done = (await raw("summon.chat.progress", {})).progress;
+  const doneSearch = done.steps.find((s) => s.kind === "search");
+  check("after the turn the search row is done", doneSearch.status, "done");
+  check("with the provider that answered", doneSearch.provider, "duckduckgo");
+  ok("and the result count", doneSearch.count > 0);
+  ok("and the source URLs the panel links to",
+    Array.isArray(doneSearch.results) && doneSearch.results.length > 0 &&
+      typeof doneSearch.results[0].url === "string" && /^https?:/.test(doneSearch.results[0].url));
+  check("no step is left running", done.steps.filter((s) => s.status === "running").length, 0);
+  ok("every finished step reports a duration >= 1ms (never 0 or undefined)",
+    done.steps.every((s) => typeof s.tookMs === "number" && s.tookMs >= 1));
+  ok("the finished payload does carry the answer",
+    typeof done.result.text === "string" && done.result.text.length > 0);
 }
 
 console.log("\n=== transcript carries thinking, status, usage and errors ===");
@@ -1263,7 +1727,9 @@ console.log("\n=== appearance, font size and opacity persist with clamping ===")
   await mod.onLoad();
 
   const boot = await mod.onPanelInvoke("summon.chat.bootstrap", {});
-  check("appearance defaults to system", boot.settings.appearance, "system");
+  // "host" is the default: the window mirrors PI-Desktop's own palette, which is
+  // what "keep the plugin consistent with the app you live in" means here.
+  check("appearance defaults to following the host", boot.settings.appearance, "host");
   // 15px, not 13px: the design ships html{font-size:16px} and its whole scale is
   // rem-based, so a 13px default rendered everything noticeably too small.
   check("font size defaults to 15", boot.settings.fontSize, 15);
@@ -1279,7 +1745,10 @@ console.log("\n=== appearance, font size and opacity persist with clamping ===")
   ok("persisted", calls.setSettings.some(function (p) { return p.appearance === "dark"; }));
 
   const weird = await mod.onPanelInvoke("summon.chat.saveSettings", { appearance: "neon" });
-  check("unknown appearance falls back to system", weird.settings.appearance, "system");
+  check("unknown appearance falls back to following the host", weird.settings.appearance, "host");
+
+  const followHost = await mod.onPanelInvoke("summon.chat.saveSettings", { appearance: "host" });
+  check("host mode is selectable", followHost.settings.appearance, "host");
 
   const light = await mod.onPanelInvoke("summon.chat.saveSettings", {
     appearance: "light", fontSize: 12, opacity: 100,
@@ -1294,6 +1763,47 @@ console.log("\n=== appearance, font size and opacity persist with clamping ===")
   const boot2 = await mod2.onPanelInvoke("summon.chat.bootstrap", {});
   check("survives reload", boot2.settings.appearance, "light");
   check("reload keeps font size", boot2.settings.fontSize, 12);
+}
+
+console.log("\n=== the host's own appearance is mirrored to the page ===");
+{
+  const { host, calls } = makeHost({
+    hostAppearance: { theme: "dark", base: "dark", locale: "zh-CN", pluginTheme: null },
+  });
+  const mod = load(host);
+  await mod.onLoad();
+  ok("read the host palette on load", calls.appearanceReads >= 1);
+
+  const boot = await mod.onPanelInvoke("summon.chat.bootstrap", {});
+  check("theme preference passed through", boot.hostAppearance.theme, "dark");
+  check("resolved palette passed through", boot.hostAppearance.base, "dark");
+  check("locale passed through", boot.hostAppearance.locale, "zh-CN");
+
+  // The host also broadcasts to the plugin process; the cache must follow, so a
+  // panel opened later starts from the current palette.
+  const listener = host.events.handlers["appearance:changed"];
+  ok("subscribed to the host's appearance event", typeof listener === "function");
+  listener({ theme: "light", base: "light", locale: "en", pluginTheme: null });
+  const probe = await mod.onPanelInvoke("summon.chat.probe", {});
+  check("cache followed the push", probe.hostAppearance.base, "light");
+
+  // A contributed theme reports its base; `hostAppearance` re-reads the host so
+  // it republishes whatever the host currently answers with.
+  listener({ theme: "plugin:local.summon-chat:ocean", base: "dark", locale: "zh-CN", pluginTheme: { id: "x", base: "dark", css: "" } });
+  const themed = await mod.onPanelInvoke("summon.chat.hostAppearance", {});
+  check("contributed theme keeps its base", themed.appearance.base, "dark");
+  check("hostAppearance re-reads the host", themed.appearance.theme, "dark");
+}
+
+console.log("\n=== a host without getAppearance degrades quietly ===");
+{
+  const { host, calls } = makeHost({ hostAppearance: new Error("APP_NOT_AVAILABLE") });
+  const mod = load(host);
+  await mod.onLoad();
+  const boot = await mod.onPanelInvoke("summon.chat.bootstrap", {});
+  check("falls back to the neutral default", boot.hostAppearance.base, "system");
+  check("mode still follows the host", boot.settings.appearance, "host");
+  ok("the read was attempted", calls.appearanceReads >= 1);
 }
 
 // ============================================================ shortcut

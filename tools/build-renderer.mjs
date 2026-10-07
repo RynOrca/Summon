@@ -9,6 +9,7 @@
  *   renderer/renderer.template.html   hand-written markup + behaviour
  *   docs/port-base.css                exported from the design package
  *   docs/port-icons.fragment.html     exported icon sprite
+ *   docs/vendor/*.js                  third-party effects (see docs/vendor/README.md)
  *          ->  renderer/index.html     what actually ships
  *
  * Run `npm run build:renderer` after editing the template, the exports, or the
@@ -28,19 +29,38 @@ const CSS = path.join(repoRoot, "docs", "port-base.css");
 const ICONS = path.join(repoRoot, "docs", "port-icons.fragment.html");
 const OUT = path.join(repoRoot, "plugins", "local.summon-chat", "renderer", "index.html");
 
+/**
+ * Third-party effects, inlined in this order. They are plain classic scripts
+ * (each ends by assigning one `window.Pi*` namespace), so order only matters for
+ * readability — neither reads the other.
+ */
+const VENDOR = [
+  path.join(repoRoot, "docs", "vendor", "morphicons.js"),
+  path.join(repoRoot, "docs", "vendor", "curve-loader.js"),
+];
+
 const CSS_PLACEHOLDER = "__DESIGN_CSS__";
 const ICON_PLACEHOLDER = "__ICONS__";
+const VENDOR_PLACEHOLDER = "__VENDOR_JS__";
 
 const template = await readFile(TEMPLATE, "utf8");
 const css = await readFile(CSS, "utf8");
 const icons = await readFile(ICONS, "utf8");
+const vendor = (
+  await Promise.all(VENDOR.map(async (file) => (await readFile(file, "utf8")).trim()))
+).join("\n\n");
 
 const problems = [];
-for (const [name, needle] of [["CSS", CSS_PLACEHOLDER], ["图标", ICON_PLACEHOLDER]]) {
+for (const [name, needle] of [
+  ["CSS", CSS_PLACEHOLDER],
+  ["图标", ICON_PLACEHOLDER],
+  ["第三方动效", VENDOR_PLACEHOLDER],
+]) {
   const count = template.split(needle).length - 1;
   if (count !== 1) problems.push(`模板里 ${name} 占位符应恰好出现 1 次，实际 ${count} 次`);
 }
 if (/<\/style>/i.test(css)) problems.push("导出的 CSS 里混入了 </style>");
+if (/<\/script>/i.test(vendor)) problems.push("第三方动效里混入了 </script>（会提前切断内联脚本）");
 // Strip comments first: the fragment's own banner mentions the <svg> tag.
 const iconBody = icons.replace(/<!--[\s\S]*?-->/g, "");
 if (/<svg\b/i.test(iconBody)) problems.push("图标片段里混入了外层 <svg> 标签");
@@ -53,17 +73,33 @@ if (problems.length) {
   process.exit(1);
 }
 
-const html = template.split(CSS_PLACEHOLDER).join(css.trim()).split(ICON_PLACEHOLDER).join(icons.trim());
+const html = template
+  .split(CSS_PLACEHOLDER).join(css.trim())
+  .split(ICON_PLACEHOLDER).join(icons.trim())
+  .split(VENDOR_PLACEHOLDER).join(vendor);
 
 // Post-build checks: catching these here is far cheaper than in the app.
 const tokenCount = new Set([...css.matchAll(/(--[a-zA-Z0-9-]+)\s*:/g)].map((m) => m[1])).size;
 const failure = [];
-if (html.includes(CSS_PLACEHOLDER) || html.includes(ICON_PLACEHOLDER)) failure.push("占位符没有全部替换");
+if ([CSS_PLACEHOLDER, ICON_PLACEHOLDER, VENDOR_PLACEHOLDER].some((p) => html.includes(p))) {
+  failure.push("占位符没有全部替换");
+}
 if (!/data-pi-plugin-no-drag/.test(html)) failure.push("没有任何可交互区域豁免拖动");
-const firstAfterBody = /<body[^>]*>([\s\S]*?)<\/body>/i.exec(html);
-if (firstAfterBody && /\bdata-pi-plugin-no-drag\b/.test(firstAfterBody[1].slice(0, 400)) &&
-    /\bdata-pi-plugin-no-drag\b/.test(/<([a-zA-Z][a-zA-Z0-9-]*)\b([^>]*)>/.exec(firstAfterBody[1])[2])) {
-  failure.push("铺满窗口的根元素被标记了 data-pi-plugin-no-drag（会导致窗口无法拖动）");
+// The two effects live behind these namespaces; a vendor file that silently
+// stopped assigning them would leave every animation dead but the page alive.
+for (const ns of ["window.PiMorph", "window.PiCurve"]) {
+  if (!html.includes(ns)) failure.push(`第三方动效没有挂载 ${ns}`);
+}
+if (!/--fade-h\s*:/.test(html)) failure.push("缺少 --fade-h：模糊带与输入区渐变底会各算各的");
+// Comments are stripped first: the <head> note quotes `<body>` in prose, and a
+// naive search would evaluate that sentence instead of the real root element.
+const htmlWithoutComments = html.replace(/<!--[\s\S]*?-->/g, "");
+const firstAfterBody = /<body[^>]*>([\s\S]*?)<\/body>/i.exec(htmlWithoutComments);
+if (firstAfterBody) {
+  const root = /<([a-zA-Z][a-zA-Z0-9-]*)\b([^>]*)>/.exec(firstAfterBody[1]);
+  if (root && /\bdata-pi-plugin-no-drag\b/.test(root[2])) {
+    failure.push("铺满窗口的根元素被标记了 data-pi-plugin-no-drag（会导致窗口无法拖动）");
+  }
 }
 if (failure.length) {
   console.error("构建后自检失败，未写出 index.html：");
@@ -88,4 +124,5 @@ console.log(`built ${path.relative(repoRoot, OUT)}`);
 console.log(`  from   ${path.relative(repoRoot, TEMPLATE)}`);
 console.log(`         ${path.relative(repoRoot, CSS)}  (${tokenCount} tokens)`);
 console.log(`         ${path.relative(repoRoot, ICONS)}`);
+for (const file of VENDOR) console.log(`         ${path.relative(repoRoot, file)}`);
 console.log(`  size   ${html.length} bytes`);
