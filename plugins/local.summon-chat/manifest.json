@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "local.summon-chat",
   "name": "对话悬浮窗 Summon",
-  "version": "0.25.2",
+  "version": "0.26.0",
   "description": "A floating chat window summoned by a global hotkey: talk to a real PI-Desktop session (Agent mode, files and images attached) or to a quick chat with local read tools and web search. Custom preset roles.",
   "i18n": {
     "en": {
