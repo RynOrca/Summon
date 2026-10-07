@@ -150,14 +150,14 @@
       {
         "key": "searchEndpoint",
         "title": "自定义搜索端点（可选）",
-        "description": "留空则用内置的 DuckDuckGo。填了就用你自己的（SearXNG / Tavily / Brave 等 JSON 接口）。",
+        "description": "留空则用内置搜索（先 DuckDuckGo，连不上就退到 Bing）。填了就用你自己的：Tavily 填 https://api.tavily.com（只写域名也行，会自动补 /search，并改用 POST）；SearXNG 之类的 GET 端点照原样用。窗口里的「设置 → 搜索」是同一份数据。",
         "type": "string",
         "default": ""
       },
       {
         "key": "searchApiKey",
         "title": "搜索 API Key（可选）",
-        "description": "配合自定义搜索端点使用，以 Authorization: Bearer 头发送。",
+        "description": "配合自定义搜索端点使用，以 Authorization: Bearer 头发送（Tavily 的 key 形如 tvly-…）。",
         "type": "string",
         "default": ""
       }
