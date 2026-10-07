@@ -228,6 +228,83 @@ function imageMimeFor(path) {
 }
 
 /**
+ * 把图片**真的交给模型**的那个工具（Agent 模式）。
+ *
+ * 为什么需要它：悬浮窗自己发消息时只能给模型一段文字（`@路径`），而文字不会变成像素。
+ * 但插件工具是另一条路 —— 宿主把插件注册的工具交给真实 agent 会话
+ * （`session-launch.ts:649` 的 `pluginTools`），而**工具结果里的 image 块会被还原成
+ * 真正的内容块**（`runtime.ts:1561-1575`，注释写着 "Plugin tools may return a bare
+ * content-block array; restore its text and image blocks"，issue #1360）。
+ *
+ * 所以这个工具返回 `[{type:"text"},{type:"image",data,mimeType}]`，模型调用它就能
+ * **看到图**。主窗口能直接看图也是同一个机制（宿主 Read 工具返回 `images` 数组 →
+ * `toolResultFromUi` 还原成 image 块，issue #1073）。
+ *
+ * 工具名会带上命名空间（`plugin_local_summon-chat_show_image`），不会和内置工具撞。
+ */
+const SHOW_IMAGE_TOOL = "show_image";
+
+function registerShowImageTool() {
+  const api = host();
+  if (!hasFn(api && api.agent, "registerTool")) return { ok: false, error: "UNSUPPORTED" };
+  try {
+    const result = api.agent.registerTool({
+      name: SHOW_IMAGE_TOOL,
+      description:
+        "显示一张本地图片给模型看。当用户消息里出现图片路径（例如 " +
+        "`@.summon/uploads/xxx.png`）并且你需要看到图片内容时，**先调用它**，" +
+        "再回答问题。参数 path 就是那个路径。",
+      risk: "low",
+      schema: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "图片路径（工作区相对或绝对）" },
+        },
+        required: ["path"],
+      },
+      // 返回内容块数组 —— 宿主会把 image 块还原成模型能看的图片。
+      execute: async (args) => {
+        const target = args && typeof args === "object" ? String(args.path || "").trim() : "";
+        if (!target) return [{ type: "text", text: "缺少 path" }];
+        let preview;
+        try {
+          preview = await api.fs.readPreview(target);
+        } catch (err) {
+          // 读不到（越界 / 不存在）也要给模型一段文字：工具抛异常会让这一轮直接失败，
+          // 而「这个文件读不到」本身是模型应该知道、并且如实转述的信息。
+          return [{
+            type: "text",
+            text: "读不到这张图（" + target + "）：" +
+              ((err && (err.message || err.code)) || "未知错误") +
+              "。请如实告诉用户图片没读到，不要编造画面内容。",
+          }];
+        }
+        if (!preview || preview.kind !== "image" || !preview.dataUrl) {
+          return [{
+            type: "text",
+            text: "读不到这张图（" + target + "）：" +
+              (preview && preview.kind === "tooLarge" ? "文件太大" : "不是可用的图片或路径越界") +
+              "。请如实告诉用户图片没读到，不要编造画面内容。",
+          }];
+        }
+        const comma = preview.dataUrl.indexOf(",");
+        const data = comma === -1 ? "" : preview.dataUrl.slice(comma + 1);
+        const mimeType = imageMimeFor(target) ||
+          (/^data:([^;]+);/.exec(preview.dataUrl) || [])[1] || "image/png";
+        if (!data) return [{ type: "text", text: "图片数据为空：" + target }];
+        return [
+          { type: "text", text: "图片 " + target + "（" + preview.size + " 字节，" + mimeType + "）如下。" },
+          { type: "image", data: data, mimeType: mimeType },
+        ];
+      },
+    });
+    return result && typeof result.then === "function" ? result : { ok: true };
+  } catch (err) {
+    return { ok: false, error: (err && err.code) || "REGISTER_FAILED", message: String(err && err.message || err) };
+  }
+}
+
+/**
  * 文本文件读取。
  *
  * `api.fs.readText` 的路径是**相对于规则根目录**的：本插件声明
@@ -2612,6 +2689,17 @@ async function onLoad() {
   await readAppDefaults();
   // And its palette, so the window opens already wearing the app's colours.
   await readHostAppearance();
+
+  // 把图片交给模型的唯一一条路（见 registerShowImageTool 的说明）。
+  // 注册失败不该拦住插件启动：那只是「看图」这个能力少了一条路。
+  try {
+    const registered = registerShowImageTool();
+    if (registered && registered.ok === false) {
+      console.log("[summon-chat] show_image tool not registered:", registered.error || "");
+    }
+  } catch (err) {
+    console.log("[summon-chat] show_image registration threw:", String(err && err.message || err));
+  }
 
   await api.commands.register({
     id: "summon.chat.toggle",

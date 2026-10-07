@@ -185,18 +185,13 @@
     "desktop.control",
     "net.fetch",
     "net.anyHost",
-    "clipboard.read",
     "fs.read",
-    "fs.write"
+    "agent.tool.register"
   ],
   "fs": {
     "read": {
       "root": "workspace",
       "scope": ["**/*"]
-    },
-    "write": {
-      "root": "workspace",
-      "scope": [".summon/**"]
     }
   },
   "net": {

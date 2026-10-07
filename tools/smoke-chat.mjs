@@ -46,6 +46,8 @@ function makeHost(options = {}) {
     fetches: [],
     skillReads: [],
     fsReads: [],
+    registeredTools: [],
+    unregisteredTools: [],
     skillLists: 0,
     desktopInvokes: [],
     appSettingsReads: 0,
@@ -144,6 +146,15 @@ function makeHost(options = {}) {
         if (next instanceof Error) throw next;
         return { text: typeof next === "string" ? next : next.text, modelKey: input.modelKey };
       },
+      /**
+       * `pi.agent.registerTool` — the host hands these to the real agent session,
+       * so the fake host keeps the descriptor (execute included) for tests.
+       */
+      async registerTool(tool) {
+        calls.registeredTools.push(tool);
+        return { ok: true };
+      },
+      async unregisterTool(name) { calls.unregisteredTools.push(name); },
     },
     models: { async list() { return options.models || []; } },
     skill: {
@@ -1451,6 +1462,37 @@ console.log("\n=== a 429 from search is surfaced, not hidden ===");
   check("三家都被限流，逐条记下来了", res.trace[0].failures.length, 3);
   check("每次尝试都点了名", res.trace[0].failures[0], "duckduckgo 返回 HTTP 429");
   check("用户仍拿到回答", res.text, "answered anyway");
+}
+
+console.log("\n=== show_image：把图片真的交给模型（Agent 模式） ===");
+{
+  const dataUrl = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+  const { host, calls } = makeHost({
+    settings: MODEL,
+    files: { ".summon/uploads/pic.png": { kind: "image", dataUrl: dataUrl, size: 68 } },
+  });
+  const mod = load(host);
+  await mod.onLoad();
+  const tool = calls.registeredTools[0];
+  ok("加载时注册了工具", !!tool);
+  check("工具名", tool && tool.name, "show_image");
+  ok("描述里说了「先调用它」", /先调用它/.test(String(tool && tool.description)));
+
+  const blocks = await tool.execute({ path: ".summon/uploads/pic.png" });
+  ok("返回的是内容块数组", Array.isArray(blocks));
+  check("第一块是说明文字", blocks[0].type, "text");
+  // 这一块是关键：宿主会把 image 块还原成模型能看的图片（runtime.ts 的 #1360 注释）。
+  check("第二块是 image", blocks[1].type, "image");
+  check("图片数据是纯 base64（没有 data: 前缀）", blocks[1].data, dataUrl.slice(dataUrl.indexOf(",") + 1));
+  check("mimeType 从扩展名推出来", blocks[1].mimeType, "image/png");
+  ok("说明文字里带路径", blocks[0].text.indexOf(".summon/uploads/pic.png") !== -1);
+
+  // 读不到时也要给出文字，不能让工具调用直接炸掉。
+  const bad = await tool.execute({ path: ".summon/uploads/missing.png" });
+  ok("读不到时仍然返回内容块", Array.isArray(bad) && bad[0].type === "text");
+  ok("读不到时说明原因", /读不到这张图/.test(bad[0].text));
+  const empty = await tool.execute({});
+  ok("缺少 path 时不炸", Array.isArray(empty) && /缺少 path/.test(empty[0].text));
 }
 
 console.log("\n=== read：快捷对话能读本机文件（不需要联网） ===");

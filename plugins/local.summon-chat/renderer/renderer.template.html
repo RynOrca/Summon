@@ -3043,13 +3043,34 @@ __ICONS__
           return true;
         }
 
+        /**
+         * 附件以 `@路径` 跟在正文后面。
+         *
+         * 图片还要**额外点名让 Agent 调用 show_image**：只给路径的话，模型拿到的是一段
+         * 文字（宿主的 Read 工具把图片按二进制回报），它看不到像素 —— 用户实测过，
+         * 模型会如实说「我拿到的只是文件路径」。
+         *
+         * `show_image` 是插件注册的工具：宿主把它交给真实 agent 会话（`pluginTools`），
+         * 而工具结果里的 image 块会被还原成真正的内容块（`runtime.ts:1561-1575`）。
+         * 所以模型调它一次，就真的看见了这张图 —— 和主窗口里贴图走的是同一个机制。
+         */
         function appendAttachmentMentions(text, list) {
           if (!list.length) return text;
           var refs = list.map(function (a) {
             var p = String(a.path || "").replace(/\\/g, "/");
             return /\s/.test(p) ? '@"' + p + '"' : "@" + p;
           });
-          return text.replace(/\s+$/, "") + "\n\n（附件：" + refs.join(" ") + "）";
+          var images = list.filter(function (a) { return a.isImage; });
+          var lines = ["（附件：" + refs.join(" ") + "）"];
+          if (images.length) {
+            lines.push(
+              "（图片不是文字，**先调用 show_image 工具把图显示出来**，" +
+              "再回答与图片有关的问题：" +
+              images.map(function (a) { return 'show_image(path: "' + String(a.path || "").replace(/\\/g, "/") + '")'; }).join("、") +
+              "）",
+            );
+          }
+          return text.replace(/\s+$/, "") + "\n\n" + lines.join("\n");
         }
 
         /** 输入框上的粘贴 / 拖放。纯文本粘贴走浏览器默认行为，只有「带文件」才拦。 */

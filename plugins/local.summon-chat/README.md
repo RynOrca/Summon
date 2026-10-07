@@ -356,6 +356,40 @@ Agent 模式下由 Agent 自己的 `read` 工具读（多模态识别由 Agent �
 
 `.summon/` 会在你的项目里创建（只在你发过附件之后）。想清掉直接删这个目录。
 
+### Agent 模式的图片：走 `show_image` 工具
+
+悬浮窗自己发消息时只能给模型一段**文字**（`@路径`），文字不会变成像素 ——
+用户实测过：模型会如实回答「我拿到的只是文件路径」。
+
+但插件还有**另一条路**：注册一个工具。宿主把插件工具交给**真实 agent 会话**
+（`session-launch.ts:649` 的 `pluginTools`），而**工具结果里的 image 块会被还原成
+真正的内容块**（`runtime.ts:1561-1575`，注释原文：
+
+> Plugin tools may return a bare content-block array; restore its text and image blocks
+> so a restart does not flatten them into JSON (#1360).
+
+所以 `main.js` 注册了 `show_image`：读图后返回
+
+```js
+[{ type: "text",  text: "图片 …(68 字节，image/png) 如下。" },
+ { type: "image", data: "<纯 base64>", mimeType: "image/png" }]
+```
+
+模型调用它就能**真的看到图** —— 和主窗口里贴图走的是同一个机制
+（宿主 Read 工具返回 `images` 数组 → `toolResultFromUi` 还原成 image 块，issue #1073）。
+
+附件里带了图片时，消息会**点名要求**先调用它，否则模型很可能只拿到路径就作答：
+
+```
+（附件：@.summon/uploads/upload-x1.png）
+（图片不是文字，**先调用 show_image 工具把图显示出来**，再回答与图片有关的问题：
+ show_image(path: ".summon/uploads/upload-x1.png")）
+```
+
+工具名带命名空间（`plugin_local_summon-chat_show_image`），不会和内置工具撞。
+读不到时它返回一段**说明文字**而不是抛异常 —— 「这个文件读不到」本身是模型该知道、
+并且该如实转述的信息。
+
 ### 快捷对话不接受图片
 
 **图片在快捷对话里被明确拒绝**（粘贴和拖入两条路都拦）：
@@ -765,11 +799,13 @@ Agent 模式的工具行以前把**结果原文**压成一行截断显示，于�
 | `agent.complete` | high | 快捷对话（花你的额度） |
 | `desktop.control` | high | Agent 模式 |
 | `net.fetch` / `net.anyHost` | high | 联网搜索（后者允许自填端点） |
-| `clipboard.read` | medium | 读剪贴板历史（粘贴图片用） |
-| `fs.read` | medium | `read` / `read_image`，以及拖入文件的字节 |
+| `fs.read` | medium | `read` / `read_image` / `show_image`，以及拖入文件的字节 |
+| `agent.tool.register` | high | 注册 `show_image`，让 Agent 真的看到图 |
 
 `manifest.fs.read` 是 `{ root: "workspace", scope: ["**/*"] }` —— 只读工作区。
-写权限**没有**声明也不需要：附件落盘用的是插件进程里的 `node:fs`（见「附件」一节）。
+`clipboard.read` 与 `fs.write` **没有**声明：前者不需要（粘贴走浏览器的 `paste` 事件），
+后者用不上（附件落盘走插件进程里的 `node:fs`，见「附件」一节）。
+`pi-plugin check` 会因此报一条 unused-permission 提示，所以干脆不声明。
 
 `check` 会对 `net.fetch` / `net.anyHost` 报一条 high-risk 提示 —— 那是预期的。
 
