@@ -698,12 +698,22 @@ body { overflow: hidden; }
   color: var(--text-disabled);
 }
 .attach-note[hidden] { display: none; }
-/* 输入框下面那一行：目前只有「当前项目文件夹」。高度是 0 时就等于不存在，
-   所以快捷对话（没有项目）不会因此多出一块空白。 */
-.composer-foot { display: flex; align-items: center; gap: .35rem; margin-top: .15rem; }
-.composer-foot:empty { display: none; }
+/* 输入框下面那一行：左边「当前项目文件夹」，右边四个按钮。
+   一行放不下时项目名先截断（它有 title 提示，按钮没有替代品）。 */
+.composer-foot {
+  display: flex; align-items: center; gap: .3rem;
+  margin-top: .3rem; padding-top: .35rem;
+  /* 比 --border 稍明显一点：分隔线是这一版新加的，太淡就一直有人问「按钮怎么飘着」。 */
+  border-top: 1px solid var(--border-strong, var(--border));
+  min-width: 0;
+}
+.composer-foot .iconbtn { flex: 0 0 auto; }
+.composer-foot .sendkey { flex: 0 0 1.75rem; }
+.composer-foot .grow { flex: 1 1 auto; min-width: .25rem; }
 .proj-chip {
-  display: inline-flex; align-items: center; gap: .3rem; max-width: 100%;
+  display: inline-flex; align-items: center; gap: .3rem;
+  /* 关键：允许被压缩。默认 min-width:auto 会让长项目名把按钮顶出面板。 */
+  flex: 0 1 auto; min-width: 0; max-width: 100%;
   border: 0; background: none; padding: .1rem .15rem; border-radius: 5px;
   color: var(--text-disabled); font-size: .6875rem; font-family: inherit;
   cursor: pointer; text-align: left;
@@ -2890,25 +2900,30 @@ window.PiCurve = { create: create };
             <!-- 附件条：粘贴 / 拖入的文件。图片给缩略图，其它给文件名 + 大小。
                  有内容才出现，所以没附件时不会多占一行。 -->
             <div class="attach-strip" id="attachStrip" hidden></div>
+            <!-- 输入区只放输入框：四个按钮原来挤在它右边，把可用宽度吃掉了一条按钮的份。 -->
             <div class="cinbox">
               <textarea class="bare-input comp" id="chatInput" rows="2" placeholder="问点什么…" aria-label="提问输入框"></textarea>
-              <button class="iconbtn" id="btnProject" title="项目文件夹" hidden><svg><use href="#i-folder" /></svg></button>
-              <button class="iconbtn" id="btnPerm" title="权限模式" hidden><svg><use href="#i-key" /></svg></button>
-              <button class="iconbtn" id="btnEnhance" title="增强提示词"><svg><use href="#i-spark" /></svg></button>
-              <button class="sendkey" id="sendKey" title="发送" disabled><svg><use id="sendIcon" href="#i-send" /></svg></button>
             </div>
-            <!-- 当前项目文件夹（Agent 模式）。放在输入框**左下角**：用户要能一眼看到
-                 这条会话的工作目录是哪个 —— 以前选完项目什么都不显示，看起来就像没生效。 -->
+            <!-- 贴了图片时的如实提示（快捷对话看不了图，见 renderAttachNote）。
+                 放在输入区**下面、按钮行上面**：这是布局上的从属关系 ——
+                 它说的是上面那坨内容，不是底下那排按钮。 -->
+            <div class="attach-note" id="attachNote" hidden></div>
+            <!-- 最底下**一行**：左边当前项目文件夹，右边四个按钮。
+                 用户要的就是这个形状 —— 项目名和按钮都在最底下、同一行，
+                 而不是「项目名一行、按钮另一行」。 -->
             <div class="composer-foot">
               <button class="proj-chip" id="projChip" type="button" hidden title="切换项目文件夹">
                 <svg><use href="#i-folder" /></svg><span id="projName">未选择项目</span>
               </button>
               <span class="grow"></span>
+              <!-- 项目文件夹那个图标按钮**删掉了**：左下角的 chip 显示的就是当前项目、
+                   点它也是同一个菜单，再放一个纯文件夹图标等于同一件事两个入口。
+                   （用户在截图里圈出来的「这两个不能放在一行吗」就是指它俩。） -->
+              <button class="iconbtn" id="btnPerm" title="权限模式" hidden><svg><use href="#i-key" /></svg></button>
+              <button class="iconbtn" id="btnEnhance" title="增强提示词"><svg><use href="#i-spark" /></svg></button>
+              <button class="sendkey" id="sendKey" title="发送" disabled><svg><use id="sendIcon" href="#i-send" /></svg></button>
             </div>
-            <!-- 贴了图片时的如实提示（快捷对话看不了图，见 renderAttachNote）。 -->
-            <div class="attach-note" id="attachNote" hidden></div>
             <!-- 「Enter 发送 · Shift+Enter 换行」那行提示已按用户要求删除：
-                 输入区直接铺到底部，四个按钮贴着窗口下沿。
                  忙时的语义（Enter 是排队还是引导）改由上面的状态行说明，见 setBusy()。 -->
           </div>
         </div>
@@ -5654,14 +5669,14 @@ window.PiCurve = { create: create };
         }
 
         /**
-         * 项目文件夹与权限模式是**会话级**的东西，只有 Agent 模式才有意义，
-         * 所以这两个按钮在快捷对话下隐藏。
+         * 权限模式是**会话级**的东西，只有 Agent 模式才有意义，所以它在快捷对话下隐藏。
+         * 项目文件夹同理 —— 但它的入口是左下角那枚 chip（见 renderProjectChip），
+         * 不再另设一个纯文件夹图标按钮。
          */
         function renderAgentControls() {
           var agentMode = isAgent();
-          $("btnProject").hidden = !agentMode;
           $("btnPerm").hidden = !agentMode;
-          // 输入框左下角那枚「当前项目文件夹」也只在 Agent 模式出现。
+          // 最底下那一行左边的「当前项目文件夹」也只在 Agent 模式出现。
           renderProjectChip();
         }
         function roleMenuItems() {
@@ -6030,7 +6045,6 @@ window.PiCurve = { create: create };
           });
         }
 
-        $("btnProject").addEventListener("click", function () { openProjectMenu($("btnProject")); });
         $("projChip").addEventListener("click", function () { openProjectMenu($("projChip")); });
 
         $("btnPerm").addEventListener("click", function () {
