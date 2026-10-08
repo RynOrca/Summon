@@ -1,6 +1,6 @@
 import { createInterface } from "node:readline";
-import { mkdir } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, stat } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import {
   createAgentSession,
   ModelRuntime,
@@ -9,7 +9,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 
 const dataDir = process.env.SUMMON_DATA_DIR;
-const cwd = process.env.SUMMON_WORKSPACE || process.cwd();
+let cwd = process.env.SUMMON_WORKSPACE || process.cwd();
 if (!dataDir) throw new Error("SUMMON_DATA_DIR is required");
 await mkdir(dataDir, { recursive: true });
 const agentDir = join(dataDir, "agent");
@@ -64,7 +64,7 @@ async function openSession(provider, modelId) {
       send({ type: "settled" });
     }
   });
-  send({ type: "session", model: session.model && session.model.provider !== "unknown" ? `${session.model.provider}/${session.model.id}` : null, sessionId: session.sessionId });
+  send({ type: "session", model: session.model && session.model.provider !== "unknown" ? `${session.model.provider}/${session.model.id}` : null, sessionId: session.sessionId, workspace: cwd });
   send({
     type: "history",
     messages: session.state.messages.map((message) => ({
@@ -101,6 +101,23 @@ async function handle(command) {
         await openSession(command.provider, command.model);
         send({ type: "ack", id });
         break;
+      case "change_workspace": {
+        if (busy) throw new Error("Wait for the current response to finish");
+        if (typeof command.path !== "string" || !command.path.trim()) throw new Error("Choose a workspace folder");
+        const next = resolve(command.path.trim());
+        if (!(await stat(next)).isDirectory()) throw new Error("Workspace path is not a folder");
+        const previous = cwd;
+        const model = session?.model;
+        cwd = next;
+        try {
+          await openSession(model?.provider === "unknown" ? undefined : model?.provider, model?.provider === "unknown" ? undefined : model?.id);
+        } catch (error) {
+          cwd = previous;
+          throw error;
+        }
+        send({ type: "ack", id });
+        break;
+      }
       case "prompt":
         if (busy) throw new Error("A response is already running");
         if (!session) await openSession();

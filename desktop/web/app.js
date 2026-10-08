@@ -134,7 +134,10 @@ function onEvent(event) {
       for (const model of response.models || []) picker.add(new Option(`${model.provider} / ${model.name || model.id}`, `${model.provider}/${model.id}`));
       break;
     }
-    case "session": $("model-label").textContent = response.model || "选择模型"; break;
+    case "session":
+      $("model-label").textContent = response.model || "选择模型";
+      $("workspace").value = response.workspace || "";
+      break;
     case "history": restoreHistory(response.messages || []); status("就绪"); break;
     case "delta": {
       if (response.kind === "thinking") {
@@ -207,6 +210,11 @@ $("select-model").addEventListener("click", async () => {
   const slash = value.indexOf("/");
   $("settings-error").textContent = "";
   try { await command("select_model", { provider: value.slice(0, slash), model: value.slice(slash + 1) }, true); settings.close(); }
+  catch (error) { $("settings-error").textContent = String(error); }
+});
+$("change-workspace").addEventListener("click", async () => {
+  $("settings-error").textContent = "";
+  try { await command("change_workspace", { path: $("workspace").value }, true); settings.close(); }
   catch (error) { $("settings-error").textContent = String(error); }
 });
 if (tauri) {
