@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Summon</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; background: #181818; color: #ececec; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; }
+    main { width: min(100% - 48px, 400px); }
+    h1 { font-size: 28px; font-weight: 600; margin: 0 0 10px; }
+    p { color: #aaa; line-height: 1.6; }
+    button { border: 1px solid #555; border-radius: 8px; background: #292929; color: white; padding: 9px 14px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Summon</h1>
+    <p>独立窗口已建立。拖动窗口并调整大小后，通过托盘或快捷键再次呼出，窗口会恢复到最后的位置与大小。</p>
+    <button id="hide">隐藏窗口</button>
+  </main>
+  <script>
+    document.getElementById('hide').addEventListener('click', function () {
+      if (window.__TAURI__) window.__TAURI__.core.invoke('dismiss');
+    });
+  </script>
+</body>
+</html>

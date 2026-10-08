@@ -19,3 +19,8 @@ desktop.ini
 *.tmp
 .vscode/
 .idea/
+
+# Standalone Tauri build/cache data
+desktop/src-tauri/target/
+desktop/src-tauri/gen/
+desktop/.test-data/
