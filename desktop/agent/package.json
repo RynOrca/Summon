@@ -1,0 +1,9 @@
+{
+  "name": "summon-agent",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "1.0.1"
+  }
+}

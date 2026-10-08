@@ -1,0 +1,144 @@
+import { createInterface } from "node:readline";
+import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
+import {
+  createAgentSession,
+  ModelRuntime,
+  SessionManager,
+  SettingsManager,
+} from "@earendil-works/pi-coding-agent";
+
+const dataDir = process.env.SUMMON_DATA_DIR;
+const cwd = process.env.SUMMON_WORKSPACE || process.cwd();
+if (!dataDir) throw new Error("SUMMON_DATA_DIR is required");
+await mkdir(dataDir, { recursive: true });
+const agentDir = join(dataDir, "agent");
+const sessionsDir = join(dataDir, "sessions");
+await mkdir(agentDir, { recursive: true });
+await mkdir(sessionsDir, { recursive: true });
+
+const send = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
+let runtime;
+let session;
+let busy = false;
+let queue = Promise.resolve();
+
+async function getRuntime() {
+  if (!runtime) {
+    runtime = await ModelRuntime.create({
+      authPath: join(agentDir, "auth.json"),
+      modelsPath: join(agentDir, "models.json"),
+      refreshOnCreate: false,
+    });
+  }
+  return runtime;
+}
+
+async function openSession(provider, modelId) {
+  if (session) session.dispose();
+  const models = await getRuntime();
+  const model = provider && modelId ? models.getModel(provider, modelId) : undefined;
+  if (provider && modelId && !model) throw new Error(`Unknown model: ${provider}/${modelId}`);
+  const created = await createAgentSession({
+    cwd,
+    agentDir,
+    modelRuntime: models,
+    model,
+    thinkingLevel: "medium",
+    tools: ["read", "ls", "find", "grep"],
+    sessionManager: SessionManager.continueRecent(cwd, sessionsDir),
+    settingsManager: SettingsManager.create(cwd, agentDir),
+  });
+  session = created.session;
+  session.subscribe((event) => {
+    if (event.type === "message_update") {
+      const update = event.assistantMessageEvent;
+      if (update.type === "text_delta" || update.type === "thinking_delta") {
+        send({ type: "delta", kind: update.type === "text_delta" ? "text" : "thinking", text: update.delta });
+      }
+    } else if (event.type === "tool_execution_start") {
+      send({ type: "tool_start", id: event.toolCallId, name: event.toolName, args: event.args });
+    } else if (event.type === "tool_execution_end") {
+      send({ type: "tool_end", id: event.toolCallId, isError: event.isError, result: event.result });
+    } else if (event.type === "agent_settled") {
+      send({ type: "settled" });
+    }
+  });
+  send({ type: "session", model: session.model && session.model.provider !== "unknown" ? `${session.model.provider}/${session.model.id}` : null, sessionId: session.sessionId });
+  send({
+    type: "history",
+    messages: session.state.messages.map((message) => ({
+      role: message.role,
+      content: (Array.isArray(message.content) ? message.content : [{ type: "text", text: String(message.content || "") }]).filter((block) =>
+        block.type === "text" || block.type === "thinking" || block.type === "toolCall"
+      ).map((block) => ({ type: block.type, text: block.text, name: block.name, id: block.id, arguments: block.arguments })),
+      toolCallId: message.toolCallId,
+      toolName: message.toolName,
+      isError: message.isError,
+    })),
+  });
+}
+
+async function handle(command) {
+  const id = command.id;
+  try {
+    switch (command.type) {
+      case "init": {
+        const models = await getRuntime();
+        const available = await models.getAvailable();
+        send({ type: "models", id, models: available.map((model) => ({ provider: model.provider, id: model.id, name: model.name })) });
+        await openSession(command.provider, command.model);
+        break;
+      }
+      case "set_key": {
+        if (!command.provider || !command.key) throw new Error("Provider and API key are required");
+        await (await getRuntime()).setRuntimeApiKey(command.provider, command.key);
+        send({ type: "ack", id });
+        break;
+      }
+      case "select_model":
+        if (busy) throw new Error("Wait for the current response to finish");
+        await openSession(command.provider, command.model);
+        send({ type: "ack", id });
+        break;
+      case "prompt":
+        if (busy) throw new Error("A response is already running");
+        if (!session) await openSession();
+        if (!session.model || session.model.provider === "unknown") throw new Error("Configure an API key and select a model first");
+        busy = true;
+        send({ type: "started", id });
+        try {
+          await session.prompt(command.text);
+          send({ type: "done", id });
+        } finally {
+          busy = false;
+        }
+        break;
+      case "abort":
+        if (session) await session.abort();
+        send({ type: "ack", id });
+        break;
+      default:
+        throw new Error(`Unknown command: ${command.type}`);
+    }
+  } catch (error) {
+    send({ type: "error", id, message: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+send({ type: "ready" });
+for await (const line of createInterface({ input: process.stdin })) {
+  let command;
+  try {
+    command = JSON.parse(line);
+  } catch {
+    send({ type: "error", message: "Invalid JSON command" });
+    continue;
+  }
+  if (command.type === "abort") {
+    void handle(command);
+  } else {
+    queue = queue.then(() => handle(command));
+  }
+}
+session?.dispose();

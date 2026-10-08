@@ -3,12 +3,99 @@
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    Manager, WindowEvent,
+    Emitter, Manager, WindowEvent,
 };
 use tauri_plugin_global_shortcut::{ShortcutState, GlobalShortcutExt};
 use tauri_plugin_window_state::{AppHandleExt, StateFlags};
+use std::{
+    io::{BufRead, BufReader, Write},
+    path::PathBuf,
+    process::{Child, ChildStdin, Command, Stdio},
+    sync::Mutex,
+    thread,
+};
 
 const BOUNDS: StateFlags = StateFlags::SIZE.union(StateFlags::POSITION);
+
+struct AgentProcess {
+    child: Child,
+    stdin: ChildStdin,
+}
+
+impl Drop for AgentProcess {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+#[derive(Default)]
+struct AgentState(Mutex<Option<AgentProcess>>);
+
+fn runtime_paths(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf), String> {
+    let resources = app.path().resource_dir().map_err(|error| error.to_string())?;
+    let node = resources.join("runtime/node.exe");
+    let script = resources.join("agent/bridge.mjs");
+    if node.is_file() && script.is_file() { return Ok((node, script)); }
+    let source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../agent/bridge.mjs");
+    if source.is_file() { return Ok((PathBuf::from("node"), source)); }
+    Err("PI Agent runtime files are missing".into())
+}
+
+#[tauri::command]
+fn agent_command(app: tauri::AppHandle, state: tauri::State<'_, AgentState>, command: serde_json::Value) -> Result<(), String> {
+    let mut guard = state.0.lock().map_err(|_| "Agent lock failed".to_string())?;
+    if guard.is_none() {
+        let data_dir = app.path().app_data_dir().map_err(|error| error.to_string())?;
+        std::fs::create_dir_all(&data_dir).map_err(|error| error.to_string())?;
+        let (node, script) = runtime_paths(&app)?;
+        let workspace = app.path().home_dir().map_err(|error| error.to_string())?;
+        let mut command_line = Command::new(node);
+        command_line.arg(script)
+            .env("SUMMON_DATA_DIR", data_dir)
+            .env("SUMMON_WORKSPACE", &workspace)
+            .current_dir(workspace)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            command_line.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        }
+        let mut child = command_line.spawn()
+            .map_err(|error| format!("Cannot start PI Agent: {error}"))?;
+        let stdin = child.stdin.take().ok_or("Agent stdin unavailable")?;
+        let stdout = child.stdout.take().ok_or("Agent stdout unavailable")?;
+        let stderr = child.stderr.take().ok_or("Agent stderr unavailable")?;
+        let events = app.clone();
+        thread::spawn(move || {
+            for line in BufReader::new(stdout).lines() {
+                match line {
+                    Ok(line) => {
+                        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) {
+                            let _ = events.emit("agent-event", value);
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+            let _ = events.emit("agent-event", serde_json::json!({"type":"disconnected"}));
+        });
+        thread::spawn(move || {
+            for line in BufReader::new(stderr).lines().flatten() {
+                eprintln!("pi-agent: {line}");
+            }
+        });
+        *guard = Some(AgentProcess { child, stdin });
+    }
+    let process = guard.as_mut().ok_or("Agent unavailable")?;
+    if process.child.try_wait().map_err(|error| error.to_string())?.is_some() {
+        *guard = None;
+        return Err("PI Agent process exited; retry the command".into());
+    }
+    writeln!(process.stdin, "{}", command).map_err(|error| error.to_string())
+}
 
 fn show_main(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
@@ -45,9 +132,10 @@ fn main() {
         .build();
 
     tauri::Builder::default()
+        .manage(AgentState::default())
         .plugin(tauri_plugin_window_state::Builder::new().with_state_flags(BOUNDS).build())
         .plugin(shortcuts)
-        .invoke_handler(tauri::generate_handler![dismiss])
+        .invoke_handler(tauri::generate_handler![dismiss, agent_command])
         .setup(|app| {
             let open = MenuItem::with_id(app, "open", "显示 Summon", true, None::<&str>)
                 .map_err(|error| { eprintln!("tray open item: {error}"); error })?;
