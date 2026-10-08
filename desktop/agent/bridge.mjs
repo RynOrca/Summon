@@ -34,8 +34,7 @@ async function getRuntime() {
   return runtime;
 }
 
-async function openSession(provider, modelId) {
-  if (session) session.dispose();
+async function openSession(provider, modelId, sessionManager = SessionManager.continueRecent(cwd, sessionsDir)) {
   const models = await getRuntime();
   const model = provider && modelId ? models.getModel(provider, modelId) : undefined;
   if (provider && modelId && !model) throw new Error(`Unknown model: ${provider}/${modelId}`);
@@ -46,9 +45,10 @@ async function openSession(provider, modelId) {
     model,
     thinkingLevel: "medium",
     tools: ["read", "ls", "find", "grep"],
-    sessionManager: SessionManager.continueRecent(cwd, sessionsDir),
+    sessionManager,
     settingsManager: SettingsManager.create(cwd, agentDir),
   });
+  session?.dispose();
   session = created.session;
   session.subscribe((event) => {
     if (event.type === "message_update") {
@@ -115,6 +115,37 @@ async function handle(command) {
           cwd = previous;
           throw error;
         }
+        send({ type: "ack", id });
+        break;
+      }
+      case "list_sessions": {
+        const sessions = await SessionManager.list(cwd, sessionsDir);
+        send({ type: "sessions", id, sessions: sessions.map((item) => ({
+          id: item.id,
+          title: item.name || item.firstMessage || "新会话",
+          modified: item.modified,
+          messageCount: item.messageCount,
+        })) });
+        break;
+      }
+      case "new_session": {
+        if (busy) throw new Error("Wait for the current response to finish");
+        const model = session?.model;
+        await openSession(model?.provider === "unknown" ? undefined : model?.provider,
+          model?.provider === "unknown" ? undefined : model?.id,
+          SessionManager.create(cwd, sessionsDir));
+        send({ type: "ack", id });
+        break;
+      }
+      case "open_session": {
+        if (busy) throw new Error("Wait for the current response to finish");
+        if (typeof command.sessionId !== "string") throw new Error("Session ID is required");
+        const path = SessionManager.findById(cwd, command.sessionId, sessionsDir);
+        if (!path) throw new Error("Session not found in this workspace");
+        const model = session?.model;
+        await openSession(model?.provider === "unknown" ? undefined : model?.provider,
+          model?.provider === "unknown" ? undefined : model?.id,
+          SessionManager.open(path, sessionsDir, cwd));
         send({ type: "ack", id });
         break;
       }

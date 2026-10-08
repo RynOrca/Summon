@@ -137,7 +137,17 @@ function onEvent(event) {
     case "session":
       $("model-label").textContent = response.model || "选择模型";
       $("workspace").value = response.workspace || "";
+      void command("list_sessions");
       break;
+    case "sessions": {
+      const picker = $("session-picker");
+      picker.replaceChildren(new Option("选择会话", ""));
+      for (const item of response.sessions || []) {
+        const title = String(item.title || "新会话").slice(0, 55);
+        picker.add(new Option(title, item.id));
+      }
+      break;
+    }
     case "history": restoreHistory(response.messages || []); status("就绪"); break;
     case "delta": {
       if (response.kind === "thinking") {
@@ -196,7 +206,7 @@ prompt.addEventListener("keydown", (event) => {
 prompt.addEventListener("input", () => { prompt.style.height = "auto"; prompt.style.height = `${Math.min(prompt.scrollHeight, 160)}px`; });
 $("stop-button").addEventListener("click", () => void command("abort"));
 $("hide-button").addEventListener("click", () => void tauri?.core.invoke("dismiss"));
-$("settings-button").addEventListener("click", () => settings.showModal());
+$("settings-button").addEventListener("click", () => { settings.showModal(); void command("list_sessions"); });
 $("settings-close").addEventListener("click", () => settings.close());
 $("save-key").addEventListener("click", async () => {
   const provider = $("provider").value.trim(); const key = $("api-key").value.trim();
@@ -215,6 +225,19 @@ $("select-model").addEventListener("click", async () => {
 $("change-workspace").addEventListener("click", async () => {
   $("settings-error").textContent = "";
   try { await command("change_workspace", { path: $("workspace").value }, true); settings.close(); }
+  catch (error) { $("settings-error").textContent = String(error); }
+});
+$("refresh-sessions").addEventListener("click", () => void command("list_sessions"));
+$("new-session").addEventListener("click", async () => {
+  $("settings-error").textContent = "";
+  try { await command("new_session", {}, true); settings.close(); prompt.focus(); }
+  catch (error) { $("settings-error").textContent = String(error); }
+});
+$("open-session").addEventListener("click", async () => {
+  const sessionId = $("session-picker").value;
+  if (!sessionId) return;
+  $("settings-error").textContent = "";
+  try { await command("open_session", { sessionId }, true); settings.close(); }
   catch (error) { $("settings-error").textContent = String(error); }
 });
 if (tauri) {

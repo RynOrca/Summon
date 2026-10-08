@@ -40,6 +40,10 @@
       <button id="select-model" class="settings-action" type="button">使用此模型</button>
       <label>工作目录<input id="workspace" autocomplete="off" spellcheck="false" placeholder="例如 D:\Code\MyProject"></label>
       <button id="change-workspace" class="settings-action" type="button">切换工作目录</button>
+      <div class="settings-divider"></div>
+      <div class="settings-head"><h2>会话</h2><button id="refresh-sessions" type="button" class="chrome-button" title="刷新会话">↻</button></div>
+      <label>历史会话<select id="session-picker"><option value="">选择会话</option></select></label>
+      <div class="settings-actions"><button id="open-session" class="settings-action" type="button">打开会话</button><button id="new-session" class="settings-action" type="button">新建会话</button></div>
       <div id="settings-error" role="alert"></div>
     </form>
   </dialog>
