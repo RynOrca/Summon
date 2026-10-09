@@ -1,8 +1,10 @@
 import { createInterface } from "node:readline";
 import { mkdir, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { createApprovalGate } from "./approval.mjs";
 import {
   createAgentSession,
+  DefaultResourceLoader,
   ModelRuntime,
   SessionManager,
   SettingsManager,
@@ -22,6 +24,7 @@ let runtime;
 let session;
 let busy = false;
 let queue = Promise.resolve();
+const approvalGate = createApprovalGate(send);
 
 async function getRuntime() {
   if (!runtime) {
@@ -35,18 +38,29 @@ async function getRuntime() {
 }
 
 async function openSession(provider, modelId, sessionManager = SessionManager.continueRecent(cwd, sessionsDir)) {
+  approvalGate.cancel("会话已切换，工具操作未执行");
   const models = await getRuntime();
   const model = provider && modelId ? models.getModel(provider, modelId) : undefined;
   if (provider && modelId && !model) throw new Error(`Unknown model: ${provider}/${modelId}`);
+  const settingsManager = SettingsManager.create(cwd, agentDir);
+  const resourceLoader = new DefaultResourceLoader({
+    cwd,
+    agentDir,
+    settingsManager,
+    noExtensions: true,
+    extensionFactories: [approvalGate.extension],
+  });
+  await resourceLoader.reload();
   const created = await createAgentSession({
     cwd,
     agentDir,
     modelRuntime: models,
     model,
     thinkingLevel: "medium",
-    tools: ["read", "ls", "find", "grep"],
+    tools: ["read", "ls", "find", "grep", "edit", "write", "bash", "powershell"],
     sessionManager,
-    settingsManager: SettingsManager.create(cwd, agentDir),
+    settingsManager,
+    resourceLoader,
   });
   session?.dispose();
   session = created.session;
@@ -163,9 +177,15 @@ async function handle(command) {
         }
         break;
       case "abort":
+        approvalGate.cancel("用户停止了当前操作");
         if (session) await session.abort();
         send({ type: "ack", id });
         break;
+      case "tool_decision": {
+        approvalGate.decide(command.requestId, command.decision, command.reason);
+        send({ type: "ack", id });
+        break;
+      }
       default:
         throw new Error(`Unknown command: ${command.type}`);
     }
@@ -183,10 +203,11 @@ for await (const line of createInterface({ input: process.stdin })) {
     send({ type: "error", message: "Invalid JSON command" });
     continue;
   }
-  if (command.type === "abort") {
+  if (command.type === "abort" || command.type === "tool_decision") {
     void handle(command);
   } else {
     queue = queue.then(() => handle(command));
   }
 }
 session?.dispose();
+approvalGate.cancel("Agent 进程已退出");

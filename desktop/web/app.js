@@ -12,6 +12,7 @@ let assistantRow = null;
 let thinkingRow = null;
 let submitted = null;
 const toolRows = new Map();
+const permissionRows = new Map();
 const pending = new Map();
 
 function status(text) { $("status").textContent = text; }
@@ -93,6 +94,33 @@ function toolEnd(event) {
   updateDisclosure(row, event.isError ? "error" : "done");
   scrollToLatest();
 }
+function permissionRequest(event) {
+  const row = disclosure({
+    kind: "permission",
+    title: `允许 ${event.name || "工具"}？`,
+    summary: "等待确认",
+    detail: pretty(event.args),
+    state: "running",
+    id: event.requestId,
+  });
+  const actions = document.createElement("div");
+  actions.className = "permission-actions";
+  const allow = document.createElement("button");
+  allow.type = "button"; allow.className = "permission-allow"; allow.textContent = "允许";
+  const deny = document.createElement("button");
+  deny.type = "button"; deny.className = "permission-deny"; deny.textContent = "拒绝";
+  actions.append(allow, deny); row.row.append(actions);
+  const decide = async (decision) => {
+    allow.disabled = true; deny.disabled = true;
+    row.brief.textContent = decision === "allow" ? "已允许" : "已拒绝";
+    updateDisclosure(row, decision === "allow" ? "done" : "error");
+    try { await command("tool_decision", { requestId: event.requestId, decision }, true); }
+    catch (error) { errorRow(String(error)); }
+  };
+  allow.addEventListener("click", () => void decide("allow"));
+  deny.addEventListener("click", () => void decide("deny"));
+  permissionRows.set(event.requestId, { ...row, allow, deny });
+}
 function restoreHistory(history) {
   messages.replaceChildren(); toolRows.clear(); assistantRow = null; thinkingRow = null;
   for (const message of history) {
@@ -163,6 +191,18 @@ function onEvent(event) {
     }
     case "tool_start": toolStart(response); break;
     case "tool_end": toolEnd(response); break;
+    case "tool_permission_request": permissionRequest(response); break;
+    case "tool_permission_expired": {
+      const row = permissionRows.get(response.requestId);
+      if (row) {
+        row.brief.textContent = response.reason || "已超时";
+        row.allow.disabled = true;
+        row.deny.disabled = true;
+        updateDisclosure(row, "error");
+        permissionRows.delete(response.requestId);
+      }
+      break;
+    }
     case "started": submitted = null; setRunning(true); break;
     case "done": case "settled":
       setRunning(false); if (thinkingRow) updateDisclosure(thinkingRow, "done");
