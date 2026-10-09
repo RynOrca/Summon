@@ -63,7 +63,6 @@ async function openSession(provider, modelId, sessionManager = SessionManager.co
     agentDir,
     modelRuntime: models,
     model,
-    thinkingLevel: "medium",
     tools: ["read", "ls", "find", "grep", "edit", "write", "bash", "powershell"],
     sessionManager,
     settingsManager,
@@ -85,7 +84,7 @@ async function openSession(provider, modelId, sessionManager = SessionManager.co
       send({ type: "settled" });
     }
   });
-  send({ type: "session", model: session.model && session.model.provider !== "unknown" ? `${session.model.provider}/${session.model.id}` : null, sessionId: session.sessionId, workspace: cwd, roleId: roles.activeId });
+  send({ type: "session", model: session.model && session.model.provider !== "unknown" ? `${session.model.provider}/${session.model.id}` : null, sessionId: session.sessionId, sessionName: session.sessionName || "", thinkingLevel: session.thinkingLevel, availableThinkingLevels: session.getAvailableThinkingLevels(), workspace: cwd, roleId: roles.activeId });
   send({
     type: "history",
     messages: session.state.messages.map((message) => ({
@@ -160,6 +159,37 @@ async function handle(command) {
         await openSession(command.provider, command.model);
         send({ type: "ack", id });
         break;
+      case "set_thinking_level": {
+        if (busy) throw new Error("请先等待当前回复结束");
+        if (!session) throw new Error("会话尚未就绪");
+        if (!session.getAvailableThinkingLevels().includes(command.level)) throw new Error("该模型不支持此思考深度");
+        session.setThinkingLevel(command.level, { persist: true });
+        send({ type: "thinking_level", level: session.thinkingLevel, availableThinkingLevels: session.getAvailableThinkingLevels() });
+        send({ type: "ack", id });
+        break;
+      }
+      case "rename_session": {
+        if (busy) throw new Error("请先等待当前回复结束");
+        if (!session) throw new Error("会话尚未就绪");
+        const name = typeof command.name === "string" ? command.name.trim() : "";
+        if (!name || name.length > 100) throw new Error("请输入不超过 100 字的会话名称");
+        session.setSessionName(name);
+        send({ type: "session_name", sessionId: session.sessionId, name });
+        send({ type: "ack", id });
+        break;
+      }
+      case "copy_session": {
+        if (!session) throw new Error("会话尚未就绪");
+        const lines = [];
+        for (const message of session.state.messages) {
+          if (message.role !== "user" && message.role !== "assistant") continue;
+          const content = typeof message.content === "string" ? message.content :
+            (message.content || []).filter((block) => block.type === "text").map((block) => block.text || "").join("\n");
+          if (content.trim()) lines.push(`${message.role === "user" ? "你" : "PI"}：${content.trim()}`);
+        }
+        send({ type: "conversation", id, text: lines.join("\n\n") });
+        break;
+      }
       case "change_workspace": {
         if (busy) throw new Error("Wait for the current response to finish");
         if (typeof command.path !== "string" || !command.path.trim()) throw new Error("Choose a workspace folder");

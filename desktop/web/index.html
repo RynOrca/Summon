@@ -60,6 +60,8 @@
     <aside id="history-drawer" class="history-drawer" aria-label="对话历史" hidden>
       <div class="history-head"><strong>对话历史</strong><button id="history-close" class="icon-button" type="button" title="关闭历史" aria-label="关闭历史"><svg><use href="#icon-close"/></svg></button></div>
       <button id="history-new-chat" class="history-new" type="button"><svg><use href="#icon-new"/></svg>新对话</button>
+      <button id="history-rename" class="history-rename" type="button">重命名当前对话</button>
+      <button id="history-copy" class="history-rename" type="button">复制当前对话</button>
       <div id="history-list" class="history-list"></div>
       <p id="history-error" class="history-error" role="alert" hidden></p>
     </aside>
@@ -73,10 +75,18 @@
       <button id="save-key" class="settings-action" type="button">应用 Key 并刷新模型</button>
       <label>模型<select id="model-picker"><option value="">自动选择</option></select></label>
       <button id="select-model" class="settings-action" type="button">使用此模型</button>
+      <label>思考深度<select id="thinking-level"><option value="medium">中等</option></select></label>
+      <button id="set-thinking-level" class="settings-action" type="button">应用思考深度</button>
       <label>工作目录<input id="workspace" readonly placeholder="尚未选择"></label>
       <button id="change-workspace" class="settings-action" type="button">选择本地文件夹…</button>
       <div id="settings-error" role="alert"></div>
     </form>
+  </dialog>
+  <dialog id="rename-dialog" class="settings-dialog">
+    <div class="settings-head"><h2>重命名对话</h2><button id="rename-close" type="button" class="chrome-button" aria-label="关闭">×</button></div>
+    <label>对话名称<input id="rename-name" maxlength="100" autocomplete="off"></label>
+    <button id="rename-save" class="settings-action" type="button">保存名称</button>
+    <p id="rename-error" class="history-error" role="alert" hidden></p>
   </dialog>
   <dialog id="roles-dialog" class="settings-dialog roles-dialog">
     <div class="settings-head"><h2>角色预设</h2><button id="roles-close" type="button" class="chrome-button" aria-label="关闭">×</button></div>

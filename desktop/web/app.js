@@ -11,6 +11,8 @@ const rolesDialog = $("roles-dialog");
 let roles = [];
 let activeRoleId = "agent";
 let editingRoleId = null;
+let activeSessionId = "";
+let activeSessionName = "";
 let sequence = 0;
 let running = false;
 let assistantRow = null;
@@ -196,6 +198,14 @@ function renderSessions(sessions) {
     list.append(button);
   }
 }
+function renderThinkingLevels(levels, selected) {
+  const names = { off: "关闭", minimal: "最少", low: "低", medium: "中等", high: "高", xhigh: "很高" };
+  const picker = $("thinking-level");
+  picker.replaceChildren();
+  for (const level of levels || []) picker.add(new Option(names[level] || level, level));
+  picker.value = selected || "";
+  $("set-thinking-level").disabled = picker.options.length < 2;
+}
 function roleError(error) {
   $("role-error").textContent = String(error);
   $("role-error").hidden = false;
@@ -268,7 +278,7 @@ async function newSession() {
 function onEvent(event) {
   const response = event.payload;
   if (!response || typeof response !== "object") return;
-  const handledReply = Boolean(response.id && pending.has(response.id) && ["ack", "error", "done"].includes(response.type));
+  const handledReply = Boolean(response.id && pending.has(response.id) && ["ack", "error", "done", "conversation"].includes(response.type));
   if (handledReply) {
     const { resolve, reject } = pending.get(response.id); pending.delete(response.id);
     response.type === "error" ? reject(new Error(response.message)) : resolve(response);
@@ -282,10 +292,18 @@ function onEvent(event) {
     }
     case "session":
       $("model-label").textContent = response.model || "选择模型";
+      activeSessionId = response.sessionId || "";
+      activeSessionName = response.sessionName || "";
+      renderThinkingLevels(response.availableThinkingLevels, response.thinkingLevel);
       $("workspace").value = response.workspace || "";
       $("workspace-label").textContent = (response.workspace || "").replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "工作目录";
       $("workspace-button").title = response.workspace || "切换工作目录";
       if (response.roleId) { activeRoleId = response.roleId; renderRoles(); }
+      void command("list_sessions");
+      break;
+    case "thinking_level": renderThinkingLevels(response.availableThinkingLevels, response.level); break;
+    case "session_name":
+      if (response.sessionId === activeSessionId) activeSessionName = response.name || "";
       void command("list_sessions");
       break;
     case "roles":
@@ -373,6 +391,35 @@ $("history-new-chat").addEventListener("click", () => void newSession());
 $("history-button").addEventListener("click", openHistory);
 $("history-close").addEventListener("click", closeHistory);
 $("history-overlay").addEventListener("click", closeHistory);
+$("history-rename").addEventListener("click", () => {
+  if (!activeSessionId) return;
+  $("rename-name").value = activeSessionName;
+  $("rename-error").hidden = true;
+  $("rename-dialog").showModal();
+  $("rename-name").focus();
+});
+$("history-copy").addEventListener("click", async () => {
+  try {
+    const reply = await command("copy_session", {}, true);
+    if (!reply.text) throw new Error("当前对话没有可复制的文字");
+    await navigator.clipboard.writeText(reply.text);
+    $("history-error").textContent = "已复制当前对话";
+    $("history-error").hidden = false;
+  } catch (error) {
+    $("history-error").textContent = String(error);
+    $("history-error").hidden = false;
+  }
+});
+$("rename-close").addEventListener("click", () => $("rename-dialog").close());
+$("rename-save").addEventListener("click", async () => {
+  try {
+    await command("rename_session", { name: $("rename-name").value }, true);
+    $("rename-dialog").close();
+  } catch (error) {
+    $("rename-error").textContent = String(error);
+    $("rename-error").hidden = false;
+  }
+});
 $("settings-button").addEventListener("click", () => settings.showModal());
 $("model-button").addEventListener("click", () => { settings.showModal(); $("model-picker").focus(); });
 $("workspace-button").addEventListener("click", () => void chooseWorkspace());
@@ -389,6 +436,11 @@ $("select-model").addEventListener("click", async () => {
   const slash = value.indexOf("/");
   $("settings-error").textContent = "";
   try { await command("select_model", { provider: value.slice(0, slash), model: value.slice(slash + 1) }, true); settings.close(); }
+  catch (error) { $("settings-error").textContent = String(error); }
+});
+$("set-thinking-level").addEventListener("click", async () => {
+  $("settings-error").textContent = "";
+  try { await command("set_thinking_level", { level: $("thinking-level").value }, true); settings.close(); }
   catch (error) { $("settings-error").textContent = String(error); }
 });
 $("change-workspace").addEventListener("click", () => void chooseWorkspace());

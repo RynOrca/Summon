@@ -1,5 +1,12 @@
 # 更新记录
 
+## 2026-10-09 · Git 版本 `summon-session-controls-2026-10-09`
+
+- 建立 PI-Desktop 0.16.1 功能对齐路线，按对话、输入呈现、Agent 配置、桌面体验与验收逐项跟踪。
+- 模型设置增加思考深度，直接调用 PI Agent SDK 并持久化偏好；历史侧栏增加当前会话重命名与整段对话复制。
+- 使用隔离目录验证 SDK 的角色系统提示词、会话命名与思考深度调用；JavaScript 语法和 DOM 引用检查通过。桌面剪贴板交互仍待验收。
+- 便携包已输出到 `C:\\Users\\Orca\\Downloads\\Summon-portable-20261009-session-controls`。
+
 ## 2026-10-09 · Git 版本 `summon-floating-ui-roles-2026-10-09`
 
 - 输入区去掉卡片底框和底色，恢复悬浮窗上沿的渐变模糊；历史会话侧栏从左侧展开。
