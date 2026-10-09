@@ -17,6 +17,41 @@ use std::{
 };
 
 const BOUNDS: StateFlags = StateFlags::SIZE.union(StateFlags::POSITION);
+#[derive(Default)]
+struct RoundedBounds(Mutex<std::collections::HashMap<String, (u32, u32)>>);
+
+fn round_window(window: &tauri::WebviewWindow) {
+    #[cfg(windows)]
+    {
+        let Ok(size) = window.outer_size() else { return; };
+        let state = window.state::<RoundedBounds>();
+        if let Ok(mut sizes) = state.0.lock() {
+            if sizes.get(window.label()) == Some(&(size.width, size.height)) { return; }
+            sizes.insert(window.label().to_owned(), (size.width, size.height));
+        }
+        let Ok(hwnd) = window.hwnd() else { return; };
+        let radius = (14.0 * window.scale_factor().unwrap_or(1.0)) as i32;
+        #[link(name = "gdi32")]
+        extern "system" { fn CreateRoundRectRgn(left: i32, top: i32, right: i32, bottom: i32, width: i32, height: i32) -> isize; fn DeleteObject(object: isize) -> i32; }
+        #[link(name = "user32")]
+        extern "system" { fn SetWindowRgn(hwnd: isize, region: isize, redraw: i32) -> i32; }
+        unsafe {
+            let region = CreateRoundRectRgn(0, 0, size.width as i32 + 1, size.height as i32 + 1, radius * 2, radius * 2);
+            if region != 0 && SetWindowRgn(hwnd.0 as isize, region, 1) == 0 { DeleteObject(region); }
+        }
+    }
+}
+
+#[tauri::command]
+fn drag_window(window: tauri::WebviewWindow) -> Result<(), String> { window.start_dragging().map_err(|e| e.to_string()) }
+
+#[tauri::command]
+fn resize_window(window: tauri::WebviewWindow, edge: String) -> Result<(), String> {
+    use tauri_runtime::ResizeDirection::*;
+    let direction = match edge.as_str() { "North" => North, "South" => South, "East" => East, "West" => West, "NorthEast" => NorthEast, "NorthWest" => NorthWest, "SouthEast" => SouthEast, "SouthWest" => SouthWest, _ => return Err("无效的缩放方向".into()) };
+    let webview: &tauri::Webview = window.as_ref();
+    webview.window().start_resize_dragging(direction).map_err(|e| e.to_string())
+}
 
 #[derive(Default)]
 struct BoundsAutosave {
@@ -247,14 +282,15 @@ async fn open_settings(app: tauri::AppHandle, section: Option<String>) -> Result
         let mut builder = WebviewWindowBuilder::new(&app, "settings", WebviewUrl::App("settings.html".into()))
             .data_directory(std::env::current_exe().map_err(|error| error.to_string())?.parent().ok_or("Executable directory unavailable")?.join("data/webview"))
             .initialization_script(format!("window.SUMMON_SETTINGS_SECTION={initial};"))
-            .title("Summon 设置").inner_size(980.0, 700.0).min_inner_size(740.0, 480.0);
+            .title("Summon 设置").decorations(false).shadow(false).inner_size(980.0, 700.0).min_inner_size(740.0, 480.0);
         #[cfg(windows)]
         if std::env::var_os("SUMMON_TEST_DATA_DIR").is_some() {
             if let Ok(port) = std::env::var("SUMMON_TEST_WEBVIEW_PORT") {
                 if let Ok(port) = port.parse::<u16>() { builder = builder.additional_browser_args(&format!("--remote-debugging-port={port}")); }
             }
         }
-        builder.build().map_err(|error| error.to_string())?;
+        let settings_window = builder.build().map_err(|error| error.to_string())?;
+        round_window(&settings_window);
     }
     Ok(())
 }
@@ -465,9 +501,10 @@ fn run_desktop() -> tauri::Result<()> {
         .manage(AgentState::default())
         .manage(ShortcutStateStore::default())
         .manage(BoundsAutosave::default())
+        .manage(RoundedBounds::default())
         .plugin(window_state.build())
         .plugin(shortcuts)
-        .invoke_handler(tauri::generate_handler![dismiss, agent_command, choose_workspace, open_local_file, desktop_preferences, set_shortcut, set_autostart, open_settings, capture_shortcut])
+        .invoke_handler(tauri::generate_handler![dismiss, agent_command, choose_workspace, open_local_file, desktop_preferences, set_shortcut, set_autostart, open_settings, capture_shortcut, drag_window, resize_window])
         .setup(|app| {
             startup_log("Creating Tauri window");
             let exe_dir = std::env::current_exe()?.parent().ok_or("Executable directory unavailable")?.to_path_buf();
@@ -481,7 +518,7 @@ fn run_desktop() -> tauri::Result<()> {
             };
             startup_log(&format!("WebView2 data directory: {}", webview_dir.display()));
             let config = &app.config().app.windows[0];
-            let mut builder = WebviewWindowBuilder::from_config(app.handle(), config)?.data_directory(webview_dir);
+            let mut builder = WebviewWindowBuilder::from_config(app.handle(), config)?.decorations(false).shadow(false).data_directory(webview_dir);
             #[cfg(windows)]
             if std::env::var_os("SUMMON_TEST_DATA_DIR").is_some() {
                 if let Ok(port) = std::env::var("SUMMON_TEST_WEBVIEW_PORT") {
@@ -489,6 +526,7 @@ fn run_desktop() -> tauri::Result<()> {
                 }
             }
             let main_window = builder.build()?;
+            round_window(&main_window);
             if std::env::args().any(|arg| arg == "--autostart") {
                 let _ = main_window.hide();
             }
@@ -515,6 +553,9 @@ fn run_desktop() -> tauri::Result<()> {
             Ok(())
         })
         .on_window_event(|window, event| {
+            if matches!(event, WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. }) {
+                if let Some(webview) = window.app_handle().get_webview_window(window.label()) { round_window(&webview); }
+            }
             if matches!(event, WindowEvent::Moved(_) | WindowEvent::Resized(_)) {
                 schedule_bounds_save(window.app_handle());
             }

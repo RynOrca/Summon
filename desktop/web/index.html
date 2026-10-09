@@ -23,7 +23,7 @@
     <symbol id="icon-close" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" d="m4 4 8 8m0-8-8 8"/></symbol>
   </svg>
   <div class="chat-shell">
-    <header class="chat-header">
+    <header class="chat-header" data-drag-region>
       <div class="header-primary">
         <button id="header-new-chat" class="icon-button" type="button" title="新对话" aria-label="新对话"><svg><use href="#icon-new"/></svg></button>
         <button id="history-button" class="icon-button" type="button" title="对话历史" aria-label="对话历史"><svg><use href="#icon-history"/></svg></button>
@@ -32,7 +32,9 @@
         <button id="role-button" class="model-chip role-chip" type="button" title="角色预设"><svg><use href="#icon-role"/></svg><span id="role-label">Agent</span><svg class="chip-chevron"><use href="#icon-chevron"/></svg></button>
       </div>
       <div class="header-actions">
+        <button id="activity-button" class="icon-button" type="button" title="工具与思考记录" aria-label="工具与思考记录"></button>
         <button id="settings-button" class="icon-button" type="button" title="设置" aria-label="设置"><svg><use href="#icon-settings"/></svg></button>
+        <button id="hide-button" class="icon-button" type="button" title="隐藏到托盘" aria-label="隐藏到托盘"></button>
 
 
       </div>
@@ -42,16 +44,17 @@
         <div id="empty-state" class="empty-state"><svg><use href="#icon-spark"/></svg><h1>有什么可以帮你？</h1><p>从这里开始一段新对话</p></div>
         <div id="messages" class="transcript-list"></div>
       </div>
-      <div class="fade-band" aria-hidden="true"></div>
     </main>
     <div class="status-line"><span class="status-pulse" aria-hidden="true"></span><span id="status" class="composer-status">正在连接…</span></div>
     <div class="composer-dock">
+      <div id="queue-preview" class="queue-preview" hidden><div id="queue-items"></div><button id="clear-queue" type="button">取消待处理消息</button></div>
       <form id="composer" class="composer-stack">
-        <div class="composer-shell">
+        <div class="composer-shell"><div class="fade-band" aria-hidden="true"></div>
           <input id="attachment-picker" type="file" multiple hidden>
           <div id="attachment-strip" class="attachment-strip" hidden></div>
           <div class="composer-input-wrap"><textarea id="prompt" class="composer-input" rows="2" placeholder="问点什么…" aria-label="消息"></textarea></div>
           <div class="composer-toolbar">
+            <select id="message-mode" class="message-mode" aria-label="生成中新消息处理方式" hidden><option value="steer">引导当前任务</option><option value="followUp">排队等待</option></select>
             <button id="add-image" class="attachment-button" type="button" title="添加文件或图片" aria-label="添加文件或图片"><svg><use href="#icon-new"/></svg></button>
             <button id="workspace-button" class="workspace-chip" type="button" title="切换工作目录"><svg><use href="#icon-folder"/></svg><span id="workspace-label">工作目录</span></button>
             <span class="composer-spacer"></span>
@@ -93,6 +96,7 @@
     <p id="role-error" class="history-error" role="alert" hidden></p>
   </dialog>
 
+<dialog id="activity-dialog" class="settings-dialog activity-dialog"><div class="settings-head"><h2>工具与思考记录</h2><button id="activity-close" class="chrome-button" aria-label="关闭">×</button></div><p>点开记录查看参数、结果、审批与模型返回的思考内容。</p><div id="activity-list"></div></dialog>
 <dialog id="context-dialog" class="settings-dialog"><div class="settings-head"><h2>上下文占用</h2><button id="context-close" class="chrome-button" aria-label="关闭">×</button></div><p id="context-detail">模型尚未提供上下文信息。</p><p class="context-explanation">根据最近一次模型用量与当前消息估算。不是所有历史对话的累计 token；服务未提供容量时不显示百分比。速度包含输出与思考 token，不含工具等待时间。</p></dialog>
 <dialog id="models-dialog" class="settings-dialog models-dialog">
   <div class="settings-head"><h2>选择模型</h2><button id="models-close" class="chrome-button" aria-label="关闭">×</button></div>

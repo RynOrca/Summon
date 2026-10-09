@@ -18,3 +18,12 @@ textarea { width:100%; resize:vertical; background:#191a1d; color:#eee; border:1
 .profile-status { font-size:11px; color:#b5c8e8; background:#303b4c; padding:5px 9px; border-radius:8px; height:fit-content; white-space:nowrap; }
 .path-label { overflow-wrap:anywhere; padding:12px 0; font-size:12px; }.note-link { background:transparent; color:#bed1f2; text-align:left; padding:0; }.note-excerpt { white-space:pre-wrap; font-size:13px; margin-top:14px; }
 #skill-detail { white-space:pre-wrap; overflow-wrap:anywhere; padding:18px; background:#191a1d; border-radius:10px; font:12px/1.7 Consolas,monospace; }
+
+body { border:0; border-radius:14px; }
+aside { border-radius:13px 0 0 13px; min-height:0; } nav { overflow:auto; min-height:0; gap:3px; }
+nav button { padding:10px 12px; } .ui-icon { width:23px; height:23px; flex:none; }
+header .icon { display:grid; place-items:center; width:34px; height:34px; } main { border-radius:0 13px 13px 0; }
+.resize-handle { position:fixed; z-index:10000; touch-action:none; }
+.edge-North,.edge-South { left:12px; right:12px; height:5px; cursor:ns-resize; }.edge-North { top:0; }.edge-South { bottom:0; }
+.edge-East,.edge-West { top:12px; bottom:12px; width:5px; cursor:ew-resize; }.edge-East { right:0; }.edge-West { left:0; }
+.edge-NorthEast,.edge-NorthWest,.edge-SouthEast,.edge-SouthWest { width:12px; height:12px; }.edge-NorthEast { top:0;right:0;cursor:nesw-resize; }.edge-NorthWest { top:0;left:0;cursor:nwse-resize; }.edge-SouthEast { bottom:0;right:0;cursor:nwse-resize; }.edge-SouthWest { bottom:0;left:0;cursor:nesw-resize; }

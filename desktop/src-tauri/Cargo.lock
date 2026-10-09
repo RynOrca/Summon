@@ -2971,6 +2971,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-global-shortcut",
  "tauri-plugin-window-state",
+ "tauri-runtime",
 ]
 
 [[package]]

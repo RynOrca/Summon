@@ -1,5 +1,6 @@
 // Transcript row structure and disclosure behavior adapted from PI-Desktop 0.16.1.
 import { renderMarkdown } from "./markdown.js";
+import { icon, windowHandles } from "./icons.js";
 const $ = (id) => document.getElementById(id);
 const tauri = window.__TAURI__;
 const messages = $("messages");
@@ -23,6 +24,7 @@ let submitted = null;
 const toolRows = new Map();
 const permissionRows = new Map();
 const pending = new Map();
+const queuedTexts = new Map();
 let attachments = [];
 
 function status(text) {
@@ -30,13 +32,14 @@ function status(text) {
   $("status").parentElement.classList.toggle("is-busy", /正在|连接/.test(text));
   $("status").parentElement.classList.toggle("is-error", /断开|出错|失败/.test(text));
 }
-function updateSendAvailability() { $("send-button").disabled = running || (!prompt.value.trim() && !attachments.length); }
+function updateSendAvailability() { $("send-button").disabled = (!prompt.value.trim() && !attachments.length); }
 function scrollToLatest() { transcript.scrollTop = transcript.scrollHeight; }
 function refreshEmpty() { $("empty-state").hidden = messages.childElementCount > 0; }
 function setRunning(value) {
   running = value;
   updateSendAvailability();
   $("stop-button").hidden = !value;
+  $("message-mode").hidden = !value;
   status(value ? "PI 正在回复…" : "就绪");
 }
 function errorRow(message) {
@@ -109,10 +112,10 @@ async function addFiles(files) {
   renderAttachments();
 }
 function disclosure({ kind, title, summary = "", detail = "", state = "done", id }) {
-  const row = document.createElement("div"); row.className = `tool-row ${kind}`;
+  const row = document.createElement("div"); row.className = `tool-row ${kind}`; row.dataset.recordId = crypto.randomUUID();
   const head = document.createElement("button"); head.type = "button"; head.className = "tool-row-header";
   head.setAttribute("aria-expanded", "false");
-  const icon = document.createElement("span"); icon.className = "tool-row-icon"; icon.textContent = kind === "thinking" ? "✧" : "⌁";
+  const mark = document.createElement("span"); mark.className = "tool-row-icon"; mark.append(icon(kind === "thinking" ? "thinking" : kind === "permission" ? "shield" : "tools"));
   const name = document.createElement("span"); name.className = "tool-row-name"; name.textContent = title;
   if (state === "running") name.classList.add("running");
   const brief = document.createElement("span"); brief.className = "tool-row-summary"; brief.textContent = summary;
@@ -121,7 +124,7 @@ function disclosure({ kind, title, summary = "", detail = "", state = "done", id
   const label = document.createElement("span"); label.textContent = state === "running" ? "运行中" : state === "error" ? "失败" : "完成";
   indicator.append(dot, label);
   const caret = document.createElement("span"); caret.className = "tool-row-caret"; caret.textContent = "›";
-  head.append(icon, name, brief, indicator, caret);
+  head.append(mark, name, brief, indicator, caret);
   const body = document.createElement("div"); body.className = "tool-row-body"; body.hidden = true;
   if (id) body.id = `detail-${id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
   const content = document.createElement("div"); content.className = "tool-row-content"; content.textContent = detail;
@@ -176,10 +179,8 @@ function permissionRequest(event) {
   actions.append(allow, deny); row.row.append(actions);
   const decide = async (decision) => {
     allow.disabled = true; deny.disabled = true;
-    row.brief.textContent = decision === "allow" ? "已允许" : "已拒绝";
-    updateDisclosure(row, decision === "allow" ? "done" : "error");
     try { await command("tool_decision", { requestId: event.requestId, decision }, true); }
-    catch (error) { errorRow(String(error)); }
+    catch (error) { allow.disabled = false; deny.disabled = false; errorRow(String(error)); }
   };
   allow.addEventListener("click", () => void decide("allow"));
   deny.addEventListener("click", () => void decide("deny"));
@@ -279,12 +280,14 @@ function renderModels() {
   }
   if (!list.childElementCount) { const p = document.createElement("p"); p.textContent = "没有可用模型，请先配置提供商。"; list.append(p); }
 }
-function renderThinkingLevels(levels, selected) {
-  const names = { off: "思考关闭", minimal: "最少", low: "低", medium: "中等", high: "高", xhigh: "很高" };
+function renderThinkingLevels(levels, selected, info = {}) {
+  const names = { off: "思考关闭", minimal: "最少", low: "低", medium: "中等", high: "高", xhigh: "很高", max: "最高" };
   const picker = $("thinking-level");
+  if (["qwen","qwen-chat-template"].includes(info.thinkingFormat)) names.medium="思考开启";
+  picker.title=info.reasoningKnown === false ? "服务未提供思考能力信息，可在模型设置中补充。" : "仅显示该模型支持的思考选项";
   picker.replaceChildren();
   for (const level of levels || []) picker.add(new Option(names[level] || level, level));
-  picker.value = selected || "";
+  picker.value = levels?.includes(selected) ? selected : levels?.[0] || "off";
   picker.disabled = picker.options.length < 2;
 }
 function roleError(error) {
@@ -364,6 +367,20 @@ function onEvent(event) {
     response.type === "error" ? reject(new Error(response.message)) : resolve(response);
   }
   switch (response.type) {
+    case "queue": {
+      $("queue-items").replaceChildren();
+      for (const [label, list] of [["引导", response.steering], ["排队", response.followUp]]) for (const text of list || []) { const row = document.createElement("p"); row.textContent = `${label} · ${text}`; $("queue-items").append(row); }
+      $("queue-preview").hidden = !$("queue-items").childElementCount; break;
+    }
+    case "user_delivered":
+      if (queuedTexts.has(response.text)) { const count = queuedTexts.get(response.text); if(count > 1) queuedTexts.set(response.text,count-1); else queuedTexts.delete(response.text); messageRow("user", response.text); assistantRow = null; thinkingRow = null; }
+      break;
+    case "tool_permission_result": {
+      let row = permissionRows.get(response.requestId);
+      if (!row && response.mode === "auto") row = disclosure({kind:"permission", title: response.name, summary:"自动审批", detail:"操作已在允许范围内自动批准。"});
+      if (row) { row.row.querySelector(".permission-actions")?.remove(); row.brief.textContent = response.decision === "allow" ? (response.mode === "auto" ? "自动批准" : "已允许") : "已拒绝"; updateDisclosure(row, response.decision === "allow" ? "done" : "error"); permissionRows.delete(response.requestId); }
+      break;
+    }
     case "telemetry": renderTelemetry(response); break;
     case "ready": status("正在读取模型…"); break;
     case "models": modelCatalog = response.models || []; renderModels(); break;
@@ -373,13 +390,13 @@ function onEvent(event) {
       $("model-button").title = response.model || "选择模型";
       activeSessionId = response.sessionId || "";
       activeSessionName = response.sessionName || "";
-      renderThinkingLevels(response.availableThinkingLevels, response.thinkingLevel);
+      renderThinkingLevels(response.availableThinkingLevels, response.thinkingLevel, response);
       $("workspace-label").textContent = (response.workspace || "").replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "无项目";
       $("workspace-button").title = response.workspace || "切换工作目录";
       if (response.roleId) { activeRoleId = response.roleId; renderRoles(); }
       void command("list_sessions");
       break;
-    case "thinking_level": renderThinkingLevels(response.availableThinkingLevels, response.level); break;
+    case "thinking_level": renderThinkingLevels(response.availableThinkingLevels, response.level, response); break;
     case "session_name":
       if (response.sessionId === activeSessionId) activeSessionName = response.name || "";
       void command("list_sessions");
@@ -396,7 +413,7 @@ function onEvent(event) {
     case "history": restoreHistory(response.messages || []); status("就绪"); break;
     case "delta": {
       if (response.kind === "thinking") {
-        if (!thinkingRow) thinkingRow = disclosure({ kind: "thinking", title: "思考过程", state: "running" });
+        if (!thinkingRow) { thinkingRow = disclosure({ kind: "thinking", title: "思考过程", state: "running" }); thinkingRow.head.click(); }
         thinkingRow.content.textContent += response.text || "";
         thinkingRow.brief.textContent = thinkingRow.content.textContent.replace(/\s+/g, " ").slice(0, 120);
       } else {
@@ -406,7 +423,7 @@ function onEvent(event) {
       }
       scrollToLatest(); break;
     }
-    case "tool_start": toolStart(response); break;
+    case "tool_start": if(thinkingRow) updateDisclosure(thinkingRow,"done"); assistantRow=null; thinkingRow=null; toolStart(response); break;
     case "tool_end": toolEnd(response); break;
     case "tool_permission_request": permissionRequest(response); break;
     case "tool_permission_expired": {
@@ -415,6 +432,7 @@ function onEvent(event) {
         row.brief.textContent = response.reason || "已超时";
         row.allow.disabled = true;
         row.deny.disabled = true;
+        row.row.querySelector(".permission-actions")?.remove();
         updateDisclosure(row, "error");
         permissionRows.delete(response.requestId);
       }
@@ -472,7 +490,12 @@ function command(type, args = {}, awaitReply = false) {
 $("composer").addEventListener("submit", async (event) => {
   event.preventDefault();
   const text = prompt.value.trim();
-  if ((!text && !attachments.length) || running) return;
+  if ((!text && !attachments.length)) return;
+  if (running) {
+    if (attachments.length) { errorRow("引导和排队目前支持文本；附件请在当前任务完成后发送。"); return; }
+    queuedTexts.set(text,(queuedTexts.get(text)||0)+1);
+    try { await command("queue_message", { text, mode: $("message-mode").value }, true); prompt.value = ""; updateSendAvailability(); } catch(e) { queuedTexts.delete(text); errorRow(String(e.message || e)); } return;
+  }
   const items = attachments;
   running = true; updateSendAvailability();
   status("正在准备附件…");
@@ -602,3 +625,24 @@ if (tauri) {
 } else {
   status("请在 Tauri 桌面窗口中运行");
 }
+for (const [id,name] of Object.entries({"header-new-chat":"new","history-button":"history","settings-button":"settings","hide-button":"hide","activity-button":"activity","add-image":"new","stop-button":"stop","send-button":"send"})) $(id).replaceChildren(icon(name));
+for (const [id,name] of [["model-button","spark"],["role-button","role"],["workspace-button","folder"]]) $(id).querySelector("svg")?.replaceWith(icon(name));
+$("hide-button").onclick = () => void tauri?.core.invoke("dismiss");
+const activityOpen = new Set();
+function renderActivity() {
+  for(const row of $("activity-list").querySelectorAll(".tool-row")) { if(row.classList.contains("open")) activityOpen.add(row.dataset.recordId); else activityOpen.delete(row.dataset.recordId); }
+  $("activity-list").replaceChildren();
+  for(const row of messages.querySelectorAll(".tool-row")) {
+    const copy=row.cloneNode(true); copy.querySelector(".permission-actions")?.remove();
+    for(const node of copy.querySelectorAll("[id]")) node.removeAttribute("id");
+    const open=activityOpen.has(row.dataset.recordId); copy.classList.toggle("open",open); copy.querySelector(".tool-row-body").hidden=!open; copy.querySelector(".tool-row-header").setAttribute("aria-expanded",String(open));
+    $("activity-list").append(copy);
+  }
+  if(!$("activity-list").childElementCount){const p=document.createElement("p");p.textContent="本次会话尚无工具或思考记录。";$("activity-list").append(p);}
+}
+$("activity-button").onclick = () => { renderActivity(); $("activity-dialog").showModal(); };
+$("activity-close").onclick = () => $("activity-dialog").close();
+$("activity-list").onclick = event => { const head = event.target.closest(".tool-row-header"); if(!head)return;const body=head.nextElementSibling;body.hidden=!body.hidden;head.setAttribute("aria-expanded",String(!body.hidden));head.parentElement.classList.toggle("open",!body.hidden); };
+let activityUpdate; new MutationObserver(()=>{if(!$("activity-dialog").open)return;clearTimeout(activityUpdate);activityUpdate=setTimeout(renderActivity,150);}).observe(messages,{subtree:true,childList:true,characterData:true});
+$("clear-queue").onclick = () => { void command("clear_queue"); queuedTexts.clear(); };
+windowHandles(tauri);

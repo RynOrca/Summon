@@ -1,14 +1,16 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Summon 设置</title><link rel="stylesheet" href="settings.css"><script type="module" src="settings.js"></script></head>
 <body><aside><h1>设置</h1><nav>
-<button data-section="general">☷ <span>通用</span></button><button data-section="models">◇ <span>模型</span></button><button data-section="memory">♧ <span>记忆</span></button><button data-section="vault">▤ <span>笔记库</span></button><button data-section="skills">⌘ <span>技能仓库</span></button><button data-section="tools">⌁ <span>工具</span></button><button data-section="roles">◉ <span>角色</span></button><button data-section="about">ⓘ <span>关于</span></button>
+<button data-section="general"><span>通用</span></button><button data-section="models"><span>模型</span></button><button data-section="memory"><span>记忆</span></button><button data-section="vault"><span>笔记库</span></button><button data-section="skills"><span>技能仓库</span></button><button data-section="tools"><span>工具</span></button><button data-section="security"><span>权限与范围</span></button><button data-section="agent"><span>Agent 能力</span></button><button data-section="roles"><span>角色</span></button><button data-section="about"><span>关于</span></button>
 </nav><footer>Summon <span>随时呼出，快速开始</span></footer></aside>
-<main><header><div><h2 id="page-title">通用</h2><p id="page-description">窗口与快捷键</p></div><button id="close" class="icon" aria-label="关闭设置">×</button></header><p id="notice" role="status" hidden></p>
+<main><header data-drag-region><div><h2 id="page-title">通用</h2><p id="page-description">窗口与快捷键</p></div><button id="close" class="icon" aria-label="关闭设置">×</button></header><p id="notice" role="status" hidden></p>
 <section id="general" class="page">
 <div class="setting-row"><div><h3>开机自启</h3><p>登录 Windows 后启动到托盘，随时用快捷键呼出。</p></div><input id="autostart" class="switch" type="checkbox" aria-label="开机自启"></div>
 <div class="setting-row"><div><h3>呼出快捷键</h3><p>点击后按下组合键。Esc 取消，快捷键冲突会提示。</p></div><button id="shortcut" class="secondary">正在读取…</button></div>
 <div class="setting-row"><div><h3>轻量悬浮窗</h3><p>关闭对话窗口后驻留托盘；设置使用独立窗口。滚动区域保留滚动操作，隐藏滚动条。</p></div></div>
 </section>
+<section id="security" class="page" hidden><div class="setting-row"><div><h3>审批方式</h3><p>手动确认每次修改；自动审批批准范围内的文件操作。浏览器点击、填写始终确认。</p></div><select id="approval-mode" aria-label="审批方式"><option value="manual">手动确认</option><option value="auto">自动审批</option></select></div><div class="setting-row"><div><h3>文件权限范围</h3><p>默认可读取其他目录，只修改当前工作区。完全文件权限允许跨目录修改；只在任务结束后切换。</p></div><select id="file-access" aria-label="文件权限范围"><option value="workspace">工作区写入</option><option value="full">完全文件权限</option></select></div><div class="card"><h3>当前工作区</h3><p id="security-workspace" class="path-label"></p><h3>默认只读目录</h3><p id="security-readonly" class="path-label"></p><p class="hint">未隔离的 bash / PowerShell 已关闭。本页控制文件工具范围，不是操作系统进程沙盒。</p></div></section>
+<section id="agent" class="page" hidden><div class="card"><h3>实际运行能力</h3><p id="agent-summary"></p><p id="agent-extensions"></p><p id="agent-mcp"></p><button id="refresh-agent" class="secondary">刷新运行状态</button></div><label>查找工具<input id="agent-tool-query" placeholder="名称或描述"></label><div id="agent-tool-list"></div></section>
 <section id="models" class="page" hidden>
 <h3 class="section-title">已配置的提供商</h3><div id="providers" class="provider-list"></div>
 <h3 class="section-title">新增提供商</h3><div id="templates" class="template-grid"></div>
@@ -20,7 +22,7 @@
 <div id="discovered-models" class="discovered-models"></div>
 <details class="advanced"><summary>接口未提供信息？手动补充</summary><p class="hint">标准模型列表可能只返回 ID。未知能力不会被猜测；可按服务端配置补充。</p>
 <div class="form-grid"><label>Model ID<input id="manual-model"></label><label>上下文长度<input id="manual-context" type="number" min="1" placeholder="未知"></label></div>
-<div class="form-grid"><label>思考能力<select id="manual-reasoning"><option value="unknown">未知 / 保持原值</option><option value="yes">支持</option><option value="no">不支持</option></select></label><label>思考协议<select id="thinking-format"><option value="">保持原值</option><option value="openai">reasoning_effort</option><option value="qwen-chat-template">Qwen chat_template_kwargs</option><option value="qwen">Qwen enable_thinking</option><option value="deepseek">DeepSeek thinking</option></select></label></div><button type="button" id="manual-save" class="secondary">保存模型信息</button></details></form>
+<div class="form-grid"><label>思考能力<select id="manual-reasoning"><option value="unknown">未知 / 保持原值</option><option value="yes">支持</option><option value="no">不支持</option></select></label><label>思考协议<select id="thinking-format"><option value="">保持原值</option><option value="openai">reasoning_effort</option><option value="qwen-chat-template">Qwen chat_template_kwargs</option><option value="qwen">Qwen enable_thinking</option><option value="deepseek">DeepSeek thinking</option></select></label></div><label>支持的档位（按服务配置，逗号分隔）<input id="manual-levels" placeholder="low, medium, high；Qwen 开关不需要填写"></label><button type="button" id="manual-save" class="secondary">保存模型信息</button></details></form>
 </section>
 <section id="memory" class="page" hidden><div class="card"><h3>Agent 整理，按需召回</h3><p>Agent 在对话中记住明确的偏好和学习信息，回复结束后在后台整理。新的提问会取消尚未完成的整理任务。你可以直接在对话中要求纠正记忆。</p><button id="organize" class="secondary">整理当前对话</button><span id="memory-status" class="hint"></span></div>
 <div class="setting-row"><div><h3>学习者画像 · L1</h3><p>保存明确的学习背景与稳定偏好，每轮注入精简画像。</p></div><input id="l1" class="switch" type="checkbox" aria-label="学习者画像"></div>

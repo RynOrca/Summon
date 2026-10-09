@@ -1,4 +1,5 @@
 const $ = id => document.getElementById(id);
+import { icon, windowHandles } from "./icons.js";
 const tauri = window.__TAURI__;
 let sequence = 0, templates = [], providers = [], editing = null, providerId = null, recording = false, savedShortcut = "", memory = {}, roleId = null;
 const pending = new Map();
@@ -13,6 +14,19 @@ function command(type, args = {}) {
   });
 }
 const headings = { general: ["通用", "窗口与快捷键"], models: ["模型", "选择提供商，连接你的模型"], memory: ["记忆", "由 Agent 整理的学习信息"], vault: ["笔记库", "引用你的 Obsidian 笔记，回到原文复习"], skills: ["技能仓库", "管理 Agent 可用的技能"], tools: ["工具", "搜索、浏览器与文件能力"], roles: ["角色", "角色说明作为系统指令，每轮生效"], about: ["关于", "轻量的个人 Agent 入口"] };
+headings.security = ["权限与范围", "文件范围与审批方式分别管理"]; headings.agent = ["Agent 能力", "实际加载的工具、扩展、技能与 MCP 状态"];
+let agentCapabilities = {};
+function renderAgent(state = agentCapabilities) {
+  agentCapabilities = state; $("approval-mode").value = state.approval || "manual"; $("file-access").value = state.access || "workspace";
+  $("security-workspace").textContent = state.workspace || ""; $("security-readonly").textContent = state.readOnly?.join("\n") || "未连接只读目录";
+  $("agent-summary").textContent = `${state.tools?.filter(t=>t.active).length || 0} 个可用工具 · ${capabilities.skills?.filter(s=>s.enabled).length || 0} 个启用技能 · 终端已关闭`;
+  $("agent-extensions").textContent = "内置扩展：" + (state.extensions || []).join("、"); $("agent-mcp").textContent = state.mcp?.length ? "MCP：" + state.mcp.join("、") : "MCP：未连接服务器。现有浏览器、搜索和文件能力通过内置工具提供。";
+  $("agent-tool-list").replaceChildren(); const query = $("agent-tool-query").value.toLowerCase();
+  for (const tool of state.tools || []) { if (!(tool.name + " " + tool.description).toLowerCase().includes(query)) continue; const row = element("div", undefined, "card tool-capability"), title = element("h3", tool.name), status = element("span", tool.active ? "可用" : "未启用", "profile-status"); title.append(status); row.append(title, element("p", tool.description), element("small", "操作范围：" + tool.scope)); $("agent-tool-list").append(row); }
+}
+$("agent-tool-query").oninput = () => renderAgent(); $("refresh-agent").onclick = () => action(()=>command("get_state"));
+$("approval-mode").onchange = () => action(async()=>{try { await command("set_approval",{mode:$("approval-mode").value}); notice("审批方式已更新，适用于后续工具调用。"); } catch(e) { renderAgent(); throw e; }});
+$("file-access").onchange = () => action(async()=>{try { await command("set_file_access",{mode:$("file-access").value}); notice("文件权限范围已更新。"); } catch(e) { renderAgent(); throw e; }});
 let capabilities = {};
 function element(tag, text, className) { const e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (className) e.className = className; return e; }
 function renderCapabilities(state) {
@@ -126,6 +140,7 @@ $("discover").onclick = () => action(async () => {
 $("manual-save").onclick = () => action(async () => {
   await saveProvider(); const value = $("manual-reasoning").value;
   const model = { id: $("manual-model").value.trim(), ...($("manual-context").value ? { contextWindow: Number($("manual-context").value) } : {}), ...(value !== "unknown" ? { reasoning: value === "yes" } : {}), thinkingFormat: $("thinking-format").value };
+  if ($("manual-levels").value.trim()) model.thinkingLevels = $("manual-levels").value.split(/[,，\s]+/).filter(Boolean);
   await command("update_model", { providerId, model }); notice("模型信息已保存。");
 });
 $("cancel-provider").onclick = () => { $("provider-form").hidden = true; editing = null; providerId = null; };
@@ -194,6 +209,7 @@ if (tauri) {
       if (r.type === "memory") { memory = r.state; renderMemory(); }
       if (r.type === "learner") renderLearner(r.state);
       if (r.type === "capabilities") renderCapabilities(r.state);
+      if (r.type === "agent_capabilities") { renderAgent(r); if($("notice").textContent.includes("Agent 连接断开")) notice(""); }
       if (r.type === "roles") renderRoles(r.roles || []);
       if (r.type === "memory_status") $("memory-status").textContent = ({ organizing:" 正在整理…", saved:" 已整理", error:" 整理失败，可稍后重试" })[r.status] || "";
       if (r.type === "disconnected") { for (const p of pending.values()) { clearTimeout(p.timer); p.reject(new Error("Agent 连接断开")); } pending.clear(); notice("Agent 连接断开，请在主对话窗口恢复连接后重试。", true); }
@@ -202,3 +218,5 @@ if (tauri) {
     await command("get_state");
   });
 } else notice("请在 Summon 桌面应用中打开设置。", true);
+for (const button of document.querySelectorAll("nav button")) button.prepend(icon(({general:"settings",models:"model",memory:"memory",vault:"book",skills:"skill",tools:"tools",security:"shield",agent:"activity",roles:"role",about:"info"})[button.dataset.section]));
+$("close").replaceChildren(icon("close")); windowHandles(tauri);

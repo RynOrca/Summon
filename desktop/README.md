@@ -32,7 +32,7 @@ Agent 可调用 `remember` 工具即时更新。回复结束 2.5 秒后，用当
 
 输入区“＋”支持图片和普通文件，支持粘贴和拖放，每次最多 8 个、每个最多 5 MB。图片作为结构化内容发给模型；普通文件复制到隔离会话附件目录后由 Agent 读取。附件不会自动清理。
 
-读取工具可直接运行；edit、write、bash、powershell 每次会询问允许或拒绝，五分钟超时、停止或切换会话自动拒绝。Agent 的记忆更新不修改外部项目文件。
+读取工具可直接运行；edit、write 和文件复制／移动遵循设置中的审批方式。手动确认五分钟超时或停止时自动拒绝；未隔离 bash／PowerShell 已关闭。Agent 记忆更新不修改外部项目文件。
 
 ## 诊断
 
@@ -55,7 +55,7 @@ Node.js 22.19+、Rust stable、WebView2 Runtime。先在 desktop/agent 执行 np
 - **技能仓库**：设置选择含 SKILL.md 的目录导入，目录副本存入 Summon 数据目录。可搜索、查看正文和开关；只启用的技能名称/说明进入提示词，Agent 需要时读取正文。目录上限 500 文件 / 10 MB；不跟随符号链接、不导入 node_modules 或 .git。
 - **笔记库**：设置选择 Obsidian Vault，只索引 Markdown 原文件（排除 .obsidian/.git 和符号链接）。按标题、路径、标题段落及正文关键词检索，不要求向量模型；修改会在下次查询更新。相关提问自动召回，Agent 可继续使用 search_notes 检索，引用原文件链接及行号并提醒复习。上限 1 万文件 / 100 MB，单文件 1 MB。不在后台修改原笔记。
 - **联网工具**：设置→工具填写 Tavily API Key 后启用 web_search / fetch_url，分别使用 basic 搜索/正文提取，返回来源网址；调用使用 Tavily 服务额度。Key 经 Windows DPAPI 保存。current_time 获取系统时区及 UTC。
-- **浏览器和文件**：browser 首次使用才启动已安装 Edge 的独立无头配置，可导航、快照、截图、点击、填写，闲置 60 秒退出。点击/填写需确认；不访问用户现有浏览器配置。file_manage 只在当前项目列出目录、复制/移动普通文件，不覆盖目标，笔记库不可作为写入目标。已有 PI read/ls/find/grep/edit/write/bash/powershell 继续可用。
+- **浏览器和文件**：browser 首次使用才启动已安装 Edge 的独立无头配置，可导航、快照、截图、点击、填写，闲置 60 秒退出。点击/填写需确认；不访问用户现有浏览器配置。file_manage 可以读取其他目录，默认仅在工作区写入、笔记库只读；完全文件权限允许跨目录修改，不覆盖目标。PI read／ls／find／grep／edit／write 继续可用，终端关闭。
 - **本地链接**：Markdown 表格和链接支持。生成 HTML 时 Agent 被要求提供绝对文件链接。点击本地链接在当前项目、Vault 或附件目录中解析，允许的文档类型由 Windows 默认应用打开；不执行链接中的命令，不渲染模型提供的原始 HTML。
 - **角色**：角色说明每轮进入系统提示词。笔记、网页与记忆作为参考资料，不能变更系统角色；最终遵守程度仍取决于所用模型的指令能力。
 - **占用与速度**：发送旁小圆环点击查看 SDK 上下文估算 token / 模型容量，容量未知则不显示百分比。tok/s = 服务端输出 token / 模型生成时段（包含思考与首 token 等待，排除工具等待），多次模型调用累加生成时段，不使用字符数冒充 token。未返回用量显示“—”。
@@ -63,3 +63,13 @@ Node.js 22.19+、Rust stable、WebView2 Runtime。先在 desktop/agent 执行 np
 架构参考：[Inno Agent 学习记忆](https://github.com/hhyqhh/inno-agent/tree/main/apps/inno-agent/src/memory/learner)；借鉴结构，没有复制其实现代码。[Tavily 搜索 API](https://docs.tavily.com/documentation/api-reference/endpoint/search)及[提取 API](https://docs.tavily.com/documentation/api-reference/endpoint/extract)。实时 Tavily 服务与电脑 A 实际模型仍需你自己的 Key / 服务完成使用验证。
 
 PI-Desktop 来源与 LGPL-3.0 许可证见 PI-DESKTOP-LICENSE。
+
+## 文件权限、审批与运行记录
+
+设置 → 权限与范围分别管理文件范围和审批方式。默认可读取任意有系统读取权限的目录，写入／编辑仅限当前工作区（无项目使用独立工作区），笔记库、导入技能及附件默认只读；选择完全文件权限可跨目录修改。自动审批只批准范围内文件修改，浏览器点击／填写仍确认。未隔离终端始终关闭，完全文件权限不等于恢复终端。这里是受控文件工具边界，不是操作系统进程沙盒。
+
+回复期间可选择引导或排队后发送文本，待处理消息在输入区展示并可取消。引导在 PI 下一个执行边界送达，排队在当前任务完成后继续；目前队列不接收附件。工具与服务返回的思考内容可在对话内展开，也可从顶部记录按钮集中查看。审批完成后按钮移除，历史保留工具调用及结果；服务未返回思考正文时不会编造。
+
+设置 → Agent 能力展示实际工具、内置扩展、技能数量与 MCP 状态。当前没有连接外部 MCP 服务器，联网和文件管理由内置工具提供。模型接口若不提供档位，请在高级模型信息中补充协议与档位；Qwen 开关模式只显示开启／关闭。
+
+两窗口均无系统标题栏，以原生区域裁剪圆角；关闭 Windows 系统阴影避免白色外边框。顶部空白处可拖动，边缘可缩放，保留大小位置记忆。
