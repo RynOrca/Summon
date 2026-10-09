@@ -8,6 +8,7 @@ use tauri::{
 use tauri_plugin_global_shortcut::{ShortcutState, GlobalShortcutExt};
 use tauri_plugin_window_state::{AppHandleExt, StateFlags};
 use std::{
+    fs::OpenOptions,
     io::{BufRead, BufReader, Write},
     path::PathBuf,
     process::{Child, ChildStdin, Command, Stdio},
@@ -122,7 +123,57 @@ fn dismiss(window: tauri::WebviewWindow) {
     let _ = window.hide();
 }
 
+fn startup_log(message: &str) {
+    let path = std::env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir)
+        .join("Summon")
+        .join("startup.log");
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(file, "{message}");
+    }
+}
+
+#[cfg(windows)]
+fn show_startup_error(message: &str) {
+    use std::os::windows::ffi::OsStrExt;
+    #[link(name = "user32")]
+    extern "system" {
+        fn MessageBoxW(hwnd: isize, text: *const u16, caption: *const u16, flags: u32) -> i32;
+    }
+    let text: Vec<u16> = std::ffi::OsStr::new(message).encode_wide().chain(Some(0)).collect();
+    let caption: Vec<u16> = std::ffi::OsStr::new("Summon 启动失败").encode_wide().chain(Some(0)).collect();
+    unsafe { MessageBoxW(0, text.as_ptr(), caption.as_ptr(), 0x10); }
+}
+
+#[cfg(not(windows))]
+fn show_startup_error(message: &str) {
+    eprintln!("{message}");
+}
+
+fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
+    let open = MenuItem::with_id(app, "open", "显示 Summon", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "退出 Summon", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&open, &quit])?;
+    TrayIconBuilder::new()
+        .menu(&menu)
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "open" => show_main(app),
+            "quit" => {
+                let _ = app.save_window_state(BOUNDS);
+                app.exit(0);
+            }
+            _ => {}
+        })
+        .build(app)?;
+    Ok(())
+}
+
 fn main() {
+    startup_log("Starting Summon");
     let shortcuts = tauri_plugin_global_shortcut::Builder::new()
         .with_handler(|app, _shortcut, event| {
             if event.state() == ShortcutState::Pressed {
@@ -131,36 +182,23 @@ fn main() {
         })
         .build();
 
-    tauri::Builder::default()
+    let result = tauri::Builder::default()
         .manage(AgentState::default())
         .plugin(tauri_plugin_window_state::Builder::new().with_state_flags(BOUNDS).build())
         .plugin(shortcuts)
         .invoke_handler(tauri::generate_handler![dismiss, agent_command])
         .setup(|app| {
-            let open = MenuItem::with_id(app, "open", "显示 Summon", true, None::<&str>)
-                .map_err(|error| { eprintln!("tray open item: {error}"); error })?;
-            let quit = MenuItem::with_id(app, "quit", "退出 Summon", true, None::<&str>)
-                .map_err(|error| { eprintln!("tray quit item: {error}"); error })?;
-            let menu = Menu::with_items(app, &[&open, &quit])
-                .map_err(|error| { eprintln!("tray menu: {error}"); error })?;
-            TrayIconBuilder::new()
-                .menu(&menu)
-                .on_menu_event(|app, event| match event.id.as_ref() {
-                    "open" => show_main(app),
-                    "quit" => {
-                        let _ = app.save_window_state(BOUNDS);
-                        app.exit(0);
-                    }
-                    _ => {}
-                })
-                .build(app)
-                .map_err(|error| { eprintln!("tray icon: {error}"); error })?;
+            startup_log("Tauri window created");
+            if let Err(error) = setup_tray(app) {
+                startup_log(&format!("Tray unavailable: {error}"));
+            }
 
             for accelerator in ["Alt+Shift+C", "Alt+Shift+Q", "Alt+Shift+J", "F3"] {
                 if app.global_shortcut().register(accelerator).is_ok() {
                     break;
                 }
             }
+            startup_log("Setup complete");
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -170,6 +208,10 @@ fn main() {
                 let _ = window.hide();
             }
         })
-        .run(tauri::generate_context!())
-        .expect("Summon desktop failed to start");
+        .run(tauri::generate_context!());
+    if let Err(error) = result {
+        let message = format!("Summon 无法启动：{error}\n\n请将 %LOCALAPPDATA%\\Summon\\startup.log 中的内容发给开发者。 ");
+        startup_log(&format!("Startup failed: {error:?}"));
+        show_startup_error(&message);
+    }
 }

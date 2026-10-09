@@ -1,5 +1,17 @@
 # 更新记录
 
+## 2026-10-09 · Git 版本 `summon-startup-diagnostics-2026-10-09`
+
+- 启动时写入 `%LOCALAPPDATA%\\Summon\\startup.log`，启动失败显示错误弹窗和日志位置，避免正式版静默退出。
+- 托盘创建失败不再中断窗口启动，并在日志中记录；便携包加入 Agent 授权模块，修正缺文件导致的 Agent 启动失败。
+- Rust 编译检查及正式版构建通过。当前执行环境中的程序启动被系统环节阻滞，窗口是否正常显示仍需在用户机器验证。
+
+## 2026-10-08 · Git 版本 `summon-tool-approval-2026-10-08`
+
+- 为 `edit`、`write`、`bash`、`powershell` 工具加入 PI Agent `tool_call` 授权拦截和界面允许/拒绝按钮。
+- 授权请求五分钟超时，切换会话、停止生成或 Agent 退出时自动拒绝；读取类工具继续直接运行。
+- 静态脚本检查、隔离 Agent 启动、无效授权请求拒绝和 Rust `cargo check` 通过。
+
 ## 2026-10-08 · Git 版本 `summon-session-management-2026-10-08`
 
 - 增加新建会话、列出当前工作目录的历史会话和打开会话；在切换时恢复聊天记录。
