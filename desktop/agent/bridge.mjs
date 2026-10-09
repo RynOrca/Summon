@@ -1,5 +1,5 @@
 import { createInterface } from "node:readline";
-import { mkdir, stat, readFile, writeFile, rename } from "node:fs/promises";
+import { mkdir, stat, readFile, writeFile, rename, realpath } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { createApprovalGate } from "./approval.mjs";
 import { RoleStore } from "./roles.mjs";
@@ -60,7 +60,7 @@ let busy = false;
 let queue = Promise.resolve();
 const securityPath = join(dataDir, "security.json");
 const security = await readJson(securityPath, { approval: "manual" });
-const scope = new FileScope({ workspace: () => cwd, readOnly: () => [capabilities.state.vaultPath, join(dataDir,"skills"), join(dataDir, "attachments")].filter(Boolean), fullAccess: () => security.access === "full" });
+const scope = new FileScope({ workspace: () => cwd, readOnly: () => [capabilities.state.vaultPath, join(dataDir,"skills"), join(dataDir, "attachments"), ...(security.readOnly || [])].filter(Boolean), fullAccess: () => security.access === "full" });
 const approvalGate = createApprovalGate(send, undefined, () => security.approval);
 const memoryAgent = createMemoryAgent({ memory, learner, send, currentSession: () => session, runtime: getRuntime });
 const learningTools = createLearningTools({ capabilities, currentWorkspace: () => cwd, roles, send, scope });
@@ -198,7 +198,7 @@ async function emitState() {
   send({ type: "learner", state: learner.snapshot() });
   send({ type: "capabilities", state: capabilities.snapshot() });
   const active = new Set(session?.getActiveToolNames() || []);
-  send({ type: "agent_capabilities", approval: security.approval, access: security.access === "full" ? "full" : "workspace", workspace: cwd, readOnly: scope.readOnly(), tools: (session?.getAllTools() || []).map(t => ({ name: t.name, description: t.description, active: active.has(t.name) && !(["web_search", "fetch_url"].includes(t.name) && (!capabilities.state.webEnabled || !capabilities.key)) && !(t.name === "browser" && !capabilities.state.browserEnabled), scope: ["write", "edit", "file_manage"].includes(t.name) ? (security.access === "full" ? "完全文件权限" : "当前工作区") : FILE_TOOLS.includes(t.name) ? "任意可读取目录" : "按工具配置" })), extensions: ["文件范围限制", "权限审批", "分层记忆", "学习画像", "联网与笔记工具"], mcp: [], terminal: "disabled" });
+  send({ type: "agent_capabilities", approval: security.approval, access: security.access === "full" ? "full" : "workspace", workspace: cwd, readOnly: scope.readOnly(), customReadOnly: security.readOnly || [], tools: (session?.getAllTools() || []).map(t => ({ name: t.name, description: t.description, active: active.has(t.name) && !(["web_search", "fetch_url"].includes(t.name) && (!capabilities.state.webEnabled || !capabilities.key)) && !(t.name === "browser" && !capabilities.state.browserEnabled), scope: ["write", "edit", "file_manage"].includes(t.name) ? (security.access === "full" ? "完全文件权限" : "当前工作区") : FILE_TOOLS.includes(t.name) ? "任意可读取目录" : "按工具配置" })), extensions: ["文件范围限制", "权限审批", "分层记忆", "学习画像", "联网与笔记工具"], mcp: [], terminal: "disabled" });
   emitSession();
 }
 
@@ -216,6 +216,17 @@ async function handle(command) {
       }
       case "get_state":
         await emitState(); send({ type: "ack", id }); break;
+      case "add_readonly": {
+        if(busy)throw new Error("请等待当前任务结束");
+        if(typeof command.path!=="string" || !command.path.trim())throw new Error("请选择目录");
+        const path=await realpath(resolve(command.path));if(!(await stat(path)).isDirectory())throw new Error("请选择目录");
+        security.readOnly ||= [];if(!security.readOnly.some(p=>p.toLowerCase()===path.toLowerCase()))security.readOnly.push(path);
+        await saveJson(securityPath,security);await emitState();send({type:"ack",id});break;
+      }
+      case "remove_readonly":
+        if(busy)throw new Error("请等待当前任务结束");
+        security.readOnly=(security.readOnly || []).filter(p=>p!==command.path);
+        await saveJson(securityPath,security);await emitState();send({type:"ack",id});break;
       case "set_approval":
         if (!["manual", "auto"].includes(command.mode)) throw new Error("无效的审批模式");
         security.approval = command.mode; await saveJson(securityPath, security); await emitState(); send({ type: "ack", id }); break;
@@ -264,6 +275,16 @@ async function handle(command) {
         await emitState(); send({ type: "ack", id });
         break;
       }
+      case "refresh_model": {
+        if(busy)throw new Error("请等待当前回复结束");
+        const info=await providers.refreshModel(command.providerId,command.modelId,await getRuntime());
+        await emitState();send({type:"ack",id,modelInfo:info});break;
+      }
+      case "delete_provider":
+        if(busy)throw new Error("请等待当前回复结束");
+        await providers.remove(command.providerId,await getRuntime());
+        if(session?.model?.provider===command.providerId){delete appState.provider;delete appState.modelId;await openSession();}
+        await emitState();send({type:"ack",id});break;
       case "update_model": {
         if (busy) throw new Error("请等待当前回复结束");
         await providers.updateModel(command.providerId, command.model, await getRuntime());
@@ -360,11 +381,15 @@ async function handle(command) {
         send({ type: "ack", id });
         break;
       }
-      case "select_model":
+      case "select_model": {
         if (busy) throw new Error("Wait for the current response to finish");
+        const info=providers.modelInfo(command.provider,command.model,await getRuntime());
+        if(command.thinkingLevel!==undefined && !info.thinkingLevels.includes(command.thinkingLevel))throw new Error("该模型不支持此思考选项");
         await openSession(command.provider, command.model);
+        if(command.thinkingLevel!==undefined){session.setThinkingLevel(command.thinkingLevel,{persist:true});emitSession();}
         send({ type: "ack", id });
         break;
+      }
       case "set_thinking_level": {
         if (busy) throw new Error("请先等待当前回复结束");
         if (!session) throw new Error("会话尚未就绪");

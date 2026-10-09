@@ -95,6 +95,8 @@ test("real PI bridge: discover, stream, remember, background memory, projects an
     await command("discover_models", { providerId: provider.providerId });
     assert.equal(messages.filter(m => m.type === "models").at(-1).models.find(m => m.id === "test-model").contextWindow, 65536);
     await command("select_model", { provider: provider.providerId, model: "test-model" });
+    await command("select_model", { provider: provider.providerId, model: "test-model", thinkingLevel:"low" });
+    assert.equal(messages.filter(m=>m.type==="session").at(-1).thinkingLevel,"low");
     await command("set_thinking_level", { level: "high" });
     const vault = join(root, "test-vault"), skill = join(root, "test-skill"); await mkdir(vault); await mkdir(skill);
     await writeFile(join(vault, "线性代数.md"), "# 矩阵\n\n矩阵可以表示线性变换。\n");
@@ -122,6 +124,9 @@ test("real PI bridge: discover, stream, remember, background memory, projects an
     assert.equal(requests[0].reasoning_effort, "high");
     const first = messages.filter(m => m.type === "session").at(-1).sessionId;
     const project = join(root, "test-project"); await mkdir(project);
+    const readonly=join(project,"readonly");await mkdir(readonly);
+    await command("add_readonly",{path:readonly});await command("add_readonly",{path:readonly});
+    assert.deepEqual(messages.filter(m=>m.type==="agent_capabilities").at(-1).customReadOnly,[readonly]);
     await command("change_workspace", { path: project }); await command("prompt", { text: "项目对话" });
     await command("new_session", { noProject: true });
     const list = await command("list_sessions");
@@ -129,6 +134,8 @@ test("real PI bridge: discover, stream, remember, background memory, projects an
     assert.ok(list.sessions.some(m => m.projectPath === project));
     await command("open_session", { sessionId: first }); await stop();
     start(); await until(m => m.type === "ready"); await command("init");
+    assert.deepEqual(messages.filter(m=>m.type==="agent_capabilities").at(-1).customReadOnly,[readonly]);
+    await command("remove_readonly",{path:readonly});assert.deepEqual(messages.filter(m=>m.type==="agent_capabilities").at(-1).customReadOnly,[]);
     assert.equal(messages.filter(m => m.type === "session").at(-1).sessionId, first);
     assert.ok(messages.some(m => m.type === "history" && m.messages.length > 1));
     for(const layer of ["l1","l2","l3"]) await command("memory_enabled", {layer,enabled:false});
@@ -148,6 +155,9 @@ test("real PI bridge: discover, stream, remember, background memory, projects an
     await command("set_file_access",{mode:"workspace"});
     await command("prompt", { text: "模拟鉴权失败" });
     assert.ok(messages.some(m => m.type === "error" && /authentication|401/.test(m.message)), "SDK 请求失败必须显示错误，不能静默回到就绪");
+    await command("delete_provider",{providerId:provider.providerId});
+    assert.ok(!messages.filter(m=>m.type==="models").at(-1).models.some(m=>m.provider===provider.providerId));
+    assert.ok(messages.filter(m=>m.type==="history").at(-1).messages.length>1,"删除供应商不能删除会话历史");
   } finally {
     for (const waiter of waiting) clearTimeout(waiter.timer); waiting = [];
     if (child?.exitCode === null) { child.kill(); await once(child, "close"); }

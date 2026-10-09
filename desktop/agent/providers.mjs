@@ -1,4 +1,4 @@
-import { readFile, writeFile, rename } from "node:fs/promises";
+import { readFile, writeFile, rename, unlink } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
@@ -104,6 +104,31 @@ export class ProviderStore {
     provider.models = list.map((raw) => normalizeDiscoveredModel(raw, catalog.find((model) => model.id === raw.id))).filter(Boolean).slice(0, 300);
     if (!provider.models.length) throw new Error("接口未返回模型，请检查 Base URL 是否包含正确的 API 路径");
     await this.persist(); await this.install(runtime); return provider.models;
+  }
+  async refreshModel(providerId, id, runtime) {
+    const provider=this.providers.find(p=>p.id===providerId);
+    if(!provider) throw new Error("找不到该提供商");
+    const headers=provider.protocol==="anthropic-messages" ? {"anthropic-version":"2023-06-01","x-api-key":this.keys.get(provider.id)||""} : {Authorization:`Bearer ${this.keys.get(provider.id)||"no-key"}`};
+    const response=await this.request(`${provider.baseUrl}/models`,{headers,signal:AbortSignal.timeout(12000)});
+    if(!response.ok) throw new Error(`获取配置失败（HTTP ${response.status}）`);
+    const data=await response.json(),list=Array.isArray(data.data)?data.data:Array.isArray(data.models)?data.models:Array.isArray(data)?data:[];
+    const raw=list.find(m=>(m.id||m.name)===id);
+    if(!raw) throw new Error("服务未返回此模型，请刷新模型列表");
+    const preset=presets.find(p=>p.id===provider.template);
+    const model=normalizeDiscoveredModel(raw,runtime.getModels().find(m=>m.provider===preset?.sdk && m.id===id));
+    const index=provider.models.findIndex(m=>m.id===id);
+    if(index<0)provider.models.push(model);else provider.models[index]=model;
+    await this.persist();await this.install(runtime);return this.modelInfo(providerId,id,runtime);
+  }
+  async remove(id,runtime) {
+    const index=this.providers.findIndex(p=>p.id===id);
+    if(index<0)throw new Error("找不到该提供商");
+    this.providers.splice(index,1);await this.persist();this.keys.delete(id);
+    await unlink(join(this.directory,`${id}.dpapi`)).catch(e=>{if(e.code!=="ENOENT")throw e;});
+    const config=await readFile(this.modelsPath,"utf8").then(JSON.parse).catch(e=>{if(e.code==="ENOENT")return{};throw e;});
+    if(config.providers)delete config.providers[id];
+    await writeFile(this.modelsPath,JSON.stringify(config,null,2));await this.install(runtime);
+    await runtime.setRuntimeApiKey(id,"");
   }
   async updateModel(providerId, input, runtime) {
     const provider = this.providers.find((item) => item.id === providerId);
