@@ -86,6 +86,16 @@
 .composer-input-wrap { min-height:72px; padding:11px 12px 0; }
 .composer-input { min-height:56px; max-height:150px; padding:0; font-size:13px; line-height:1.55; }
 .composer-toolbar { min-height:38px; gap:6px; padding:0 8px 8px 10px; }
+.attachment-button { display:grid; place-items:center; flex:none; width:26px; height:26px; padding:0; border-radius:6px; background:transparent; color:var(--ds-text-muted); }
+.attachment-button:hover { background:var(--ds-bg-hover); color:#fff; }
+.attachment-button svg { width:15px; height:15px; }
+.attachment-strip { display:flex; gap:7px; overflow-x:auto; padding:8px 12px 0; }
+.attachment-chip { display:flex; align-items:center; gap:5px; flex:none; max-width:175px; padding:3px 5px; border:1px solid #ffffff18; border-radius:7px; color:var(--ds-text-secondary); font-size:11px; }
+.attachment-chip img { width:25px; height:25px; border-radius:4px; object-fit:cover; }
+.attachment-chip span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.attachment-chip button { flex:none; padding:1px 4px; background:transparent; color:var(--ds-text-muted); }
+.message-attachments { display:flex; flex-wrap:wrap; gap:5px; margin-top:6px; }
+.message-attachments img { width:74px; height:74px; border-radius:7px; object-fit:cover; }
 .composer-spacer { flex:1; min-width:4px; }
 .workspace-chip {
   display:flex; align-items:center; gap:5px; min-width:0; max-width:65%; height:26px;

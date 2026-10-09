@@ -13,6 +13,8 @@ Windows 上的 Tauri / WebView2 窗口。窗口内使用原对话悬浮窗的紧
 
 模型设置可调整当前模型支持的思考深度。左侧历史可重命名当前会话，或复制当前会话中的用户与助手文字。
 
+输入区左下角的「＋」可选择图片，也可直接粘贴或拖入图片。每次最多 8 张，单张最多 5 MB；支持 PNG、JPEG、WebP 和 GIF。图片作为结构化内容发送给支持图片输入的模型。
+
 窗口呼出快捷键依次尝试 `Alt+Shift+C`、`Alt+Shift+Q`、`Alt+Shift+J`、`F3`。调整位置、尺寸后隐藏或退出会写入 Tauri 窗口状态。用户已确认 C 盘便携包能显示窗口，窗口状态文件已写入位置与尺寸；快捷键和重启恢复仍待验收。
 
 新版只保留一个 Summon 实例；再次双击会呼出已有窗口。更新便携包前，请通过旧版托盘菜单退出所有旧实例，再启动新版，以免旧进程继续占用快捷键。
@@ -24,6 +26,8 @@ Windows 上的 Tauri / WebView2 窗口。窗口内使用原对话悬浮窗的紧
 带左侧历史、文件夹选择和角色预设的新版位于 `C:\\Users\\Orca\\Downloads\\Summon-portable-20261009-floating-ui-roles`；请运行此目录中的 `Summon.exe`。
 
 包含思考深度、会话命名和复制对话的最新版位于 `C:\\Users\\Orca\\Downloads\\Summon-portable-20261009-session-controls`。
+
+带图片附件的最新版位于 `C:\\Users\\Orca\\Downloads\\Summon-portable-20261009-images`。
 
 如果通过 Windows SmartScreen 后仍无窗口，检查便携包文件夹里的 `startup.log`；若没有，再检查 `%TEMP%\\Summon-startup.log`。新版在 Tauri 启动失败时会弹出错误说明；请保留完整便携包文件夹，单独复制 `Summon.exe` 会缺少 Agent 运行文件。WebView2 的数据默认写入便携包的 `data/webview`，文件夹不可写时回退到系统临时目录。
 

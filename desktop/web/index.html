@@ -46,8 +46,11 @@
     <div class="composer-dock">
       <form id="composer" class="composer-stack">
         <div class="composer-shell">
+          <input id="attachment-picker" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
+          <div id="attachment-strip" class="attachment-strip" hidden></div>
           <div class="composer-input-wrap"><textarea id="prompt" class="composer-input" rows="2" placeholder="问点什么…" aria-label="消息"></textarea></div>
           <div class="composer-toolbar">
+            <button id="add-image" class="attachment-button" type="button" title="添加图片" aria-label="添加图片"><svg><use href="#icon-new"/></svg></button>
             <button id="workspace-button" class="workspace-chip" type="button" title="切换工作目录"><svg><use href="#icon-folder"/></svg><span id="workspace-label">工作目录</span></button>
             <span class="composer-spacer"></span>
             <button id="stop-button" type="button" class="stop-button" title="停止生成" aria-label="停止生成" hidden><svg><use href="#icon-stop"/></svg></button>

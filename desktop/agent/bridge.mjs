@@ -3,6 +3,7 @@ import { mkdir, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { createApprovalGate } from "./approval.mjs";
 import { RoleStore } from "./roles.mjs";
+import { normalizeImages } from "./images.mjs";
 import {
   createAgentSession,
   DefaultResourceLoader,
@@ -90,8 +91,8 @@ async function openSession(provider, modelId, sessionManager = SessionManager.co
     messages: session.state.messages.map((message) => ({
       role: message.role,
       content: (Array.isArray(message.content) ? message.content : [{ type: "text", text: String(message.content || "") }]).filter((block) =>
-        block.type === "text" || block.type === "thinking" || block.type === "toolCall"
-      ).map((block) => ({ type: block.type, text: block.text, name: block.name, id: block.id, arguments: block.arguments })),
+        block.type === "text" || block.type === "thinking" || block.type === "toolCall" || block.type === "image"
+      ).map((block) => ({ type: block.type, text: block.text, name: block.name, id: block.id, arguments: block.arguments, data: block.data, mimeType: block.mimeType })),
       toolCallId: message.toolCallId,
       toolName: message.toolName,
       isError: message.isError,
@@ -242,10 +243,13 @@ async function handle(command) {
         if (busy) throw new Error("A response is already running");
         if (!session) await openSession();
         if (!session.model || session.model.provider === "unknown") throw new Error("Configure an API key and select a model first");
+        if (typeof command.text !== "string") throw new Error("消息文字无效");
+        const images = normalizeImages(command.images);
+        if (!command.text.trim() && !images.length) throw new Error("请输入消息或添加图片");
         busy = true;
         send({ type: "started", id });
         try {
-          await session.prompt(command.text);
+          await session.prompt(command.text, { images });
           send({ type: "done", id });
         } finally {
           busy = false;

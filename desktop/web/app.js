@@ -21,13 +21,14 @@ let submitted = null;
 const toolRows = new Map();
 const permissionRows = new Map();
 const pending = new Map();
+let attachments = [];
 
 function status(text) {
   $("status").textContent = text;
   $("status").parentElement.classList.toggle("is-busy", /正在|连接/.test(text));
   $("status").parentElement.classList.toggle("is-error", /断开|出错|失败/.test(text));
 }
-function updateSendAvailability() { $("send-button").disabled = running || !prompt.value.trim(); }
+function updateSendAvailability() { $("send-button").disabled = running || (!prompt.value.trim() && !attachments.length); }
 function scrollToLatest() { transcript.scrollTop = transcript.scrollHeight; }
 function refreshEmpty() { $("empty-state").hidden = messages.childElementCount > 0; }
 function setRunning(value) {
@@ -57,6 +58,46 @@ function messageRow(role, text = "") {
   bubble.append(content); col.append(bubble); row.append(col); messages.append(row);
   refreshEmpty(); scrollToLatest();
   return content;
+}
+function imagePreview(content, images) {
+  if (!images.length) return;
+  const strip = document.createElement("div"); strip.className = "message-attachments";
+  for (const item of images) {
+    const img = document.createElement("img");
+    img.src = `data:${item.mimeType};base64,${item.data}`;
+    img.alt = item.name || "图片附件";
+    strip.append(img);
+  }
+  content.parentElement.append(strip);
+}
+function renderAttachments() {
+  const strip = $("attachment-strip"); strip.replaceChildren();
+  strip.hidden = !attachments.length;
+  for (const item of attachments) {
+    const chip = document.createElement("div"); chip.className = "attachment-chip";
+    const img = document.createElement("img"); img.src = `data:${item.mimeType};base64,${item.data}`; img.alt = "";
+    const name = document.createElement("span"); name.textContent = item.name;
+    const remove = document.createElement("button"); remove.type = "button"; remove.textContent = "×"; remove.title = "移除图片";
+    remove.addEventListener("click", () => { attachments = attachments.filter((candidate) => candidate !== item); renderAttachments(); });
+    chip.append(img, name, remove); strip.append(chip);
+  }
+  updateSendAvailability();
+}
+async function addImages(files) {
+  const allowed = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+  for (const file of files) {
+    if (!allowed.has(file.type)) { errorRow(`暂不支持 ${file.name} 的格式`); continue; }
+    if (file.size > 5 * 1024 * 1024) { errorRow(`${file.name} 超过 5 MB`); continue; }
+    if (attachments.length >= 8) { errorRow("一次最多添加 8 张图片"); break; }
+    const dataUrl = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+    attachments.push({ name: file.name || "图片", mimeType: file.type, data: dataUrl.slice(dataUrl.indexOf(",") + 1) });
+  }
+  renderAttachments();
 }
 function disclosure({ kind, title, summary = "", detail = "", state = "done", id }) {
   const row = document.createElement("div"); row.className = `tool-row ${kind}`;
@@ -149,6 +190,9 @@ function restoreHistory(history) {
           content._source = (content._source || "") + (block.text || "");
           renderMarkdown(content, content._source);
         } else content.textContent += block.text || "";
+      } else if (block.type === "image" && message.role === "user") {
+        if (!content) content = messageRow("user");
+        imagePreview(content, [block]);
       } else if (block.type === "thinking") {
         disclosure({ kind: "thinking", title: "思考过程", summary: (block.text || "").replace(/\s+/g, " ").slice(0, 120), detail: block.text || "" });
       } else if (block.type === "toolCall") {
@@ -347,6 +391,8 @@ function onEvent(event) {
       if (submitted) {
         submitted.row.remove();
         prompt.value = submitted.text;
+        attachments = submitted.images;
+        renderAttachments();
         submitted = null;
         refreshEmpty();
       }
@@ -368,13 +414,33 @@ function command(type, args = {}, awaitReply = false) {
 $("composer").addEventListener("submit", (event) => {
   event.preventDefault();
   const text = prompt.value.trim();
-  if (!text || running) return;
+  if ((!text && !attachments.length) || running) return;
   const userContent = messageRow("user", text);
-  submitted = { text, row: userContent.closest(".message-row") };
+  const images = attachments;
+  imagePreview(userContent, images);
+  submitted = { text, images, row: userContent.closest(".message-row") };
   assistantRow = null; thinkingRow = null;
+  attachments = []; renderAttachments();
   prompt.value = ""; prompt.style.height = "auto";
   setRunning(true);
-  void command("prompt", { text });
+  void command("prompt", { text, images: images.map(({ data, mimeType }) => ({ type: "image", data, mimeType })) });
+});
+$("add-image").addEventListener("click", () => $("attachment-picker").click());
+$("attachment-picker").addEventListener("change", (event) => {
+  void addImages(Array.from(event.target.files || [])).catch((error) => errorRow(String(error)));
+  event.target.value = "";
+});
+prompt.addEventListener("paste", (event) => {
+  const files = Array.from(event.clipboardData?.files || []);
+  if (!files.length) return;
+  event.preventDefault();
+  void addImages(files).catch((error) => errorRow(String(error)));
+});
+$("composer").addEventListener("dragover", (event) => { if (event.dataTransfer?.files?.length) event.preventDefault(); });
+$("composer").addEventListener("drop", (event) => {
+  if (!event.dataTransfer?.files?.length) return;
+  event.preventDefault();
+  void addImages(Array.from(event.dataTransfer.files)).catch((error) => errorRow(String(error)));
 });
 prompt.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing) { event.preventDefault(); $("composer").requestSubmit(); }

@@ -1,5 +1,12 @@
 # 更新记录
 
+## 2026-10-09 · Git 版本 `summon-image-attachments-2026-10-09`
+
+- 输入区支持选择、粘贴和拖入 PNG/JPEG/WebP/GIF 图片，显示待发送缩略图与已发送消息缩略图；恢复历史时也显示图片。
+- 图片按 PI Agent SDK 的结构化图片内容发送，限制为每次 8 张、单张 5 MB，并校验格式和 base64 数据。
+- 图片校验隔离测试、SDK 会话控制测试与脚本语法检查通过；真实多模态模型回复和 WebView2 图片交互仍待桌面验收。
+- 完整便携包已输出到 `C:\\Users\\Orca\\Downloads\\Summon-portable-20261009-images`。
+
 ## 2026-10-09 · Git 版本 `summon-session-controls-2026-10-09`
 
 - 建立 PI-Desktop 0.16.1 功能对齐路线，按对话、输入呈现、Agent 配置、桌面体验与验收逐项跟踪。
