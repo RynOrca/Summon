@@ -1,7 +1,8 @@
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
+import { userTexts } from "./learner.mjs";
 
-export function createMemoryAgent({ memory, send, currentSession, runtime }) {
+export function createMemoryAgent({ memory, learner, send, currentSession, runtime }) {
   let timer;
   let controller;
   let generation = 0;
@@ -37,7 +38,7 @@ export function createMemoryAgent({ memory, send, currentSession, runtime }) {
     try {
       const model = await runtime();
       const response = await model.completeSimple(selected.model, {
-        systemPrompt: "你是本地学习助手的记忆整理器。根据对话和已有记忆，只提取用户明确表达的长期学习背景/目标/偏好（facts），以及对话中形成的有复用价值且可信的知识笔记（notes）。不要把问题本身当成用户属性，不保存密钥和个人敏感标识，不猜测。纠正已有记忆时保持相同 key/title。不需新增则数组为空。严格只返回 JSON：{\"facts\":[{\"key\":\"主题\",\"content\":\"明确事实\"}],\"notes\":[{\"title\":\"标题\",\"body\":\"简短整理\"}]}。最多 5 条画像和 2 条知识。",
+        systemPrompt: "你是本地学习助手的记忆整理器。根据对话和已有记忆，提取用户明确表达的长期学习背景/目标/偏好（facts），有复用价值且可信的知识笔记（notes），和结构化学习事件（learningEvents）。不要把问题本身当成用户属性，不保存密钥和个人敏感标识，不猜测掌握分数。纠正已有记忆保持相同 key/title/subject。严格只返回 JSON：{\"facts\":[{\"key\":\"主题\",\"content\":\"明确事实\"}],\"notes\":[{\"title\":\"标题\",\"body\":\"简短整理\"}],\"learningEvents\":[{\"kind\":\"goal|preference|concept|misconception|review\",\"subject\":\"主题\",\"detail\":\"明确记录\",\"evidence\":\"用户原话的连续片段\",\"status\":\"active|completed|needs_review|resolved\"}]}。kind 必须选择一种。只有用户明确陈述目标/偏好/已学概念/存在误解/完成复习才记录，evidence 必须逐字引用用户消息，不能引用助手自己的解释。不需新增则数组为空。最多 5 条画像、2 条知识和 5 条事件。",
         messages: [{ role: "user", content: [{ type: "text", text: `已有记忆：${JSON.stringify(memory.snapshot()).slice(0, 6000)}\n本轮相关对话：\n${text}` }], timestamp: Date.now() }],
       }, { maxTokens: 1200, reasoning: "off", signal: controller.signal });
       const output = response.content.filter((block) => block.type === "text").map((block) => block.text).join("");
@@ -46,6 +47,10 @@ export function createMemoryAgent({ memory, send, currentSession, runtime }) {
       const update = JSON.parse(match[0]);
       if (ticket !== generation) return;
       await memory.applyAgentUpdate(update, sessionId);
+      if (learner && memory.state.enabled.l1 && Array.isArray(update.learningEvents)) {
+        for (const item of update.learningEvents.slice(0, 8)) { if (ticket !== generation) return; await learner.record(item, sessionId, userTexts(selected)).catch(() => {}); }
+        send({ type: "learner", state: learner.snapshot() });
+      }
       send({ type: "memory", state: memory.snapshot() });
       send({ type: "memory_status", status: "saved" });
     } catch (error) {

@@ -26,7 +26,8 @@ export function createApprovalGate(send, timeoutMs = 5 * 60 * 1000) {
 
   function extension(pi) {
     pi.on("tool_call", async (event) => {
-      if (!MUTATING_TOOLS.has(event.toolName)) return undefined;
+      const extraMutation = (event.toolName === "file_manage" && event.input.action !== "list") || (event.toolName === "browser" && ["click", "fill"].includes(event.input.action));
+      if (!MUTATING_TOOLS.has(event.toolName) && !extraMutation) return undefined;
       const requestId = randomUUID();
       send({ type: "tool_permission_request", requestId, toolCallId: event.toolCallId, name: event.toolName, args: event.input });
       return await new Promise((resolve) => {

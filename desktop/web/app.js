@@ -152,7 +152,9 @@ function toolStart(event) {
 function toolEnd(event) {
   const row = toolRows.get(event.id);
   if (!row) return;
-  row.content.textContent = `${row.content.textContent}\n\n结果\n${pretty(event.result)}`;
+  const blocks = event.result?.content || [];
+  row.content.textContent += "\n\n结果\n" + (blocks.length ? blocks.filter(b => b.type === "text").map(b => b.text).join("\n") : pretty(event.result));
+  for (const block of blocks) if (block.type === "image" && /^image\/(png|jpeg|webp)$/.test(block.mimeType)) { const img = document.createElement("img"); img.src = `data:${block.mimeType};base64,${block.data}`; img.alt = "工具截图"; img.className = "tool-image"; row.content.append(img); }
   updateDisclosure(row, event.isError ? "error" : "done");
   scrollToLatest();
 }
@@ -362,6 +364,7 @@ function onEvent(event) {
     response.type === "error" ? reject(new Error(response.message)) : resolve(response);
   }
   switch (response.type) {
+    case "telemetry": renderTelemetry(response); break;
     case "ready": status("正在读取模型…"); break;
     case "models": modelCatalog = response.models || []; renderModels(); break;
     case "session":
@@ -387,6 +390,7 @@ function onEvent(event) {
       renderRoles();
       break;
     case "credential_error": errorRow(response.message || "模型凭据无法读取"); break;
+    case "knowledge_status": errorRow(response.message); break;
     case "memory_status": if (!running) status(response.status === "organizing" ? "Agent 正在整理记忆…" : "就绪"); break;
     case "sessions": renderSessions(response.sessions || []); break;
     case "history": restoreHistory(response.messages || []); status("就绪"); break;
@@ -440,6 +444,21 @@ function onEvent(event) {
       break;
   }
 }
+function renderTelemetry(data) {
+  const percent = data.percent === null ? null : Math.min(100, Math.max(0, data.percent));
+  $("context-percent").textContent = percent === null ? "?" : `${Math.round(percent)}`;
+  $("context-arc").setAttribute("stroke-dasharray", `${(percent || 0) / 100 * 75.4} 75.4`);
+  $("context-usage").classList.toggle("near-limit", percent !== null && percent >= 85);
+  const detail = `${data.tokens === null ? "用量未知" : "约 " + data.tokens.toLocaleString() + " token"} / ${data.capacity ? data.capacity.toLocaleString() + " token" : "模型容量未知"}${percent === null ? "" : " · " + percent.toFixed(1) + "%"}`;
+  $("context-usage").title = "上下文估算：" + detail; $("context-detail").textContent = detail;
+  $("token-speed").textContent = data.tokPerSecond ? `${data.tokPerSecond.toFixed(1)} tok/s` : "— tok/s";
+}
+$("context-usage").onclick = () => $("context-dialog").showModal();
+$("context-close").onclick = () => $("context-dialog").close();
+document.addEventListener("click", event => {
+  const link = event.target.closest?.("a[data-local-file]"); if (!link) return; event.preventDefault();
+  void command("resolve_file", { path: link.dataset.localFile }, true).then(r => tauri.core.invoke("open_local_file", { path: r.path })).catch(e => errorRow(String(e.message || e)));
+});
 function command(type, args = {}, awaitReply = false) {
   if (!tauri) return Promise.reject(new Error("需要在 Tauri 桌面窗口中运行"));
   const id = `chat-${++sequence}`;

@@ -190,3 +190,11 @@
 .model-option:hover { background:#ffffff10; }.model-option span { font-size:11px; color:#999; }
 .history-section { font-weight:400; color:#888; font-size:12px; margin:15px 7px 5px; }
 .history-item.active { background:#ffffff12; color:#fff; }.history-project summary { padding:9px 7px; color:#bbb; cursor:pointer; }.history-project .history-item { padding-left:25px; }
+/* Compact generation telemetry beside Send. */
+.token-speed { color:#8f949e; font-size:11px; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.context-usage { width:30px; height:30px; border:0; padding:0; margin:0 5px; background:transparent; color:#a9bdde; position:relative; cursor:pointer; flex:none; }
+.context-usage svg { width:30px; height:30px; transform:rotate(-90deg); }
+.context-usage circle { fill:none; stroke-width:2.5; }.context-track { stroke:#34373d; }.context-arc { stroke:currentColor; stroke-linecap:round; }
+.context-usage span { position:absolute; inset:0; display:grid; place-items:center; font-size:9px; color:#aeb6c5; font-variant-numeric:tabular-nums; }
+.context-usage:hover { color:#d5e2ff; }.context-usage.near-limit { color:#efb582; }.context-explanation { font-size:12px; line-height:1.7; color:#999fa9; }
+.tool-image { display:block; width:100%; max-height:420px; object-fit:contain; margin-top:10px; }

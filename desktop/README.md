@@ -4,8 +4,8 @@
 
 ## 当前版本
 
-Git 版本：`summon-settings-agent-memory-2026-10-09`。
-便携包：`C:\Users\Orca\Downloads\Summon-reworked-20261009`，运行其中的 `Summon.exe`。保留整个文件夹；更新前通过旧版托盘退出旧实例，再启动新版。再次启动同一应用会呼出已有窗口。
+Git 版本：`summon-learning-capabilities-2026-10-09`。
+便携包：`C:\Users\Orca\Downloads\Summon-learning-20261009`，运行其中的 `Summon.exe`。保留整个文件夹；更新前通过旧版托盘退出旧实例，再启动新版。再次启动同一应用会呼出已有窗口。
 
 ## 配置和使用
 
@@ -48,5 +48,18 @@ Node.js 22.19+、Rust stable、WebView2 Runtime。先在 desktop/agent 执行 np
 真实桌面验收脚本：desktop/tools/desktop-acceptance.cjs，需要设置 SUMMON_TEST_PACKAGE 和 SUMMON_PLAYWRIGHT_PATH。脚本只启动、终止自己的测试实例，使用 SUMMON_TEST_DATA_DIR 隔离数据、窗口状态和单实例锁，并通过测试用 WebView2 调试端口验证界面。正式启动没有调试端口。
 
 本轮完整 PI 模拟 API 链路与真实桌面操作已验证：模型发现、流式回复、思考档位、Agent 记忆、项目分类、快捷键录入和 Agent 中断恢复。截图与报告在项目 dist/acceptance。电脑 A 的真实回复、实际速度和 Windows 重登自启尚未验收。
+
+## 学习能力与遥测
+
+- **画像**：Agent 使用 `record_learning_event` 或后台整理记录目标、偏好、已学概念、误解和复习事件，必须保留本会话用户原话。来源和事件保存于 learner.json，启动时从事件重建画像。知识状态未经评估保持未知掌握程度，记录学习/复习后建议次日复习；在对话中要求纠正目标、偏好或误解即可更新。
+- **技能仓库**：设置选择含 SKILL.md 的目录导入，目录副本存入 Summon 数据目录。可搜索、查看正文和开关；只启用的技能名称/说明进入提示词，Agent 需要时读取正文。目录上限 500 文件 / 10 MB；不跟随符号链接、不导入 node_modules 或 .git。
+- **笔记库**：设置选择 Obsidian Vault，只索引 Markdown 原文件（排除 .obsidian/.git 和符号链接）。按标题、路径、标题段落及正文关键词检索，不要求向量模型；修改会在下次查询更新。相关提问自动召回，Agent 可继续使用 search_notes 检索，引用原文件链接及行号并提醒复习。上限 1 万文件 / 100 MB，单文件 1 MB。不在后台修改原笔记。
+- **联网工具**：设置→工具填写 Tavily API Key 后启用 web_search / fetch_url，分别使用 basic 搜索/正文提取，返回来源网址；调用使用 Tavily 服务额度。Key 经 Windows DPAPI 保存。current_time 获取系统时区及 UTC。
+- **浏览器和文件**：browser 首次使用才启动已安装 Edge 的独立无头配置，可导航、快照、截图、点击、填写。点击/填写需确认；不访问用户现有浏览器配置。file_manage 只在当前项目列出目录、复制/移动普通文件，不覆盖目标，笔记库不可作为写入目标。已有 PI read/ls/find/grep/edit/write/bash/powershell 继续可用。
+- **本地链接**：Markdown 表格和链接支持。生成 HTML 时 Agent 被要求提供绝对文件链接。点击本地链接在当前项目、Vault 或附件目录中解析，允许的文档类型由 Windows 默认应用打开；不执行链接中的命令，不渲染模型提供的原始 HTML。
+- **角色**：角色说明每轮进入系统提示词。笔记、网页与记忆作为参考资料，不能变更系统角色；最终遵守程度仍取决于所用模型的指令能力。
+- **占用与速度**：发送旁小圆环点击查看 SDK 上下文估算 token / 模型容量，容量未知则不显示百分比。tok/s = 服务端输出 token / 模型生成时段（包含思考与首 token 等待，排除工具等待），多次模型调用累加生成时段，不使用字符数冒充 token。未返回用量显示“—”。
+
+架构参考：[Inno Agent 学习记忆](https://github.com/hhyqhh/inno-agent/tree/main/apps/inno-agent/src/memory/learner)；借鉴结构，没有复制其实现代码。[Tavily 搜索 API](https://docs.tavily.com/documentation/api-reference/endpoint/search)及[提取 API](https://docs.tavily.com/documentation/api-reference/endpoint/extract)。实时 Tavily 服务与电脑 A 实际模型仍需你自己的 Key / 服务完成使用验证。
 
 PI-Desktop 来源与 LGPL-3.0 许可证见 PI-DESKTOP-LICENSE。

@@ -55,6 +55,8 @@
             <button id="add-image" class="attachment-button" type="button" title="添加文件或图片" aria-label="添加文件或图片"><svg><use href="#icon-new"/></svg></button>
             <button id="workspace-button" class="workspace-chip" type="button" title="切换工作目录"><svg><use href="#icon-folder"/></svg><span id="workspace-label">工作目录</span></button>
             <span class="composer-spacer"></span>
+            <span id="token-speed" class="token-speed" title="服务端输出 token / 模型生成时段（含思考和首 token 等待，不含工具等待）">— tok/s</span>
+            <button id="context-usage" class="context-usage" type="button" aria-label="查看上下文占用" title="上下文占用未知"><svg viewBox="0 0 32 32"><circle class="context-track" cx="16" cy="16" r="12"/><circle id="context-arc" class="context-arc" cx="16" cy="16" r="12" stroke-dasharray="0 75.4"/></svg><span id="context-percent">?</span></button>
             <button id="stop-button" type="button" class="stop-button" title="停止生成" aria-label="停止生成" hidden><svg><use href="#icon-stop"/></svg></button>
             <button id="send-button" class="send-btn" type="submit" title="发送" aria-label="发送" disabled><svg><use href="#icon-send"/></svg></button>
           </div>
@@ -91,6 +93,7 @@
     <p id="role-error" class="history-error" role="alert" hidden></p>
   </dialog>
 
+<dialog id="context-dialog" class="settings-dialog"><div class="settings-head"><h2>上下文占用</h2><button id="context-close" class="chrome-button" aria-label="关闭">×</button></div><p id="context-detail">模型尚未提供上下文信息。</p><p class="context-explanation">根据最近一次模型用量与当前消息估算。不是所有历史对话的累计 token；服务未提供容量时不显示百分比。速度包含输出与思考 token，不含工具等待时间。</p></dialog>
 <dialog id="models-dialog" class="settings-dialog models-dialog">
   <div class="settings-head"><h2>选择模型</h2><button id="models-close" class="chrome-button" aria-label="关闭">×</button></div>
   <input id="model-search" placeholder="搜索模型或提供商" aria-label="搜索模型">

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-import { mkdtemp, mkdir, readFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { once } from "node:events";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
@@ -54,7 +54,7 @@ test("real PI bridge: discover, stream, remember, background memory, projects an
     const consolidating = body.messages.some(m => typeof m.content === "string" && m.content.includes("记忆整理器"));
     const usedTool = body.messages.some(m => m.role === "tool");
     let delta, finish;
-    if (consolidating) { delta = { content: '{"facts":[{"key":"学习目标","content":"学习线性代数"}],"notes":[{"title":"矩阵","body":"矩阵用于表示线性变换。"}]}' }; finish = "stop"; }
+    if (consolidating) { delta = { content: '{"facts":[{"key":"学习目标","content":"学习线性代数"}],"notes":[{"title":"矩阵","body":"矩阵用于表示线性变换。"}],"learningEvents":[{"kind":"goal","subject":"线性代数","detail":"学习线性代数","evidence":"我在学习线性代数","status":"active"}]}' }; finish = "stop"; }
     else if (!usedTool && body.messages.some(m => m.role === "user" && JSON.stringify(m.content).includes("记住"))) {
       delta = { tool_calls: [{ index: 0, id: "remember-test", type: "function", function: { name: "remember", arguments: JSON.stringify({ layer: "profile", key: "学习目标", content: "学习线性代数" }) } }] }; finish = "tool_calls";
     } else { delta = { content: "已记住你的学习目标。" }; finish = "stop"; }
@@ -63,6 +63,7 @@ test("real PI bridge: discover, stream, remember, background memory, projects an
     response.write(`data: ${JSON.stringify(chunk({ role: "assistant" }))}\n\n`);
     response.write(`data: ${JSON.stringify(chunk(delta))}\n\n`);
     response.write(`data: ${JSON.stringify(chunk({}, finish))}\n\n`);
+    response.write(`data: ${JSON.stringify({ ...chunk({}), choices: [], usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 } })}\n\n`);
     response.end("data: [DONE]\n\n");
   });
   server.listen(0, "127.0.0.1"); await once(server, "listening");
@@ -91,12 +92,25 @@ test("real PI bridge: discover, stream, remember, background memory, projects an
     assert.equal(messages.filter(m => m.type === "models").at(-1).models.find(m => m.id === "test-model").contextWindow, 65536);
     await command("select_model", { provider: provider.providerId, model: "test-model" });
     await command("set_thinking_level", { level: "high" });
+    const vault = join(root, "test-vault"), skill = join(root, "test-skill"); await mkdir(vault); await mkdir(skill);
+    await writeFile(join(vault, "线性代数.md"), "# 矩阵\n\n矩阵可以表示线性变换。\n");
+    await writeFile(join(skill, "SKILL.md"), "---\nname: test-study\ndescription: TEST_SKILL_DESCRIPTION\n---\nONLY_BODY_SENTINEL\n");
+    await command("configure_capabilities", { vaultPath: vault });
+    await command("import_skill", { path: skill });
+    const role = await command("save_role", { name: "测试导师", system: "TEST_ROLE_SYSTEM_PRIORITY：用中文教学" });
+    const roleId = messages.filter(m => m.type === "roles").at(-1).roles.find(r => r.name === "测试导师").id;
+    await command("select_role", { roleId });
     await command("prompt", { text: "请记住，我在学习线性代数" });
     assert.ok(messages.some(m => m.type === "delta" && m.text.includes("记住")));
     assert.ok(messages.some(m => m.type === "tool_end" && m.name !== "other" && !m.isError));
     await until(m => m.type === "memory_status" && m.status === "saved");
     const memory = JSON.parse(await readFile(join(root, "data", "memory.json"), "utf8"));
     assert.equal(memory.facts[0].content, "学习线性代数"); assert.equal(memory.notes[0].title, "矩阵");
+    const profile = JSON.parse(await readFile(join(root, "data", "learner.json"), "utf8")); assert.equal(profile.goals[0].subject, "线性代数");
+    const prompt = JSON.stringify(requests[0].messages.filter(m => ["system", "developer"].includes(m.role)));
+    assert.ok(prompt.includes("TEST_ROLE_SYSTEM_PRIORITY")); assert.ok(prompt.includes("TEST_SKILL_DESCRIPTION")); assert.ok(!prompt.includes("ONLY_BODY_SENTINEL")); assert.ok(prompt.includes("线性代数.md")); assert.ok(prompt.includes("summon-file:"));
+    for (const name of ["current_time", "web_search", "fetch_url", "browser", "file_manage", "search_notes", "record_learning_event"]) assert.ok(requests[0].tools.some(t => t.function?.name === name), `missing ${name}`);
+    const telemetry = messages.filter(m => m.type === "telemetry" && m.tokPerSecond).at(-1); assert.equal(telemetry.capacity, 65536); assert.ok(telemetry.tokens > 0 && telemetry.percent > 0); assert.equal(telemetry.outputTokens, 40); assert.ok(telemetry.tokPerSecond > 0);
     assert.ok(requests[0].messages.some(m => ["system", "developer"].includes(m.role) && JSON.stringify(m.content).includes("remember")), JSON.stringify(requests[0].messages[0]));
     assert.equal(requests[0].reasoning_effort, "high");
     const first = messages.filter(m => m.type === "session").at(-1).sessionId;

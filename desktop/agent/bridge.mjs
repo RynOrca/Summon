@@ -9,6 +9,9 @@ import { EndpointStore, REMOTE_PROVIDER, validateEndpoint } from "./endpoint.mjs
 import { MemoryStore } from "./memory.mjs";
 import { ProviderStore } from "./providers.mjs";
 import { createMemoryAgent } from "./memory-agent.mjs";
+import { CapabilityStore } from "./capabilities.mjs";
+import { createLearningTools, LEARNING_TOOLS } from "./learning-tools.mjs";
+import { LearnerStore, learnerExtension } from "./learner.mjs";
 import {
   createAgentSession,
   DefaultResourceLoader,
@@ -44,6 +47,10 @@ const memory = new MemoryStore(dataDir, sessionsDir);
 await memory.load();
 const providers = new ProviderStore(agentDir);
 await providers.load();
+const capabilities = new CapabilityStore(dataDir);
+await capabilities.load();
+const learner = new LearnerStore(dataDir);
+await learner.load();
 
 const send = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
 let runtime;
@@ -51,7 +58,18 @@ let session;
 let busy = false;
 let queue = Promise.resolve();
 const approvalGate = createApprovalGate(send);
-const memoryAgent = createMemoryAgent({ memory, send, currentSession: () => session, runtime: getRuntime });
+const memoryAgent = createMemoryAgent({ memory, learner, send, currentSession: () => session, runtime: getRuntime });
+const learningTools = createLearningTools({ capabilities, currentWorkspace: () => cwd, roles, send });
+const learnerTools = learnerExtension({ learner, memory, currentSession: () => session, send });
+let generationStart = null, firstDelta = null, outputTokens = 0, generationMs = 0, missingUsage = false;
+function emitTelemetry() {
+  const model = session?.model;
+  const info = model && runtime ? providers.modelInfo(model.provider, model.id, runtime) : null;
+  const usage = session?.getContextUsage();
+  const capacity = info?.contextWindow || null;
+  const tokens = usage?.tokens ?? null;
+  send({ type: "telemetry", tokens, capacity, percent: capacity && tokens !== null ? tokens / capacity * 100 : null, estimated: true, outputTokens: missingUsage ? null : outputTokens || null, tokPerSecond: !missingUsage && generationMs > 0 && outputTokens > 0 ? outputTokens / (generationMs / 1000) : null });
+}
 
 async function getRuntime() {
   if (!runtime) {
@@ -90,7 +108,9 @@ async function openSession(provider, modelId, sessionManager) {
     agentDir,
     settingsManager,
     noExtensions: true,
-    extensionFactories: [approvalGate.extension, memoryAgent.extension],
+    noSkills: true,
+    additionalSkillPaths: capabilities.enabledSkills(),
+    extensionFactories: [approvalGate.extension, memoryAgent.extension, learningTools.extension, learnerTools],
     appendSystemPromptOverride: (base) => {
       const instructions = roles.current()?.system;
       return instructions ? [...base, instructions] : base;
@@ -102,7 +122,7 @@ async function openSession(provider, modelId, sessionManager) {
     agentDir,
     modelRuntime: models,
     model,
-    tools: ["read", "ls", "find", "grep", "edit", "write", "bash", "powershell", "remember"],
+    tools: ["read", "ls", "find", "grep", "edit", "write", "bash", "powershell", "remember", "record_learning_event", ...LEARNING_TOOLS],
     sessionManager,
     settingsManager,
     resourceLoader,
@@ -113,9 +133,17 @@ async function openSession(provider, modelId, sessionManager) {
   Object.assign(appState, { activeSessionId: session.sessionId, projectPath, provider: session.model?.provider, modelId: session.model?.id });
   await saveJson(metadataPath, metadata); await saveJson(appStatePath, appState);
   session.subscribe((event) => {
+    if (event.type === "message_start" && event.message.role === "assistant") { generationStart = performance.now(); firstDelta = null; }
+    if (event.type === "message_end" && event.message.role === "assistant") {
+      const n = event.message.usage?.output;
+      if (Number.isFinite(n) && n > 0) { outputTokens += n; generationMs += Math.max(1, performance.now() - (generationStart ?? firstDelta ?? performance.now())); }
+      else if (event.message.stopReason !== "error" && event.message.content?.some(b => b.type === "text" || b.type === "thinking")) missingUsage = true;
+      emitTelemetry();
+    }
     if (event.type === "message_update") {
       const update = event.assistantMessageEvent;
       if (update.type === "text_delta" || update.type === "thinking_delta") {
+        firstDelta ??= performance.now();
         send({ type: "delta", kind: update.type === "text_delta" ? "text" : "thinking", text: update.delta });
       }
     } else if (event.type === "message_end" && event.message.role === "assistant" && event.message.stopReason === "error") {
@@ -129,6 +157,7 @@ async function openSession(provider, modelId, sessionManager) {
     }
   });
   emitSession();
+  outputTokens = 0; generationMs = 0; missingUsage = false; emitTelemetry();
   send({
     type: "history",
     messages: session.state.messages.map((message) => ({
@@ -158,6 +187,8 @@ async function emitState() {
   send({ type: "providers", providers: providers.snapshot(), templates: providers.templates(models) });
   send({ type: "roles", ...roles.list() });
   send({ type: "memory", state: memory.snapshot() });
+  send({ type: "learner", state: learner.snapshot() });
+  send({ type: "capabilities", state: capabilities.snapshot() });
   emitSession();
 }
 
@@ -175,6 +206,26 @@ async function handle(command) {
       }
       case "get_state":
         await emitState(); send({ type: "ack", id }); break;
+      case "configure_capabilities":
+      case "import_skill":
+      case "toggle_skill": {
+        if (busy) throw new Error("请等待当前回复结束");
+        if (command.type === "configure_capabilities") await capabilities.configure(command);
+        if (command.type === "import_skill") await capabilities.importSkill(command.path);
+        if (command.type === "toggle_skill") await capabilities.toggleSkill(command.skillId, command.enabled);
+        const model = session?.model;
+        if (session) await openSession(model?.provider === "unknown" ? undefined : model?.provider, model?.provider === "unknown" ? undefined : model?.id);
+        await emitState(); send({ type: "ack", id }); break;
+      }
+      case "search_notes":
+        send({ type: "ack", id, results: await capabilities.searchNotes(command.query || "", 8) }); break;
+      case "skill_detail": {
+        const skill = capabilities.state.skills.find(s => s.id === command.skillId);
+        if (!skill) throw new Error("技能不存在");
+        send({ type: "ack", id, text: (await readFile(join(skill.path, "SKILL.md"), "utf8")).slice(0, 100000) }); break;
+      }
+      case "resolve_file":
+        send({ type: "ack", id, path: await capabilities.resolveFile(command.path, cwd) }); break;
       case "save_provider": {
         if (busy) throw new Error("请等待当前回复结束");
         const saved = await providers.save(command);
@@ -386,10 +437,12 @@ async function handle(command) {
         const images = normalizeImages(command.images);
         if (!command.text.trim() && !images.length) throw new Error("请输入消息或添加图片");
         busy = true;
+        outputTokens = 0; generationMs = 0; missingUsage = false;
         memoryAgent.cancel();
         send({ type: "started", id });
         try {
           await session.prompt(command.text, { images });
+          emitTelemetry();
           send({ type: "done", id });
           memoryAgent.schedule();
         } finally {
@@ -431,5 +484,6 @@ for await (const line of createInterface({ input: process.stdin })) {
 }
 await queue;
 memoryAgent.cancel();
+learningTools.close();
 session?.dispose();
 approvalGate.cancel("Agent 进程已退出");

@@ -14,6 +14,8 @@ function inline(tokens = []) {
         const url = String(token.href || "");
         if (/^(https?:|mailto:)/i.test(url)) {
           node = document.createElement("a"); node.href = url; node.target = "_blank"; node.rel = "noopener noreferrer"; node.append(inline(token.tokens));
+        } else if (/^(summon-file:|file:|[a-z]:[\\/]|[./\\])|\.(html?|md|txt|pdf)(#.*)?$/i.test(url) && !/^(javascript|data|vbscript):/i.test(url)) {
+          node = document.createElement("a"); node.href = "#"; node.dataset.localFile = url; node.title = "在默认应用中打开本地文件"; node.append(inline(token.tokens));
         } else { node = document.createTextNode(token.text || url); }
         break;
       }

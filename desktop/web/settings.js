@@ -12,7 +12,54 @@ function command(type, args = {}) {
     tauri.core.invoke("agent_command", { command: { type, id, ...args } }).catch(error => { clearTimeout(timer); pending.delete(id); reject(error); });
   });
 }
-const headings = { general: ["通用", "窗口与快捷键"], models: ["模型", "选择提供商，连接你的模型"], memory: ["记忆", "由 Agent 整理的学习信息"], roles: ["角色", "自定义任务与回答风格"], about: ["关于", "轻量的个人 Agent 入口"] };
+const headings = { general: ["通用", "窗口与快捷键"], models: ["模型", "选择提供商，连接你的模型"], memory: ["记忆", "由 Agent 整理的学习信息"], vault: ["笔记库", "引用你的 Obsidian 笔记，回到原文复习"], skills: ["技能仓库", "管理 Agent 可用的技能"], tools: ["工具", "搜索、浏览器与文件能力"], roles: ["角色", "角色说明作为系统指令，每轮生效"], about: ["关于", "轻量的个人 Agent 入口"] };
+let capabilities = {};
+function element(tag, text, className) { const e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (className) e.className = className; return e; }
+function renderCapabilities(state) {
+  capabilities = state;
+  $("vault-path").textContent = state.vaultPath || "未选择笔记库";
+  $("web-enabled").checked = state.webEnabled; $("browser-enabled").checked = state.browserEnabled;
+  $("tavily-state").textContent = state.keyError || (state.hasSearchKey ? "Key 已加密保存" : "尚未配置 Key");
+  $("tavily-key").placeholder = state.hasSearchKey ? "已保存；留空保留当前 Key" : "输入 Tavily Key";
+  renderSkills();
+}
+function renderSkills() {
+  const query = $("skill-query").value.toLowerCase(); $("skill-list").replaceChildren();
+  for (const skill of capabilities.skills || []) {
+    if (!(skill.name + " " + skill.description).toLowerCase().includes(query)) continue;
+    const row = element("div", undefined, "setting-row"), info = element("div"), title = element("h3", skill.name), description = element("p", skill.description);
+    const view = element("button", "查看说明", "secondary"); view.onclick = () => action(async () => { const r = await command("skill_detail", { skillId: skill.id }); $("skill-detail").hidden = false; $("skill-detail").textContent = r.text; });
+    info.append(title, description, view); const toggle = element("input"); toggle.type = "checkbox"; toggle.className = "switch"; toggle.checked = skill.enabled; toggle.setAttribute("aria-label", "启用 " + skill.name);
+    toggle.onchange = () => action(async () => { try { await command("toggle_skill", { skillId: skill.id, enabled: toggle.checked }); } catch(e) { toggle.checked = !toggle.checked; throw e; } }); row.append(info, toggle); $("skill-list").append(row);
+  }
+  if (!(capabilities.skills || []).length) $("skill-list").append(element("p", "尚未导入技能。选择包含 SKILL.md 的本地目录即可。", "hint"));
+}
+$("skill-query").oninput = renderSkills;
+$("import-skill").onclick = () => action(async () => { const path = await tauri.core.invoke("choose_workspace"); if (path) { await command("import_skill", { path }); notice("技能已导入并启用。当前会话保留，下一次回复即可使用。"); } });
+$("choose-vault").onclick = () => action(async () => { const vaultPath = await tauri.core.invoke("choose_workspace"); if (vaultPath) { await command("configure_capabilities", { vaultPath }); notice("笔记库已连接，相关提问时会主动检索。"); } });
+$("disconnect-vault").onclick = () => action(async () => { await command("configure_capabilities", { vaultPath: null }); $("vault-results").replaceChildren(); });
+$("save-tavily").onclick = () => action(async () => { if (!$("tavily-key").value.trim()) throw new Error("请填写 Tavily Key"); await command("configure_capabilities", { key: $("tavily-key").value, webEnabled: true }); $("tavily-key").value = ""; notice("搜索 Key 已保存，联网搜索已开启。"); });
+for (const [id, key] of [["web-enabled", "webEnabled"], ["browser-enabled", "browserEnabled"]]) $(id).onchange = () => action(async () => { try { await command("configure_capabilities", { [key]: $(id).checked }); } catch(e) { $(id).checked = !$(id).checked; throw e; } });
+$("vault-search-form").onsubmit = event => { event.preventDefault(); void action(async () => {
+  const r = await command("search_notes", { query: $("vault-query").value }); $("vault-results").replaceChildren();
+  for (const hit of r.results || []) { const row = element("div", undefined, "card"), link = element("button", `${hit.title} · 第 ${hit.startLine}–${hit.endLine} 行`, "note-link"); link.onclick = () => action(async () => { const file = await command("resolve_file", { path: hit.url }); await tauri.core.invoke("open_local_file", { path: file.path }); }); row.append(link, element("p", hit.content, "note-excerpt")); $("vault-results").append(row); }
+  if (!r.results?.length) $("vault-results").append(element("p", "没有匹配段落。可以尝试笔记标题或更具体的关键词。", "hint"));
+}); };
+function renderLearner(profile) {
+  const groups = [["学习目标", profile.goals || []], ["知识状态", profile.knowledge || []], ["误解记录", profile.misconceptions || []], ["学习偏好", profile.preferences || []]];
+  $("learner-overview").replaceChildren(); $("learner-profile").replaceChildren();
+  for (const [title, items] of groups) {
+    const count = element("div", undefined, "profile-count"); count.append(element("span", title), element("strong", String(items.length))); $("learner-overview").append(count);
+    const section = element("details", undefined, "profile-section"); section.open = true; section.append(element("summary", `${title} · ${items.length}`));
+    for (const item of items) {
+      const row = element("div", undefined, "memory-item"), info = element("div");
+      info.append(element("h3", item.subject), element("p", item.detail), element("small", "依据：“" + item.evidence + "” · 会话 " + (item.source || "").slice(0, 8)));
+      if (item.nextReview) info.append(element("p", "建议复习：" + new Date(item.nextReview).toLocaleDateString() + " · 掌握程度尚未评估", "hint"));
+      const status = element("span", ({active:"进行中",completed:"已完成",needs_review:"待复习",resolved:"已纠正"})[item.status] || "已记录", "profile-status"); row.append(info, status); section.append(row);
+    }
+    if (!items.length) section.append(element("p", "Agent 会根据对话中的明确陈述自动整理。", "hint")); $("learner-profile").append(section);
+  }
+}
 function showSection(section) {
   if (!headings[section]) section = "general";
   for (const page of document.querySelectorAll(".page")) page.hidden = page.id !== section;
@@ -144,6 +191,8 @@ if (tauri) {
       if (r.id && pending.has(r.id) && ["ack", "error"].includes(r.type)) { const p = pending.get(r.id); clearTimeout(p.timer); pending.delete(r.id); r.type === "error" ? p.reject(new Error(r.message)) : p.resolve(r); }
       if (r.type === "providers") { templates = r.templates || []; providers = r.providers || []; renderProviders(); }
       if (r.type === "memory") { memory = r.state; renderMemory(); }
+      if (r.type === "learner") renderLearner(r.state);
+      if (r.type === "capabilities") renderCapabilities(r.state);
       if (r.type === "roles") renderRoles(r.roles || []);
       if (r.type === "memory_status") $("memory-status").textContent = ({ organizing:" 正在整理…", saved:" 已整理", error:" 整理失败，可稍后重试" })[r.status] || "";
       if (r.type === "disconnected") { for (const p of pending.values()) { clearTimeout(p.timer); p.reject(new Error("Agent 连接断开")); } pending.clear(); notice("Agent 连接断开，请在主对话窗口恢复连接后重试。", true); }

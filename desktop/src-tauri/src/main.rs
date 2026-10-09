@@ -281,6 +281,28 @@ async fn choose_workspace() -> Result<Option<String>, String> {
     { Err("Folder selection is currently available on Windows only".into()) }
 }
 
+#[tauri::command]
+async fn open_local_file(path: String) -> Result<(), String> {
+    let file = std::fs::canonicalize(&path).map_err(|e| e.to_string())?;
+    if !file.is_file() { return Err("文件不存在".into()); }
+    let extension = file.extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
+    if !["html", "htm", "md", "txt", "pdf", "png", "jpg", "jpeg", "svg", "csv"].contains(&extension.as_str()) { return Err("不支持直接打开此文件类型".into()); }
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        #[link(name = "shell32")]
+        extern "system" { fn ShellExecuteW(hwnd: isize, operation: *const u16, file: *const u16, parameters: *const u16, directory: *const u16, show: i32) -> isize; }
+        let plain = file.to_string_lossy().trim_start_matches("\\\\?\\").to_owned();
+        let wide: Vec<u16> = std::ffi::OsStr::new(&plain).encode_wide().chain(Some(0)).collect();
+        let open: Vec<u16> = "open".encode_utf16().chain(Some(0)).collect();
+        let result = unsafe { ShellExecuteW(0, open.as_ptr(), wide.as_ptr(), std::ptr::null(), std::ptr::null(), 1) };
+        if result <= 32 { return Err(format!("默认应用无法打开文件（{result}）")); }
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    { Err("目前仅支持 Windows 默认应用".into()) }
+}
+
 fn startup_log(message: &str) {
     let paths = [
         std::env::current_exe().ok().and_then(|exe| exe.parent().map(|dir| dir.join("startup.log"))),
@@ -407,7 +429,7 @@ fn run_desktop() -> tauri::Result<()> {
         .manage(ShortcutStateStore::default())
         .plugin(window_state.build())
         .plugin(shortcuts)
-        .invoke_handler(tauri::generate_handler![dismiss, agent_command, choose_workspace, desktop_preferences, set_shortcut, set_autostart, open_settings, capture_shortcut])
+        .invoke_handler(tauri::generate_handler![dismiss, agent_command, choose_workspace, open_local_file, desktop_preferences, set_shortcut, set_autostart, open_settings, capture_shortcut])
         .setup(|app| {
             startup_log("Creating Tauri window");
             let exe_dir = std::env::current_exe()?.parent().ok_or("Executable directory unavailable")?.to_path_buf();
