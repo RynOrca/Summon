@@ -6,6 +6,7 @@ const messages = $("messages");
 const transcript = $("transcript");
 const prompt = $("prompt");
 const settings = $("settings");
+const historyDrawer = $("history-drawer");
 let sequence = 0;
 let running = false;
 let assistantRow = null;
@@ -15,12 +16,17 @@ const toolRows = new Map();
 const permissionRows = new Map();
 const pending = new Map();
 
-function status(text) { $("status").textContent = text; }
+function status(text) {
+  $("status").textContent = text;
+  $("status").parentElement.classList.toggle("is-busy", /正在|连接/.test(text));
+  $("status").parentElement.classList.toggle("is-error", /断开|出错|失败/.test(text));
+}
+function updateSendAvailability() { $("send-button").disabled = running || !prompt.value.trim(); }
 function scrollToLatest() { transcript.scrollTop = transcript.scrollHeight; }
 function refreshEmpty() { $("empty-state").hidden = messages.childElementCount > 0; }
 function setRunning(value) {
   running = value;
-  $("send-button").disabled = value;
+  updateSendAvailability();
   $("stop-button").hidden = !value;
   status(value ? "PI 正在回复…" : "就绪");
 }
@@ -122,7 +128,7 @@ function permissionRequest(event) {
   permissionRows.set(event.requestId, { ...row, allow, deny });
 }
 function restoreHistory(history) {
-  messages.replaceChildren(); toolRows.clear(); assistantRow = null; thinkingRow = null;
+  messages.replaceChildren(); toolRows.clear(); permissionRows.clear(); assistantRow = null; thinkingRow = null;
   for (const message of history) {
     if (message.role === "toolResult") {
       toolEnd({ id: message.toolCallId, isError: message.isError, result: message.content });
@@ -147,6 +153,54 @@ function restoreHistory(history) {
   }
   refreshEmpty(); scrollToLatest();
 }
+function closeHistory() {
+  historyDrawer.hidden = true;
+  $("history-overlay").hidden = true;
+}
+function openHistory() {
+  historyDrawer.hidden = false;
+  $("history-overlay").hidden = false;
+  $("history-error").hidden = true;
+  void command("list_sessions");
+}
+function renderSessions(sessions) {
+  const list = $("history-list");
+  list.replaceChildren();
+  if (!sessions.length) {
+    const empty = document.createElement("div");
+    empty.className = "history-empty";
+    empty.textContent = "还没有保存的对话";
+    list.append(empty);
+    return;
+  }
+  for (const item of sessions) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "history-item";
+    button.textContent = String(item.title || "新对话").slice(0, 80);
+    button.title = button.textContent;
+    button.addEventListener("click", async () => {
+      try {
+        await command("open_session", { sessionId: item.id }, true);
+        closeHistory();
+        prompt.focus();
+      } catch (error) {
+        $("history-error").textContent = String(error);
+        $("history-error").hidden = false;
+      }
+    });
+    list.append(button);
+  }
+}
+async function newSession() {
+  try {
+    await command("new_session", {}, true);
+    closeHistory();
+    prompt.focus();
+  } catch (error) {
+    errorRow(String(error));
+  }
+}
 function onEvent(event) {
   const response = event.payload;
   if (!response || typeof response !== "object") return;
@@ -165,17 +219,11 @@ function onEvent(event) {
     case "session":
       $("model-label").textContent = response.model || "选择模型";
       $("workspace").value = response.workspace || "";
+      $("workspace-label").textContent = (response.workspace || "").replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "工作目录";
+      $("workspace-button").title = response.workspace || "切换工作目录";
       void command("list_sessions");
       break;
-    case "sessions": {
-      const picker = $("session-picker");
-      picker.replaceChildren(new Option("选择会话", ""));
-      for (const item of response.sessions || []) {
-        const title = String(item.title || "新会话").slice(0, 55);
-        picker.add(new Option(title, item.id));
-      }
-      break;
-    }
+    case "sessions": renderSessions(response.sessions || []); break;
     case "history": restoreHistory(response.messages || []); status("就绪"); break;
     case "delta": {
       if (response.kind === "thinking") {
@@ -243,10 +291,21 @@ $("composer").addEventListener("submit", (event) => {
 prompt.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing) { event.preventDefault(); $("composer").requestSubmit(); }
 });
-prompt.addEventListener("input", () => { prompt.style.height = "auto"; prompt.style.height = `${Math.min(prompt.scrollHeight, 160)}px`; });
+prompt.addEventListener("input", () => {
+  prompt.style.height = "auto";
+  prompt.style.height = `${Math.min(prompt.scrollHeight, 150)}px`;
+  updateSendAvailability();
+});
 $("stop-button").addEventListener("click", () => void command("abort"));
 $("hide-button").addEventListener("click", () => void tauri?.core.invoke("dismiss"));
-$("settings-button").addEventListener("click", () => { settings.showModal(); void command("list_sessions"); });
+$("header-new-chat").addEventListener("click", () => void newSession());
+$("history-new-chat").addEventListener("click", () => void newSession());
+$("history-button").addEventListener("click", openHistory);
+$("history-close").addEventListener("click", closeHistory);
+$("history-overlay").addEventListener("click", closeHistory);
+$("settings-button").addEventListener("click", () => settings.showModal());
+$("model-button").addEventListener("click", () => { settings.showModal(); $("model-picker").focus(); });
+$("workspace-button").addEventListener("click", () => { settings.showModal(); $("workspace").focus(); });
 $("settings-close").addEventListener("click", () => settings.close());
 $("save-key").addEventListener("click", async () => {
   const provider = $("provider").value.trim(); const key = $("api-key").value.trim();
@@ -267,19 +326,10 @@ $("change-workspace").addEventListener("click", async () => {
   try { await command("change_workspace", { path: $("workspace").value }, true); settings.close(); }
   catch (error) { $("settings-error").textContent = String(error); }
 });
-$("refresh-sessions").addEventListener("click", () => void command("list_sessions"));
-$("new-session").addEventListener("click", async () => {
-  $("settings-error").textContent = "";
-  try { await command("new_session", {}, true); settings.close(); prompt.focus(); }
-  catch (error) { $("settings-error").textContent = String(error); }
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !historyDrawer.hidden) closeHistory();
 });
-$("open-session").addEventListener("click", async () => {
-  const sessionId = $("session-picker").value;
-  if (!sessionId) return;
-  $("settings-error").textContent = "";
-  try { await command("open_session", { sessionId }, true); settings.close(); }
-  catch (error) { $("settings-error").textContent = String(error); }
-});
+updateSendAvailability();
 if (tauri) {
   tauri.event.listen("agent-event", onEvent).then(() => command("init")).catch((error) => errorRow(String(error)));
 } else {

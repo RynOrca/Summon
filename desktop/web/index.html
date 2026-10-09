@@ -9,25 +9,58 @@
   <script type="module" src="./app.js"></script>
 </head>
 <body>
+  <svg class="icon-sprite" aria-hidden="true" focusable="false">
+    <symbol id="icon-new" viewBox="0 0 16 16"><path fill="currentColor" d="M8 2.5a.75.75 0 0 1 .75.75v4h4a.75.75 0 0 1 0 1.5h-4v4a.75.75 0 0 1-1.5 0v-4h-4a.75.75 0 0 1 0-1.5h4v-4A.75.75 0 0 1 8 2.5Z"/></symbol>
+    <symbol id="icon-history" viewBox="0 0 16 16"><path fill="currentColor" d="M8 2.5a5.5 5.5 0 1 0 5.27 6.98.7.7 0 0 1 1.35.38A7 7 0 1 1 10.6 3.4l1.2-1.2a.7.7 0 1 1 .99.99l-1.9 1.9a.7.7 0 0 1-.99 0L8 3.12A5.47 5.47 0 0 0 8 2.5Zm-.3 2.7a.65.65 0 0 1 1.3 0V8l1.87 1.08a.65.65 0 1 1-.65 1.13L8.05 8.8a.65.65 0 0 1-.35-.57V5.2Z"/></symbol>
+    <symbol id="icon-spark" viewBox="0 0 16 16"><path fill="currentColor" d="m8 1.5 1.45 5.05L14.5 8l-5.05 1.45L8 14.5 6.55 9.45 1.5 8l5.05-1.45L8 1.5Z"/></symbol>
+    <symbol id="icon-settings" viewBox="0 0 16 16"><path fill="currentColor" d="M8 5.6a2.4 2.4 0 1 0 0 4.8 2.4 2.4 0 0 0 0-4.8Zm0 1.3a1.1 1.1 0 1 1 0 2.2 1.1 1.1 0 0 1 0-2.2ZM6.5 1.7h3l.3 1.3.8.4 1.2-.6 1.5 2.6-1 .9v1l1 .9-1.5 2.6-1.2-.6-.8.4-.3 1.3h-3l-.3-1.3-.8-.4-1.2.6-1.5-2.6 1-.9v-1l-1-.9 1.5-2.6 1.2.6.8-.4.3-1.3Z"/></symbol>
+    <symbol id="icon-hide" viewBox="0 0 16 16"><path fill="currentColor" d="M3 7.25h10v1.5H3z"/></symbol>
+    <symbol id="icon-chevron" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="m4.5 6 3.5 3.5L11.5 6"/></symbol>
+    <symbol id="icon-folder" viewBox="0 0 16 16"><path fill="currentColor" d="M2 4.25C2 3.56 2.56 3 3.25 3h2.14c.4 0 .78.19 1.02.51l.72.99h5.62c.69 0 1.25.56 1.25 1.25v5.5c0 .69-.56 1.25-1.25 1.25H3.25C2.56 12.5 2 11.94 2 11.25V4.25Z"/></symbol>
+    <symbol id="icon-send" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="M8 13V3m0 0L4.4 6.6M8 3l3.6 3.6"/></symbol>
+    <symbol id="icon-stop" viewBox="0 0 16 16"><rect fill="currentColor" x="4.5" y="4.5" width="7" height="7" rx="1"/></symbol>
+    <symbol id="icon-close" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" d="m4 4 8 8m0-8-8 8"/></symbol>
+  </svg>
   <div class="chat-shell">
     <header class="chat-header">
-      <span class="app-mark" aria-hidden="true">✳</span>
-      <div class="chat-title"><strong>Summon</strong><span id="model-label">PI Agent</span></div>
-      <button id="settings-button" class="chrome-button" title="模型设置" aria-label="模型设置">⚙</button>
-      <button id="hide-button" class="chrome-button" title="隐藏窗口" aria-label="隐藏窗口">−</button>
+      <div class="header-primary">
+        <button id="header-new-chat" class="icon-button" type="button" title="新对话" aria-label="新对话"><svg><use href="#icon-new"/></svg></button>
+        <button id="history-button" class="icon-button" type="button" title="对话历史" aria-label="对话历史"><svg><use href="#icon-history"/></svg></button>
+        <button id="model-button" class="model-chip" type="button" title="选择模型"><svg><use href="#icon-spark"/></svg><span id="model-label">选择模型</span><svg class="chip-chevron"><use href="#icon-chevron"/></svg></button>
+      </div>
+      <div class="header-actions">
+        <button id="settings-button" class="icon-button" type="button" title="设置" aria-label="设置"><svg><use href="#icon-settings"/></svg></button>
+        <button id="hide-button" class="icon-button" type="button" title="隐藏窗口" aria-label="隐藏窗口"><svg><use href="#icon-hide"/></svg></button>
+      </div>
     </header>
-    <main id="transcript" class="thread-scroll" aria-live="polite">
-      <div id="empty-state" class="empty-state"><span class="empty-icon">✳</span><h1>有什么可以帮你？</h1><p>由 PI Agent 驱动的独立对话窗口</p></div>
-      <div id="messages" class="transcript-list"></div>
+    <main class="chat-body">
+      <div id="transcript" class="thread-scroll" aria-live="polite">
+        <div id="empty-state" class="empty-state"><svg><use href="#icon-spark"/></svg><h1>有什么可以帮你？</h1><p>从这里开始一段新对话</p></div>
+        <div id="messages" class="transcript-list"></div>
+      </div>
+      <div class="fade-band" aria-hidden="true"></div>
     </main>
-    <div class="composer-dock composer-dock-docked">
+    <div class="status-line"><span class="status-pulse" aria-hidden="true"></span><span id="status" class="composer-status">正在连接…</span></div>
+    <div class="composer-dock">
       <form id="composer" class="composer-stack">
         <div class="composer-shell">
-          <div class="composer-input-wrap"><textarea id="prompt" class="composer-input" rows="1" placeholder="向 PI 提问…" aria-label="消息"></textarea></div>
-          <div class="composer-toolbar"><span id="status" class="composer-status">正在连接…</span><button id="stop-button" type="button" class="stop-button" hidden>停止</button><button id="send-button" class="send-btn" type="submit" aria-label="发送">↑</button></div>
+          <div class="composer-input-wrap"><textarea id="prompt" class="composer-input" rows="2" placeholder="问点什么…" aria-label="消息"></textarea></div>
+          <div class="composer-toolbar">
+            <button id="workspace-button" class="workspace-chip" type="button" title="切换工作目录"><svg><use href="#icon-folder"/></svg><span id="workspace-label">工作目录</span></button>
+            <span class="composer-spacer"></span>
+            <button id="stop-button" type="button" class="stop-button" title="停止生成" aria-label="停止生成" hidden><svg><use href="#icon-stop"/></svg></button>
+            <button id="send-button" class="send-btn" type="submit" title="发送" aria-label="发送" disabled><svg><use href="#icon-send"/></svg></button>
+          </div>
         </div>
       </form>
     </div>
+    <div id="history-overlay" class="history-overlay" hidden></div>
+    <aside id="history-drawer" class="history-drawer" aria-label="对话历史" hidden>
+      <div class="history-head"><strong>对话历史</strong><button id="history-close" class="icon-button" type="button" title="关闭历史" aria-label="关闭历史"><svg><use href="#icon-close"/></svg></button></div>
+      <button id="history-new-chat" class="history-new" type="button"><svg><use href="#icon-new"/></svg>新对话</button>
+      <div id="history-list" class="history-list"></div>
+      <p id="history-error" class="history-error" role="alert" hidden></p>
+    </aside>
   </div>
   <dialog id="settings" class="settings-dialog">
     <form id="settings-form" method="dialog">
@@ -40,10 +73,6 @@
       <button id="select-model" class="settings-action" type="button">使用此模型</button>
       <label>工作目录<input id="workspace" autocomplete="off" spellcheck="false" placeholder="例如 D:\Code\MyProject"></label>
       <button id="change-workspace" class="settings-action" type="button">切换工作目录</button>
-      <div class="settings-divider"></div>
-      <div class="settings-head"><h2>会话</h2><button id="refresh-sessions" type="button" class="chrome-button" title="刷新会话">↻</button></div>
-      <label>历史会话<select id="session-picker"><option value="">选择会话</option></select></label>
-      <div class="settings-actions"><button id="open-session" class="settings-action" type="button">打开会话</button><button id="new-session" class="settings-action" type="button">新建会话</button></div>
       <div id="settings-error" role="alert"></div>
     </form>
   </dialog>
