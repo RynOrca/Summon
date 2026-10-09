@@ -32,6 +32,7 @@
       </div>
       <div class="header-actions">
         <button id="settings-button" class="icon-button" type="button" title="设置" aria-label="设置"><svg><use href="#icon-settings"/></svg></button>
+        <button id="memory-button" class="icon-button" type="button" title="记忆" aria-label="记忆">记</button>
         <button id="hide-button" class="icon-button" type="button" title="隐藏窗口" aria-label="隐藏窗口"><svg><use href="#icon-hide"/></svg></button>
       </div>
     </header>
@@ -46,11 +47,11 @@
     <div class="composer-dock">
       <form id="composer" class="composer-stack">
         <div class="composer-shell">
-          <input id="attachment-picker" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
+          <input id="attachment-picker" type="file" multiple hidden>
           <div id="attachment-strip" class="attachment-strip" hidden></div>
           <div class="composer-input-wrap"><textarea id="prompt" class="composer-input" rows="2" placeholder="问点什么…" aria-label="消息"></textarea></div>
           <div class="composer-toolbar">
-            <button id="add-image" class="attachment-button" type="button" title="添加图片" aria-label="添加图片"><svg><use href="#icon-new"/></svg></button>
+            <button id="add-image" class="attachment-button" type="button" title="添加文件或图片" aria-label="添加文件或图片"><svg><use href="#icon-new"/></svg></button>
             <button id="workspace-button" class="workspace-chip" type="button" title="切换工作目录"><svg><use href="#icon-folder"/></svg><span id="workspace-label">工作目录</span></button>
             <span class="composer-spacer"></span>
             <button id="stop-button" type="button" class="stop-button" title="停止生成" aria-label="停止生成" hidden><svg><use href="#icon-stop"/></svg></button>
@@ -72,7 +73,13 @@
   <dialog id="settings" class="settings-dialog">
     <form id="settings-form" method="dialog">
       <div class="settings-head"><h2>模型设置</h2><button id="settings-close" type="button" class="chrome-button" aria-label="关闭">×</button></div>
-      <p>API Key 只保留在当前 Agent 进程内。会话保存在 Summon 自己的数据目录。</p>
+      <p>连接电脑 A 的 OpenAI 兼容服务。API Key 使用当前 Windows 用户的凭据保护保存。</p>
+      <label>Base URL<input id="remote-base-url" type="url" autocomplete="off" spellcheck="false" placeholder="http://电脑A地址:端口/v1"></label>
+      <label>Model ID<input id="remote-model-id" autocomplete="off" spellcheck="false" placeholder="模型标识"></label>
+      <label>远程 API Key<input id="remote-api-key" type="password" autocomplete="off" placeholder="已有 Key 可留空"></label>
+      <button id="save-remote" class="settings-action" type="button">保存并使用远程模型</button>
+      <div class="settings-divider"></div>
+      <p>其他提供商</p>
       <label>提供商<input id="provider" autocomplete="off" spellcheck="false" placeholder="anthropic"></label>
       <label>API Key<input id="api-key" type="password" autocomplete="off" placeholder="输入 API Key"></label>
       <button id="save-key" class="settings-action" type="button">应用 Key 并刷新模型</button>
@@ -82,6 +89,10 @@
       <button id="set-thinking-level" class="settings-action" type="button">应用思考深度</button>
       <label>工作目录<input id="workspace" readonly placeholder="尚未选择"></label>
       <button id="change-workspace" class="settings-action" type="button">选择本地文件夹…</button>
+      <div class="settings-divider"></div>
+      <label>全局呼出快捷键<input id="global-shortcut" autocomplete="off" spellcheck="false" placeholder="Ctrl+Alt+Space"></label>
+      <button id="save-shortcut" class="settings-action" type="button">应用快捷键</button>
+      <label class="setting-toggle">开机自启<input id="autostart" type="checkbox"></label>
       <div id="settings-error" role="alert"></div>
     </form>
   </dialog>
@@ -102,6 +113,28 @@
       <div class="role-editor-actions"><button id="role-cancel" type="button">取消</button><button id="role-save" class="settings-action" type="button">保存角色</button></div>
     </div>
     <p id="role-error" class="history-error" role="alert" hidden></p>
+  </dialog>
+  <dialog id="memory-dialog" class="settings-dialog memory-dialog">
+    <div class="settings-head"><h2>记忆</h2><button id="memory-close" type="button" class="chrome-button" aria-label="关闭">×</button></div>
+    <p>每层独立开关。只召回与问题相关的少量内容。</p>
+    <label class="setting-toggle">学习者画像（L1）<input id="memory-l1" type="checkbox"></label>
+    <p>你的学习背景与偏好；可以随时纠正。</p>
+    <textarea id="memory-profile" maxlength="6000" rows="5" placeholder="例如：正在学习 Python，喜欢先看例子再看原理"></textarea>
+    <button id="memory-profile-save" class="settings-action" type="button">保存画像</button>
+    <div class="settings-divider"></div>
+    <label class="setting-toggle">知识库（L2）<input id="memory-l2" type="checkbox"></label>
+    <p>手动加入资料，提问时检索相关内容。</p>
+    <div id="memory-notes" class="memory-notes"></div>
+    <button id="memory-import" class="settings-action" type="button">导入 TXT / Markdown 资料</button>
+    <input id="memory-file-picker" type="file" accept=".txt,.md,.markdown,text/plain,text/markdown" hidden>
+    <input id="memory-note-title" maxlength="100" placeholder="资料标题">
+    <textarea id="memory-note-body" maxlength="20000" rows="5" placeholder="粘贴学习资料或笔记"></textarea>
+    <button id="memory-note-save" class="settings-action" type="button">保存资料</button>
+    <button id="memory-note-new" type="button">清空并新建资料</button>
+    <div class="settings-divider"></div>
+    <label class="setting-toggle">跨对话记忆（L3）<input id="memory-l3" type="checkbox"></label>
+    <p>从本机历史对话中检索相关片段；关闭后不读取历史作为新对话上下文。</p>
+    <p id="memory-error" class="history-error" role="alert" hidden></p>
   </dialog>
 </body>
 </html>

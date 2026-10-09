@@ -28,6 +28,9 @@ Copy-Item -LiteralPath (Join-Path $agentDir 'bridge.mjs') -Destination (Join-Pat
 Copy-Item -LiteralPath (Join-Path $agentDir 'approval.mjs') -Destination (Join-Path $Output 'agent\approval.mjs') -Force
 Copy-Item -LiteralPath (Join-Path $agentDir 'roles.mjs') -Destination (Join-Path $Output 'agent\roles.mjs') -Force
 Copy-Item -LiteralPath (Join-Path $agentDir 'images.mjs') -Destination (Join-Path $Output 'agent\images.mjs') -Force
+Copy-Item -LiteralPath (Join-Path $agentDir 'files.mjs') -Destination (Join-Path $Output 'agent\files.mjs') -Force
+Copy-Item -LiteralPath (Join-Path $agentDir 'endpoint.mjs') -Destination (Join-Path $Output 'agent\endpoint.mjs') -Force
+Copy-Item -LiteralPath (Join-Path $agentDir 'memory.mjs') -Destination (Join-Path $Output 'agent\memory.mjs') -Force
 Copy-Item -LiteralPath (Join-Path $agentDir 'package.json') -Destination (Join-Path $Output 'agent\package.json') -Force
 Copy-Item -LiteralPath (Join-Path $agentDir 'node_modules') -Destination (Join-Path $Output 'agent\node_modules') -Recurse -Force
 Copy-Item -LiteralPath (Join-Path $desktopDir 'PI-DESKTOP-LICENSE') -Destination (Join-Path $Output 'PI-DESKTOP-LICENSE') -Force

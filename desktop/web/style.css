@@ -96,6 +96,7 @@
 .attachment-chip button { flex:none; padding:1px 4px; background:transparent; color:var(--ds-text-muted); }
 .message-attachments { display:flex; flex-wrap:wrap; gap:5px; margin-top:6px; }
 .message-attachments img { width:74px; height:74px; border-radius:7px; object-fit:cover; }
+.message-file { display:inline-block; max-width:100%; padding:5px 7px; border:1px solid #ffffff1d; border-radius:6px; color:var(--ds-text-secondary); font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .composer-spacer { flex:1; min-width:4px; }
 .workspace-chip {
   display:flex; align-items:center; gap:5px; min-width:0; max-width:65%; height:26px;
@@ -155,6 +156,18 @@
 .role-editor-actions { display:flex; gap:8px; }
 .role-editor-actions button { flex:1; border-radius:7px; padding:8px; background:#ffffff13; color:#fff; }
 .role-editor-actions .settings-action { background:#e9e9e9; color:#181818; }
+.setting-toggle { display:flex!important; align-items:center; justify-content:space-between; font-size:14px!important; color:#f2f2f2!important; }
+.setting-toggle input { width:20px!important; height:20px; accent-color:#abc7ff; }
+.memory-dialog textarea,.memory-dialog input:not([type="checkbox"]) { box-sizing:border-box; width:100%; margin:6px 0; padding:9px; border:1px solid #ffffff25; border-radius:8px; background:#1a1a1a; color:#fff; font:inherit; resize:vertical; }
+.memory-notes { display:grid; gap:7px; margin:10px 0; }
+.memory-note { display:flex; align-items:center; justify-content:space-between; gap:8px; border:1px solid #ffffff1a; border-radius:8px; padding:7px 9px; }
+.memory-note button { border:0; background:transparent; color:#d4d4d4; cursor:pointer; }
+.memory-note .confirm { color:#ff8585; }
+.memory-dialog #memory-note-new { width:100%; margin-top:7px; border:0; background:transparent; color:var(--ds-text-secondary); cursor:pointer; }
+@media (max-width:390px) {
+  .header-primary #model-button { max-width:76px; }
+  .header-primary .role-chip { max-width:72px; }
+}
 @media (prefers-reduced-transparency:reduce) { .fade-band { -webkit-backdrop-filter:none; backdrop-filter:none; } }
 @media (max-width:390px) {
   .chat-header { padding-inline:7px; }

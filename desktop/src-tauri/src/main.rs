@@ -32,6 +32,84 @@ impl Drop for AgentProcess {
 
 #[derive(Default)]
 struct AgentState(Mutex<Option<AgentProcess>>);
+#[derive(Default)]
+struct ShortcutStateStore(Mutex<String>);
+
+fn preferences_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(app.path().app_data_dir().map_err(|error| error.to_string())?.join("desktop-prefs.json"))
+}
+
+fn read_preferences(app: &tauri::AppHandle) -> serde_json::Value {
+    preferences_path(app).ok().and_then(|path| std::fs::read_to_string(path).ok())
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_else(|| serde_json::json!({"shortcut":"Alt+Shift+C","autostart":false}))
+}
+
+fn save_preferences(app: &tauri::AppHandle, value: &serde_json::Value) -> Result<(), String> {
+    let path = preferences_path(app)?;
+    std::fs::create_dir_all(path.parent().ok_or("Invalid preferences path")?).map_err(|error| error.to_string())?;
+    let temporary = path.with_extension("json.tmp");
+    std::fs::write(&temporary, serde_json::to_vec_pretty(value).map_err(|error| error.to_string())?)
+        .map_err(|error| error.to_string())?;
+    std::fs::rename(temporary, path).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn desktop_preferences(app: tauri::AppHandle, state: tauri::State<'_, ShortcutStateStore>) -> serde_json::Value {
+    let mut prefs = read_preferences(&app);
+    prefs["activeShortcut"] = state.0.lock().map(|value| value.clone()).unwrap_or_default().into();
+    prefs
+}
+
+#[tauri::command]
+fn set_shortcut(app: tauri::AppHandle, state: tauri::State<'_, ShortcutStateStore>, shortcut: String) -> Result<String, String> {
+    let requested = shortcut.trim();
+    if requested.is_empty() || requested.len() > 64 || !requested.is_ascii() {
+        return Err("请输入有效的快捷键，例如 Ctrl+Alt+Space".into());
+    }
+    let mut current = state.0.lock().map_err(|_| "Shortcut lock failed")?;
+    if *current != requested {
+        app.global_shortcut().register(requested).map_err(|error| format!("快捷键不可用或已被占用：{error}"))?;
+        if !current.is_empty() { let _ = app.global_shortcut().unregister(current.as_str()); }
+        *current = requested.to_owned();
+    }
+    let mut prefs = read_preferences(&app);
+    prefs["shortcut"] = requested.into();
+    save_preferences(&app, &prefs)?;
+    Ok(current.clone())
+}
+
+#[cfg(windows)]
+fn apply_autostart(enabled: bool) -> Result<(), String> {
+    let key = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
+    let mut command = Command::new("reg.exe");
+    if enabled {
+        let exe = std::env::current_exe().map_err(|error| error.to_string())?;
+        command.args(["add", key, "/v", "Summon", "/t", "REG_SZ", "/d"])
+            .arg(format!("\"{}\" --autostart", exe.display())).arg("/f");
+    } else {
+        let existing = Command::new("reg.exe").args(["query", key, "/v", "Summon"])
+            .output().map_err(|error| error.to_string())?;
+        if !existing.status.success() { return Ok(()); }
+        command.args(["delete", key, "/v", "Summon", "/f"]);
+    }
+    let output = command.output().map_err(|error| error.to_string())?;
+    if !output.status.success() {
+        return Err(format!("设置开机自启失败：{}", String::from_utf8_lossy(&output.stderr).trim()));
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn apply_autostart(_enabled: bool) -> Result<(), String> { Err("开机自启目前仅支持 Windows".into()) }
+
+#[tauri::command]
+fn set_autostart(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    apply_autostart(enabled)?;
+    let mut prefs = read_preferences(&app);
+    prefs["autostart"] = enabled.into();
+    save_preferences(&app, &prefs)
+}
 
 fn runtime_paths(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf), String> {
     let resources = app.path().resource_dir().map_err(|error| error.to_string())?;
@@ -259,9 +337,10 @@ fn run_desktop() -> tauri::Result<()> {
 
     tauri::Builder::default()
         .manage(AgentState::default())
+        .manage(ShortcutStateStore::default())
         .plugin(tauri_plugin_window_state::Builder::new().with_state_flags(BOUNDS).build())
         .plugin(shortcuts)
-        .invoke_handler(tauri::generate_handler![dismiss, agent_command, choose_workspace])
+        .invoke_handler(tauri::generate_handler![dismiss, agent_command, choose_workspace, desktop_preferences, set_shortcut, set_autostart])
         .setup(|app| {
             startup_log("Creating Tauri window");
             let exe_dir = std::env::current_exe()?.parent().ok_or("Executable directory unavailable")?.to_path_buf();
@@ -275,20 +354,29 @@ fn run_desktop() -> tauri::Result<()> {
             };
             startup_log(&format!("WebView2 data directory: {}", webview_dir.display()));
             let config = &app.config().app.windows[0];
-            WebviewWindowBuilder::from_config(app.handle(), config)?
+            let main_window = WebviewWindowBuilder::from_config(app.handle(), config)?
                 .data_directory(webview_dir)
                 .build()?;
+            if std::env::args().any(|arg| arg == "--autostart") {
+                let _ = main_window.hide();
+            }
             startup_log("Tauri window created");
             if let Err(error) = setup_tray(app) {
                 startup_log(&format!("Tray unavailable: {error}"));
             }
 
-            let mut shortcut = "unavailable";
-            for accelerator in ["Alt+Shift+C", "Alt+Shift+Q", "Alt+Shift+J", "F3"] {
+            let prefs = read_preferences(app.handle());
+            let preferred = prefs["shortcut"].as_str().unwrap_or("Alt+Shift+C");
+            let mut shortcut = String::new();
+            for accelerator in std::iter::once(preferred).chain(["Alt+Shift+C", "Alt+Shift+Q", "Alt+Shift+J", "F3"]) {
+                if !shortcut.is_empty() { break; }
                 if app.global_shortcut().register(accelerator).is_ok() {
-                    shortcut = accelerator;
-                    break;
+                    shortcut = accelerator.to_owned();
                 }
+            }
+            if let Ok(mut active) = app.state::<ShortcutStateStore>().0.lock() { *active = shortcut.clone(); }
+            if prefs["autostart"].as_bool() == Some(true) {
+                if let Err(error) = apply_autostart(true) { startup_log(&error); }
             }
             startup_log(&format!("Global shortcut: {shortcut}"));
             startup_log("Setup complete");

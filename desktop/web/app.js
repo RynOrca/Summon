@@ -8,7 +8,10 @@ const prompt = $("prompt");
 const settings = $("settings");
 const historyDrawer = $("history-drawer");
 const rolesDialog = $("roles-dialog");
+const memoryDialog = $("memory-dialog");
 let roles = [];
+let memoryState = { enabled: { l1: true, l2: true, l3: true }, profile: "", notes: [] };
+let editingNoteId = null;
 let activeRoleId = "agent";
 let editingRoleId = null;
 let activeSessionId = "";
@@ -59,14 +62,20 @@ function messageRow(role, text = "") {
   refreshEmpty(); scrollToLatest();
   return content;
 }
-function imagePreview(content, images) {
-  if (!images.length) return;
+function attachmentPreview(content, items) {
+  if (!items.length) return;
   const strip = document.createElement("div"); strip.className = "message-attachments";
-  for (const item of images) {
-    const img = document.createElement("img");
-    img.src = `data:${item.mimeType};base64,${item.data}`;
-    img.alt = item.name || "图片附件";
-    strip.append(img);
+  for (const item of items) {
+    if (item.type === "image" || item.kind === "image") {
+      const img = document.createElement("img");
+      img.src = `data:${item.mimeType};base64,${item.data}`;
+      img.alt = item.name || "图片附件";
+      strip.append(img);
+    } else {
+      const file = document.createElement("span"); file.className = "message-file";
+      file.textContent = item.name || "文件附件";
+      strip.append(file);
+    }
   }
   content.parentElement.append(strip);
 }
@@ -75,27 +84,28 @@ function renderAttachments() {
   strip.hidden = !attachments.length;
   for (const item of attachments) {
     const chip = document.createElement("div"); chip.className = "attachment-chip";
-    const img = document.createElement("img"); img.src = `data:${item.mimeType};base64,${item.data}`; img.alt = "";
+    const img = item.kind === "image" ? document.createElement("img") : null;
+    if (img) { img.src = `data:${item.mimeType};base64,${item.data}`; img.alt = ""; }
     const name = document.createElement("span"); name.textContent = item.name;
     const remove = document.createElement("button"); remove.type = "button"; remove.textContent = "×"; remove.title = "移除图片";
     remove.addEventListener("click", () => { attachments = attachments.filter((candidate) => candidate !== item); renderAttachments(); });
-    chip.append(img, name, remove); strip.append(chip);
+    if (img) chip.append(img);
+    chip.append(name, remove); strip.append(chip);
   }
   updateSendAvailability();
 }
-async function addImages(files) {
+async function addFiles(files) {
   const allowed = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
   for (const file of files) {
-    if (!allowed.has(file.type)) { errorRow(`暂不支持 ${file.name} 的格式`); continue; }
     if (file.size > 5 * 1024 * 1024) { errorRow(`${file.name} 超过 5 MB`); continue; }
-    if (attachments.length >= 8) { errorRow("一次最多添加 8 张图片"); break; }
+    if (attachments.length >= 8) { errorRow("一次最多添加 8 个附件"); break; }
     const dataUrl = await new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(String(reader.result));
       reader.onerror = () => reject(reader.error);
       reader.readAsDataURL(file);
     });
-    attachments.push({ name: file.name || "图片", mimeType: file.type, data: dataUrl.slice(dataUrl.indexOf(",") + 1) });
+    attachments.push({ kind: allowed.has(file.type) ? "image" : "file", name: file.name || "附件", mimeType: file.type, data: dataUrl.slice(dataUrl.indexOf(",") + 1) });
   }
   renderAttachments();
 }
@@ -192,12 +202,24 @@ function restoreHistory(history) {
         } else content.textContent += block.text || "";
       } else if (block.type === "image" && message.role === "user") {
         if (!content) content = messageRow("user");
-        imagePreview(content, [block]);
+        attachmentPreview(content, [block]);
       } else if (block.type === "thinking") {
         disclosure({ kind: "thinking", title: "思考过程", summary: (block.text || "").replace(/\s+/g, " ").slice(0, 120), detail: block.text || "" });
       } else if (block.type === "toolCall") {
         toolStart({ id: block.id, name: block.name, args: block.arguments });
         updateDisclosure(toolRows.get(block.id), "done");
+      }
+    }
+    if (message.role === "user" && content) {
+      const marker = "附件文件（可使用 read 工具读取）：\n";
+      const index = content.textContent.lastIndexOf(marker);
+      if (index === 0 || (index > 1 && content.textContent.slice(index - 2, index) === "\n\n")) {
+        const paths = content.textContent.slice(index + marker.length).split("\n").filter((line) => line.startsWith("- "));
+        content.textContent = content.textContent.slice(0, index).trimEnd();
+        attachmentPreview(content, paths.map((line) => ({
+          kind: "file",
+          name: line.slice(2).split(/[\\/]/).pop().replace(/^[0-9a-f-]{36}-/, ""),
+        })));
       }
     }
   }
@@ -299,6 +321,39 @@ function renderRoles() {
     list.append(row);
   }
 }
+function memoryError(error) {
+  $("memory-error").textContent = String(error);
+  $("memory-error").hidden = false;
+}
+function renderMemory() {
+  for (const layer of ["l1", "l2", "l3"]) $("memory-" + layer).checked = memoryState.enabled[layer] !== false;
+  $("memory-profile").value = memoryState.profile || "";
+  const list = $("memory-notes"); list.replaceChildren();
+  for (const note of memoryState.notes || []) {
+    const row = document.createElement("div"); row.className = "memory-note";
+    const edit = document.createElement("button"); edit.type = "button"; edit.textContent = note.title;
+    edit.title = "编辑资料";
+    edit.addEventListener("click", () => {
+      editingNoteId = note.id;
+      $("memory-note-title").value = note.title;
+      $("memory-note-body").value = note.body;
+      $("memory-note-save").textContent = "更新资料";
+    });
+    const remove = document.createElement("button"); remove.type = "button"; remove.textContent = "删除";
+    let timer;
+    remove.addEventListener("click", async () => {
+      if (!remove.classList.contains("confirm")) {
+        remove.classList.add("confirm"); remove.textContent = "确认删除";
+        timer = setTimeout(() => { remove.classList.remove("confirm"); remove.textContent = "删除"; }, 3000);
+        return;
+      }
+      clearTimeout(timer);
+      try { await command("memory_note_delete", { noteId: note.id }, true); }
+      catch (error) { memoryError(error); }
+    });
+    row.append(edit, remove); list.append(row);
+  }
+}
 async function chooseWorkspace() {
   try {
     const path = await tauri.core.invoke("choose_workspace");
@@ -322,7 +377,7 @@ async function newSession() {
 function onEvent(event) {
   const response = event.payload;
   if (!response || typeof response !== "object") return;
-  const handledReply = Boolean(response.id && pending.has(response.id) && ["ack", "error", "done", "conversation"].includes(response.type));
+  const handledReply = Boolean(response.id && pending.has(response.id) && ["ack", "error", "done", "conversation", "file_staged"].includes(response.type));
   if (handledReply) {
     const { resolve, reject } = pending.get(response.id); pending.delete(response.id);
     response.type === "error" ? reject(new Error(response.message)) : resolve(response);
@@ -355,6 +410,13 @@ function onEvent(event) {
       activeRoleId = response.activeId || "agent";
       renderRoles();
       break;
+    case "endpoint":
+      $("remote-base-url").value = response.config?.baseUrl || "";
+      $("remote-model-id").value = response.config?.modelId || "";
+      $("remote-api-key").placeholder = response.hasKey ? "已保存，可留空" : "输入 API Key";
+      break;
+    case "credential_error": errorRow(response.message || "远程模型凭据无法读取"); break;
+    case "memory": memoryState = response.state || memoryState; renderMemory(); break;
     case "sessions": renderSessions(response.sessions || []); break;
     case "history": restoreHistory(response.messages || []); status("就绪"); break;
     case "delta": {
@@ -411,36 +473,51 @@ function command(type, args = {}, awaitReply = false) {
   });
   return response;
 }
-$("composer").addEventListener("submit", (event) => {
+$("composer").addEventListener("submit", async (event) => {
   event.preventDefault();
   const text = prompt.value.trim();
   if ((!text && !attachments.length) || running) return;
+  const items = attachments;
+  running = true; updateSendAvailability();
+  status("正在准备附件…");
+  let outgoing = text;
+  try {
+    const staged = [];
+    for (const item of items.filter((item) => item.kind === "file")) {
+      const reply = await command("stage_file", { name: item.name, data: item.data }, true);
+      staged.push(reply.path);
+    }
+    if (staged.length) outgoing += `${outgoing ? "\n\n" : ""}附件文件（可使用 read 工具读取）：\n${staged.map((path) => `- ${path}`).join("\n")}`;
+  } catch (error) {
+    running = false; updateSendAvailability();
+    status("就绪"); errorRow(String(error));
+    return;
+  }
   const userContent = messageRow("user", text);
-  const images = attachments;
-  imagePreview(userContent, images);
-  submitted = { text, images, row: userContent.closest(".message-row") };
+  attachmentPreview(userContent, items);
+  submitted = { text, images: items, row: userContent.closest(".message-row") };
   assistantRow = null; thinkingRow = null;
   attachments = []; renderAttachments();
   prompt.value = ""; prompt.style.height = "auto";
   setRunning(true);
-  void command("prompt", { text, images: images.map(({ data, mimeType }) => ({ type: "image", data, mimeType })) });
+  void command("prompt", { text: outgoing, images: items.filter((item) => item.kind === "image").map(({ data, mimeType }) => ({ type: "image", data, mimeType })) });
 });
 $("add-image").addEventListener("click", () => $("attachment-picker").click());
 $("attachment-picker").addEventListener("change", (event) => {
-  void addImages(Array.from(event.target.files || [])).catch((error) => errorRow(String(error)));
+  void addFiles(Array.from(event.target.files || [])).catch((error) => errorRow(String(error)));
   event.target.value = "";
 });
 prompt.addEventListener("paste", (event) => {
   const files = Array.from(event.clipboardData?.files || []);
   if (!files.length) return;
   event.preventDefault();
-  void addImages(files).catch((error) => errorRow(String(error)));
+  void addFiles(files).catch((error) => errorRow(String(error)));
 });
 $("composer").addEventListener("dragover", (event) => { if (event.dataTransfer?.files?.length) event.preventDefault(); });
 $("composer").addEventListener("drop", (event) => {
   if (!event.dataTransfer?.files?.length) return;
   event.preventDefault();
-  void addImages(Array.from(event.dataTransfer.files)).catch((error) => errorRow(String(error)));
+  void addFiles(Array.from(event.dataTransfer.files)).catch((error) => errorRow(String(error)));
 });
 prompt.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing) { event.preventDefault(); $("composer").requestSubmit(); }
@@ -487,9 +564,72 @@ $("rename-save").addEventListener("click", async () => {
   }
 });
 $("settings-button").addEventListener("click", () => settings.showModal());
+$("memory-button").addEventListener("click", () => { $("memory-error").hidden = true; renderMemory(); memoryDialog.showModal(); });
+$("memory-close").addEventListener("click", () => memoryDialog.close());
+for (const layer of ["l1", "l2", "l3"]) {
+  $("memory-" + layer).addEventListener("change", async (event) => {
+    try { await command("memory_enabled", { layer, enabled: event.target.checked }, true); }
+    catch (error) { event.target.checked = !event.target.checked; memoryError(error); }
+  });
+}
+$("memory-profile-save").addEventListener("click", async () => {
+  try { await command("memory_profile", { profile: $("memory-profile").value }, true); $("memory-error").hidden = true; }
+  catch (error) { memoryError(error); }
+});
+$("memory-note-save").addEventListener("click", async () => {
+  try {
+    await command("memory_note_save", { noteId: editingNoteId, title: $("memory-note-title").value, body: $("memory-note-body").value }, true);
+    editingNoteId = null;
+    $("memory-note-title").value = ""; $("memory-note-body").value = "";
+    $("memory-note-save").textContent = "保存资料";
+    $("memory-error").hidden = true;
+  } catch (error) { memoryError(error); }
+});
+$("memory-note-new").addEventListener("click", () => {
+  editingNoteId = null;
+  $("memory-note-title").value = "";
+  $("memory-note-body").value = "";
+  $("memory-note-save").textContent = "保存资料";
+  $("memory-note-title").focus();
+});
+$("memory-import").addEventListener("click", () => $("memory-file-picker").click());
+$("memory-file-picker").addEventListener("change", async (event) => {
+  const file = event.target.files?.[0];
+  event.target.value = "";
+  if (!file) return;
+  if (file.size > 100 * 1024) { memoryError("资料文件最多 100 KB"); return; }
+  try {
+    const body = await file.text();
+    if (body.length > 20000) throw new Error("资料正文最多 20000 字，请拆分后导入");
+    await command("memory_note_save", { title: file.name.replace(/\.(txt|md|markdown)$/i, ""), body }, true);
+    $("memory-error").hidden = true;
+  } catch (error) { memoryError(error); }
+});
 $("model-button").addEventListener("click", () => { settings.showModal(); $("model-picker").focus(); });
 $("workspace-button").addEventListener("click", () => void chooseWorkspace());
 $("settings-close").addEventListener("click", () => settings.close());
+$("save-remote").addEventListener("click", async () => {
+  $("settings-error").textContent = "";
+  try {
+    await command("configure_remote", {
+      baseUrl: $("remote-base-url").value,
+      modelId: $("remote-model-id").value,
+      key: $("remote-api-key").value,
+    }, true);
+    $("remote-api-key").value = "";
+    settings.close();
+  } catch (error) { $("settings-error").textContent = String(error); }
+});
+$("save-shortcut").addEventListener("click", async () => {
+  $("settings-error").textContent = "";
+  try { $("global-shortcut").value = await tauri.core.invoke("set_shortcut", { shortcut: $("global-shortcut").value }); }
+  catch (error) { $("settings-error").textContent = String(error); }
+});
+$("autostart").addEventListener("change", async (event) => {
+  $("settings-error").textContent = "";
+  try { await tauri.core.invoke("set_autostart", { enabled: event.target.checked }); }
+  catch (error) { event.target.checked = !event.target.checked; $("settings-error").textContent = String(error); }
+});
 $("save-key").addEventListener("click", async () => {
   const provider = $("provider").value.trim(); const key = $("api-key").value.trim();
   $("settings-error").textContent = "";
@@ -533,6 +673,10 @@ document.addEventListener("keydown", (event) => {
 });
 updateSendAvailability();
 if (tauri) {
+  tauri.core.invoke("desktop_preferences").then((prefs) => {
+    $("global-shortcut").value = prefs.activeShortcut || prefs.shortcut || "";
+    $("autostart").checked = prefs.autostart === true;
+  }).catch((error) => { $("settings-error").textContent = String(error); });
   tauri.event.listen("agent-event", onEvent).then(() => command("init")).catch((error) => errorRow(String(error)));
 } else {
   status("请在 Tauri 桌面窗口中运行");

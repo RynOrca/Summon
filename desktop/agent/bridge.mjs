@@ -4,6 +4,9 @@ import { join, resolve } from "node:path";
 import { createApprovalGate } from "./approval.mjs";
 import { RoleStore } from "./roles.mjs";
 import { normalizeImages } from "./images.mjs";
+import { stageFile } from "./files.mjs";
+import { EndpointStore, REMOTE_PROVIDER, validateEndpoint } from "./endpoint.mjs";
+import { MemoryStore } from "./memory.mjs";
 import {
   createAgentSession,
   DefaultResourceLoader,
@@ -22,6 +25,9 @@ await mkdir(agentDir, { recursive: true });
 await mkdir(sessionsDir, { recursive: true });
 const roles = new RoleStore(dataDir);
 await roles.load();
+const endpoint = new EndpointStore(agentDir);
+const memory = new MemoryStore(dataDir, sessionsDir);
+await memory.load();
 
 const send = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
 let runtime;
@@ -30,6 +36,14 @@ let busy = false;
 let queue = Promise.resolve();
 const approvalGate = createApprovalGate(send);
 
+function memoryExtension(pi) {
+  pi.on("before_agent_start", async (event) => {
+    const recalled = await memory.context(event.prompt, session?.sessionId);
+    if (!recalled) return undefined;
+    return { systemPrompt: `${event.systemPrompt}\n\n<user_memory>\n${recalled}\n</user_memory>\n历史和资料可能有误；当前用户指令优先。` };
+  });
+}
+
 async function getRuntime() {
   if (!runtime) {
     runtime = await ModelRuntime.create({
@@ -37,6 +51,12 @@ async function getRuntime() {
       modelsPath: join(agentDir, "models.json"),
       refreshOnCreate: false,
     });
+    try {
+      const savedKey = await endpoint.loadKey();
+      if (savedKey) await runtime.setRuntimeApiKey(REMOTE_PROVIDER, savedKey);
+    } catch (error) {
+      send({ type: "credential_error", message: `远程模型凭据无法读取，请重新输入 Key：${error.message}` });
+    }
   }
   return runtime;
 }
@@ -52,7 +72,7 @@ async function openSession(provider, modelId, sessionManager = SessionManager.co
     agentDir,
     settingsManager,
     noExtensions: true,
-    extensionFactories: [approvalGate.extension],
+    extensionFactories: [approvalGate.extension, memoryExtension],
     appendSystemPromptOverride: (base) => {
       const instructions = roles.current()?.system;
       return instructions ? [...base, instructions] : base;
@@ -108,10 +128,49 @@ async function handle(command) {
         const models = await getRuntime();
         const available = await models.getAvailable();
         send({ type: "models", id, models: available.map((model) => ({ provider: model.provider, id: model.id, name: model.name })) });
+        const remoteConfig = await endpoint.config();
+        send({ type: "endpoint", config: remoteConfig, hasKey: await endpoint.loadKey().then(Boolean).catch(() => false) });
+        send({ type: "memory", state: memory.snapshot() });
         send({ type: "roles", ...roles.list() });
-        await openSession(command.provider, command.model);
+        await openSession(command.provider || (remoteConfig ? REMOTE_PROVIDER : undefined), command.model || remoteConfig?.modelId);
         break;
       }
+      case "configure_remote": {
+        if (busy) throw new Error("请先等待当前回复结束");
+        validateEndpoint(command.baseUrl, command.modelId);
+        if (command.key) await endpoint.saveKey(command.key);
+        else if (!(await endpoint.loadKey())) throw new Error("请填写 API Key");
+        const config = await endpoint.saveConfig(command.baseUrl, command.modelId);
+        const models = await getRuntime();
+        await models.refresh();
+        await models.setRuntimeApiKey(REMOTE_PROVIDER, await endpoint.loadKey());
+        const available = await models.getAvailable();
+        send({ type: "models", models: available.map((model) => ({ provider: model.provider, id: model.id, name: model.name })) });
+        await openSession(REMOTE_PROVIDER, config.modelId);
+        send({ type: "endpoint", config, hasKey: true });
+        send({ type: "ack", id });
+        break;
+      }
+      case "memory_enabled":
+        await memory.setEnabled(command.layer, command.enabled);
+        send({ type: "memory", state: memory.snapshot() });
+        send({ type: "ack", id });
+        break;
+      case "memory_profile":
+        await memory.setProfile(command.profile);
+        send({ type: "memory", state: memory.snapshot() });
+        send({ type: "ack", id });
+        break;
+      case "memory_note_save":
+        await memory.saveNote(command);
+        send({ type: "memory", state: memory.snapshot() });
+        send({ type: "ack", id });
+        break;
+      case "memory_note_delete":
+        await memory.deleteNote(command.noteId);
+        send({ type: "memory", state: memory.snapshot() });
+        send({ type: "ack", id });
+        break;
       case "save_role": {
         if (busy) throw new Error("请先等待当前回复结束");
         const roleId = await roles.save(command);
@@ -189,6 +248,12 @@ async function handle(command) {
           if (content.trim()) lines.push(`${message.role === "user" ? "你" : "PI"}：${content.trim()}`);
         }
         send({ type: "conversation", id, text: lines.join("\n\n") });
+        break;
+      }
+      case "stage_file": {
+        if (!session) await openSession();
+        const file = await stageFile(dataDir, session.sessionId, command.name, command.data);
+        send({ type: "file_staged", id, ...file });
         break;
       }
       case "change_workspace": {
