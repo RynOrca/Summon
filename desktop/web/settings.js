@@ -18,12 +18,15 @@ headings.security = ["权限与范围", "文件范围与审批方式分别管理
 let agentCapabilities = {};
 function renderAgent(state = agentCapabilities) {
   agentCapabilities = state; $("approval-mode").value = state.approval || "manual"; $("file-access").value = state.access || "workspace";
-  $("security-workspace").textContent = state.workspace || ""; $("security-readonly").textContent = state.readOnly?.join("\n") || "未连接只读目录";
+  $("security-workspace").textContent = state.workspace || ""; $("security-readonly").textContent = state.readOnly?.filter(p=>!state.customReadOnly?.includes(p)).join("\n") || "未连接只读目录";
   $("agent-summary").textContent = `${state.tools?.filter(t=>t.active).length || 0} 个可用工具 · ${capabilities.skills?.filter(s=>s.enabled).length || 0} 个启用技能 · 终端已关闭`;
   $("agent-extensions").textContent = "内置扩展：" + (state.extensions || []).join("、"); $("agent-mcp").textContent = state.mcp?.length ? "MCP：" + state.mcp.join("、") : "MCP：未连接服务器。现有浏览器、搜索和文件能力通过内置工具提供。";
+  $("custom-readonly").replaceChildren();
+  for(const path of state.customReadOnly||[]){const row=element("div",undefined,"readonly-item"),label=element("span",path);const remove=element("button","移除","secondary");remove.onclick=()=>action(()=>command("remove_readonly",{path}));row.append(label,remove);$("custom-readonly").append(row);}
   $("agent-tool-list").replaceChildren(); const query = $("agent-tool-query").value.toLowerCase();
   for (const tool of state.tools || []) { if (!(tool.name + " " + tool.description).toLowerCase().includes(query)) continue; const row = element("div", undefined, "card tool-capability"), title = element("h3", tool.name), status = element("span", tool.active ? "可用" : "未启用", "profile-status"); title.append(status); row.append(title, element("p", tool.description), element("small", "操作范围：" + tool.scope)); $("agent-tool-list").append(row); }
 }
+$("add-readonly").onclick=()=>action(async()=>{const path=await tauri.core.invoke("choose_workspace");if(path)await command("add_readonly",{path});});
 $("agent-tool-query").oninput = () => renderAgent(); $("refresh-agent").onclick = () => action(()=>command("get_state"));
 $("approval-mode").onchange = () => action(async()=>{try { await command("set_approval",{mode:$("approval-mode").value}); notice("审批方式已更新，适用于后续工具调用。"); } catch(e) { renderAgent(); throw e; }});
 $("file-access").onchange = () => action(async()=>{try { await command("set_file_access",{mode:$("file-access").value}); notice("文件权限范围已更新。"); } catch(e) { renderAgent(); throw e; }});
@@ -99,7 +102,8 @@ function renderProviders() {
     const title = document.createElement("span"); title.textContent = provider.name;
     const info = document.createElement("small"); info.textContent = `${provider.models.length} 个模型 · ${provider.credentialError || "编辑配置"}`;
     button.append(title, info); button.onclick = () => editProvider(templates.find(t => t.id === provider.template) || templates.find(t => t.id === "custom"), provider);
-    $("providers").append(button);
+    const row=element("div",undefined,"provider-row");
+    const remove=deletionButton("删除",async()=>{await command("delete_provider",{providerId:provider.id});if(providerId===provider.id){providerId=null;editing=null;$("provider-form").hidden=true;}notice("提供商配置已删除，对话历史保留。");});remove.setAttribute("aria-label",`删除 ${provider.name}`);row.append(button,remove);$("providers").append(row);
   }
   if (!providers.length) { const p = document.createElement("p"); p.className = "hint"; p.textContent = "选择下方提供商开始配置。"; $("providers").append(p); }
   $("templates").replaceChildren();
@@ -121,8 +125,14 @@ function renderProviderModels(models) {
     const source = ({ service:"服务返回", "catalog+service":"服务 / PI 目录", user:"手动补充", unknown:"服务未提供能力信息" })[model.infoSource] || "PI 目录";
     detail.textContent = `${model.contextWindow ? model.contextWindow.toLocaleString() + " 上下文" : "上下文未知"} · ${model.thinkingLevels?.join(" / ") || (model.reasoning === true ? "支持思考" : model.reasoning === false ? "不支持思考" : "思考能力未知")} · ${source}`;
     info.append(name, detail);
-    const use = document.createElement("button"); use.className = "secondary"; use.textContent = "使用";
-    use.onclick = () => action(async () => { await command("select_model", { provider: providerId, model: model.id }); notice(`已使用 ${model.name || model.id}，思考档位可在对话窗口选择。`); });
+    const use = document.createElement("button"); use.className = "secondary"; use.textContent = "获取配置";
+    use.onclick = () => action(async () => {
+      use.disabled=true;use.textContent="获取中…";
+      try { const selectedProvider=providerId;const reply=await command("refresh_model",{providerId:selectedProvider,modelId:model.id});const config=reply.modelInfo;notice(`已获取 ${model.name||model.id} 的配置。${config.reasoning==null?"服务未提供思考能力，请在下方补充。":""}`);
+        $("manual-model").value=model.id;$("manual-context").value=config.contextWindow||"";$("manual-reasoning").value=config.reasoning==null?"unknown":config.reasoning?"yes":"no";$("thinking-format").value=config.compat?.thinkingFormat||"";$("manual-levels").value=config.reasoning?config.thinkingLevels?.filter(l=>l!=="off").join(", ")||"":"";
+        document.querySelector(".advanced").open=true;$("manual-model").scrollIntoView({block:"nearest"});
+      } finally {use.disabled=false;use.textContent="获取配置";}
+    });
     row.append(info, use); $("discovered-models").append(row);
   }
 }

@@ -101,9 +101,10 @@ function geometry(value) { return {x:value.x,y:value.y,width:value.width,height:
     const settingsBounds=await bounds(child.pid,settingsHandle,undefined,undefined,path.join(nativeArtifacts,"native-settings.png"));assert.equal(settingsBounds.outerWidth,settingsBounds.width);assert.equal(settingsBounds.outerHeight,settingsBounds.height);assert.ok(settingsBounds.regionKind>0 && !settingsBounds.cornerInside && settingsBounds.centerInside);checks.push('设置窗口无系统标题栏，原生区域裁剪圆角');
     await settings.locator('#close').click();
     const scale=await page.evaluate(()=>window.devicePixelRatio);
-    const dragFrom={x:Math.round(initial.x+initial.width/2),y:Math.round(initial.y+42*scale)};
+    const beforeDrag=await bounds(child.pid,initial.handle); const dragRect=await page.locator('.drag-space').boundingBox();
+    const dragFrom={x:Math.round(beforeDrag.x+(dragRect.x+dragRect.width/2)*scale),y:Math.round(beforeDrag.y+(dragRect.y+dragRect.height/2)*scale)};
     await gesture(child.pid,initial.handle,dragFrom,{x:dragFrom.x+40,y:dragFrom.y+30});const dragged=await bounds(child.pid,initial.handle);
-    assert.equal(dragged.x,initial.x+40);assert.equal(dragged.y,initial.y+30);checks.push('无标题栏顶部空白区真实鼠标拖动');
+    assert.equal(dragged.x,beforeDrag.x+40);assert.equal(dragged.y,beforeDrag.y+30);checks.push('无标题栏顶部空白区真实鼠标拖动');
     const resizeFrom={x:dragged.x+dragged.outerWidth-3,y:dragged.y+Math.round(dragged.outerHeight/2)};
     await gesture(child.pid,initial.handle,resizeFrom,{x:resizeFrom.x+60,y:resizeFrom.y});const resized=await bounds(child.pid,initial.handle);
     assert.equal(resized.outerWidth,dragged.outerWidth+60);checks.push('窗口边缘真实鼠标缩放');

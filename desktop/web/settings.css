@@ -23,6 +23,8 @@ body { border:0; border-radius:14px; }
 aside { border-radius:13px 0 0 13px; min-height:0; } nav { overflow:auto; min-height:0; gap:3px; }
 nav button { padding:10px 12px; } .ui-icon { width:23px; height:23px; flex:none; }
 header .icon { display:grid; place-items:center; width:34px; height:34px; } main { border-radius:0 13px 13px 0; }
+.provider-row { display:flex; gap:8px; align-items:center; }.provider-row .configured { flex:1; min-width:0; }.provider-row>.secondary { flex:none; font-size:12px; }
+.readonly-item { display:flex; justify-content:space-between; align-items:center; gap:12px; margin:10px 0; }.readonly-item span { min-width:0; overflow-wrap:anywhere; font-size:12px; }.readonly-item button { flex:none; font-size:12px; }
 .resize-handle { position:fixed; z-index:10000; touch-action:none; }
 .edge-North,.edge-South { left:12px; right:12px; height:5px; cursor:ns-resize; }.edge-North { top:0; }.edge-South { bottom:0; }
 .edge-East,.edge-West { top:12px; bottom:12px; width:5px; cursor:ew-resize; }.edge-East { right:0; }.edge-West { left:0; }

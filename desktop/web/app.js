@@ -266,6 +266,12 @@ function renderSessions(sessions) {
     group.append(title); items.forEach(item => addConversation(group, item)); list.append(group);
   }
 }
+let chosenModel=null,activeModelKey="",activeThinking="off";
+const thinkingNames={off:"思考关闭",minimal:"最少",low:"低",medium:"中等",high:"高",xhigh:"很高",max:"最高"};
+function thinkingName(level,format){return level!=="off" && ["qwen","qwen-chat-template"].includes(format)?"思考开启":thinkingNames[level]||level;}
+function updateModelChip(response){activeModelKey=response.model||"";activeThinking=response.thinkingLevel||"off";$("model-label").textContent=response.model?response.modelName||response.model:"选择模型";const name=response.reasoningKnown===false?"思考未配置":thinkingName(activeThinking,response.thinkingFormat);$("model-thinking").textContent=/思考/.test(name)?name:`思考·${name}`;$("model-thinking").hidden=!response.model;$("model-button").title=response.model?`${$("model-label").textContent} · ${$("model-thinking").textContent}`:"选择模型";}
+function resetModelStep(){chosenModel=null;$("model-step").hidden=false;$("thinking-step").hidden=true;$("model-step-title").textContent="选择模型";$("model-error").hidden=true;}
+function chooseModel(model){chosenModel=model;$("model-step").hidden=true;$("thinking-step").hidden=false;$("model-step-title").textContent="选择思考档位";$("chosen-model-name").textContent=model.name||model.id;$("chosen-model-info").textContent=`${model.providerName||model.provider} · ${model.contextWindow?model.contextWindow.toLocaleString()+" 上下文":"上下文未知"}`;const format=model.compat?.thinkingFormat;renderThinkingLevels(model.thinkingLevels||["off"],activeModelKey===`${model.provider}/${model.id}`?activeThinking:"off",{thinkingFormat:format,reasoningKnown:model.reasoning!=null});$("thinking-hint").textContent=model.reasoning==null?"服务未提供思考能力；可在模型设置中获取配置或手动补充。":model.reasoning===false?"此模型不支持思考。":"仅展示当前模型支持的选项。";$("thinking-level").focus();}
 function renderModels() {
   const list = $("model-list"); list.replaceChildren();
   const search = $("model-search").value.toLowerCase();
@@ -274,8 +280,7 @@ function renderModels() {
     const title = document.createElement("strong"); title.textContent = model.name || model.id;
     const meta = document.createElement("span"); meta.textContent = `${model.providerName || model.provider} · ${model.contextWindow ? Math.round(model.contextWindow / 1024) + "K 上下文" : "上下文未知"}`;
     button.append(title, meta); button.onclick = async () => {
-      try { await command("select_model", { provider: model.provider, model: model.id }, true); modelsDialog.close(); }
-      catch (error) { errorRow(String(error)); }
+      chooseModel(model);
     }; list.append(button);
   }
   if (!list.childElementCount) { const p = document.createElement("p"); p.textContent = "没有可用模型，请先配置提供商。"; list.append(p); }
@@ -390,13 +395,13 @@ function onEvent(event) {
       $("model-button").title = response.model || "选择模型";
       activeSessionId = response.sessionId || "";
       activeSessionName = response.sessionName || "";
-      renderThinkingLevels(response.availableThinkingLevels, response.thinkingLevel, response);
+      updateModelChip(response);
       $("workspace-label").textContent = (response.workspace || "").replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "无项目";
       $("workspace-button").title = response.workspace || "切换工作目录";
       if (response.roleId) { activeRoleId = response.roleId; renderRoles(); }
       void command("list_sessions");
       break;
-    case "thinking_level": renderThinkingLevels(response.availableThinkingLevels, response.level, response); break;
+    case "thinking_level": void command("get_state"); break;
     case "session_name":
       if (response.sessionId === activeSessionId) activeSessionName = response.name || "";
       void command("list_sessions");
@@ -582,14 +587,12 @@ $("rename-save").addEventListener("click", async () => {
   }
 });
 $("settings-button").addEventListener("click", () => void tauri?.core.invoke("open_settings", { section: "general" }).catch(error => errorRow(String(error))));
-$("model-button").addEventListener("click", () => { renderModels(); modelsDialog.showModal(); $("model-search").focus(); });
+$("model-button").addEventListener("click", () => { resetModelStep(); renderModels(); modelsDialog.showModal(); $("model-search").focus(); });
 $("model-search").addEventListener("input", renderModels);
 $("models-close").addEventListener("click", () => modelsDialog.close());
 $("configure-models").addEventListener("click", () => { modelsDialog.close(); void tauri?.core.invoke("open_settings", { section: "models" }); });
-$("thinking-level").addEventListener("change", async () => {
-  try { await command("set_thinking_level", { level: $("thinking-level").value }, true); }
-  catch (error) { errorRow(String(error)); void command("get_state"); }
-});
+$("model-back").onclick=()=>{resetModelStep();$("model-search").focus();};
+$("model-apply").onclick=async()=>{if(!chosenModel)return;$("model-apply").disabled=true;$("model-error").hidden=true;try{await command("select_model",{provider:chosenModel.provider,model:chosenModel.id,thinkingLevel:$("thinking-level").value},true);modelsDialog.close();}catch(e){$("model-error").textContent=String(e.message||e);$("model-error").hidden=false;}finally{$("model-apply").disabled=false;}};
 $("workspace-button").addEventListener("click", () => void chooseWorkspace());
 for (const dialog of document.querySelectorAll("dialog")) {
   dialog.addEventListener("click", event => {

@@ -27,10 +27,9 @@
       <div class="header-primary">
         <button id="header-new-chat" class="icon-button" type="button" title="新对话" aria-label="新对话"><svg><use href="#icon-new"/></svg></button>
         <button id="history-button" class="icon-button" type="button" title="对话历史" aria-label="对话历史"><svg><use href="#icon-history"/></svg></button>
-        <button id="model-button" class="model-chip" type="button" title="选择模型"><svg><use href="#icon-spark"/></svg><span id="model-label">选择模型</span><svg class="chip-chevron"><use href="#icon-chevron"/></svg></button>
-        <select id="thinking-level" class="thinking-chip" aria-label="思考深度" title="思考深度"><option value="off">思考关闭</option></select>
-        <button id="role-button" class="model-chip role-chip" type="button" title="角色预设"><svg><use href="#icon-role"/></svg><span id="role-label">Agent</span><svg class="chip-chevron"><use href="#icon-chevron"/></svg></button>
+
       </div>
+      <div class="drag-space" title="拖动窗口" aria-label="拖动窗口"></div>
       <div class="header-actions">
         <button id="activity-button" class="icon-button" type="button" title="工具与思考记录" aria-label="工具与思考记录"></button>
         <button id="settings-button" class="icon-button" type="button" title="设置" aria-label="设置"><svg><use href="#icon-settings"/></svg></button>
@@ -47,6 +46,10 @@
     </main>
     <div class="status-line"><span class="status-pulse" aria-hidden="true"></span><span id="status" class="composer-status">正在连接…</span></div>
     <div class="composer-dock">
+      <div class="composer-configuration">
+        <button id="model-button" class="model-chip" type="button" title="选择模型"><svg><use href="#icon-spark"/></svg><span id="model-label">选择模型</span><span id="model-thinking" hidden></span><svg class="chip-chevron"><use href="#icon-chevron"/></svg></button>
+        <button id="role-button" class="model-chip role-chip" type="button" title="角色预设"><svg><use href="#icon-role"/></svg><span id="role-label">Agent</span><svg class="chip-chevron"><use href="#icon-chevron"/></svg></button>
+      </div>
       <div id="queue-preview" class="queue-preview" hidden><div id="queue-items"></div><button id="clear-queue" type="button">取消待处理消息</button></div>
       <form id="composer" class="composer-stack">
         <div class="composer-shell"><div class="fade-band" aria-hidden="true"></div>
@@ -99,9 +102,11 @@
 <dialog id="activity-dialog" class="settings-dialog activity-dialog"><div class="settings-head"><h2>工具与思考记录</h2><button id="activity-close" class="chrome-button" aria-label="关闭">×</button></div><p>点开记录查看参数、结果、审批与模型返回的思考内容。</p><div id="activity-list"></div></dialog>
 <dialog id="context-dialog" class="settings-dialog"><div class="settings-head"><h2>上下文占用</h2><button id="context-close" class="chrome-button" aria-label="关闭">×</button></div><p id="context-detail">模型尚未提供上下文信息。</p><p class="context-explanation">根据最近一次模型用量与当前消息估算。不是所有历史对话的累计 token；服务未提供容量时不显示百分比。速度包含输出与思考 token，不含工具等待时间。</p></dialog>
 <dialog id="models-dialog" class="settings-dialog models-dialog">
-  <div class="settings-head"><h2>选择模型</h2><button id="models-close" class="chrome-button" aria-label="关闭">×</button></div>
-  <input id="model-search" placeholder="搜索模型或提供商" aria-label="搜索模型">
+  <div class="settings-head"><h2 id="model-step-title">选择模型</h2><button id="models-close" class="chrome-button" aria-label="关闭">×</button></div>
+  <div id="model-step"><input id="model-search" placeholder="搜索模型或提供商" aria-label="搜索模型">
   <div id="model-list" class="model-list"></div>
-  <button id="configure-models" class="settings-action">配置提供商</button>
+  <button id="configure-models" class="settings-action">配置提供商</button></div>
+  <div id="thinking-step" hidden><h3 id="chosen-model-name"></h3><p id="chosen-model-info"></p><label>思考档位<select id="thinking-level" aria-label="思考档位"></select></label><p id="thinking-hint"></p><div class="model-step-actions"><button id="model-back" type="button">返回模型列表</button><button id="model-apply" type="button" class="settings-action">确认应用</button></div></div>
+  <p id="model-error" role="alert" hidden></p>
 </dialog></body>
 </html>
