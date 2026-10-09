@@ -13,6 +13,10 @@ Windows 上的 Tauri / WebView2 窗口。对话布局与消息、工具、思考
 
 窗口呼出快捷键依次尝试 `Alt+Shift+C`、`Alt+Shift+Q`、`Alt+Shift+J`、`F3`。调整位置、尺寸后隐藏或退出会写入 Tauri 窗口状态。用户已确认 C 盘便携包能显示窗口，窗口状态文件已写入位置与尺寸；快捷键和重启恢复仍待验收。
 
+新版只保留一个 Summon 实例；再次双击会呼出已有窗口。更新便携包前，请通过旧版托盘菜单退出所有旧实例，再启动新版，以免旧进程继续占用快捷键。
+
+2026-10-09 的单实例便携包位于 `C:\\Users\\Orca\\Downloads\\Summon-portable-20261009-single-instance`；该包与上文首次成功打开的旧版分开放置。
+
 如果通过 Windows SmartScreen 后仍无窗口，检查便携包文件夹里的 `startup.log`；若没有，再检查 `%TEMP%\\Summon-startup.log`。新版在 Tauri 启动失败时会弹出错误说明；请保留完整便携包文件夹，单独复制 `Summon.exe` 会缺少 Agent 运行文件。WebView2 的数据默认写入便携包的 `data/webview`，文件夹不可写时回退到系统临时目录。
 
 PI-Desktop 来源与许可证见 [PI-DESKTOP-LICENSE](./PI-DESKTOP-LICENSE)。

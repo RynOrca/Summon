@@ -153,6 +153,61 @@ fn show_startup_error(message: &str) {
     eprintln!("{message}");
 }
 
+#[cfg(windows)]
+struct InstanceGuard(isize);
+
+#[cfg(windows)]
+impl Drop for InstanceGuard {
+    fn drop(&mut self) {
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn CloseHandle(handle: isize) -> i32;
+        }
+        unsafe { CloseHandle(self.0); }
+    }
+}
+
+#[cfg(windows)]
+fn claim_instance() -> Result<Option<InstanceGuard>, String> {
+    use std::os::windows::ffi::OsStrExt;
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn CreateMutexW(attributes: *const std::ffi::c_void, initial_owner: i32, name: *const u16) -> isize;
+        fn GetLastError() -> u32;
+        fn CloseHandle(handle: isize) -> i32;
+    }
+    #[link(name = "user32")]
+    extern "system" {
+        fn FindWindowW(class_name: *const u16, window_name: *const u16) -> isize;
+        fn ShowWindow(window: isize, command: i32) -> i32;
+        fn SetForegroundWindow(window: isize) -> i32;
+    }
+    let name: Vec<u16> = std::ffi::OsStr::new("Local\\dev.rynorca.summon.instance")
+        .encode_wide().chain(Some(0)).collect();
+    let handle = unsafe { CreateMutexW(std::ptr::null(), 0, name.as_ptr()) };
+    if handle == 0 {
+        return Err(format!("Cannot create single-instance lock: {}", std::io::Error::last_os_error()));
+    }
+    if unsafe { GetLastError() } != 183 {
+        return Ok(Some(InstanceGuard(handle)));
+    }
+    let title: Vec<u16> = std::ffi::OsStr::new("Summon").encode_wide().chain(Some(0)).collect();
+    for _ in 0..20 {
+        let window = unsafe { FindWindowW(std::ptr::null(), title.as_ptr()) };
+        if window != 0 {
+            unsafe {
+                ShowWindow(window, 9);
+                SetForegroundWindow(window);
+                CloseHandle(handle);
+            }
+            return Ok(None);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    unsafe { CloseHandle(handle); }
+    Err("Summon is already running, but its window was not found".into())
+}
+
 fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "显示 Summon", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "退出 Summon", true, None::<&str>)?;
@@ -206,11 +261,14 @@ fn run_desktop() -> tauri::Result<()> {
                 startup_log(&format!("Tray unavailable: {error}"));
             }
 
+            let mut shortcut = "unavailable";
             for accelerator in ["Alt+Shift+C", "Alt+Shift+Q", "Alt+Shift+J", "F3"] {
                 if app.global_shortcut().register(accelerator).is_ok() {
+                    shortcut = accelerator;
                     break;
                 }
             }
+            startup_log(&format!("Global shortcut: {shortcut}"));
             startup_log("Setup complete");
             Ok(())
         })
@@ -226,6 +284,16 @@ fn run_desktop() -> tauri::Result<()> {
 
 fn main() {
     startup_log("Starting Summon");
+    #[cfg(windows)]
+    let _instance_guard = match claim_instance() {
+        Ok(Some(guard)) => guard,
+        Ok(None) => return,
+        Err(error) => {
+            startup_log(&error);
+            show_startup_error(&error);
+            return;
+        }
+    };
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(run_desktop));
     let error = match result {
         Ok(Ok(())) => return,
