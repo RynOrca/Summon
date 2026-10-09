@@ -17,6 +17,8 @@ test("discovery leaves missing metadata unknown and clears obsolete endpoint mod
   try {
     assert.equal(normalizeDiscoveredModel({ id: "unlisted" }).contextWindow, null);
     assert.equal(normalizeDiscoveredModel({ id: "unlisted" }).reasoning, null);
+    assert.equal(normalizeDiscoveredModel({id:"levels-only",reasoning_efforts:["low","max"]}).reasoning,true);
+    assert.deepEqual(normalizeDiscoveredModel({id:"qwen-local",thinking_format:"qwen-chat-template"}).thinkingLevels,["off","medium"]);
     const runtime = { getModels: () => [], refresh: async () => {}, setRuntimeApiKey: async () => {} };
     const store = new ProviderStore(root, { protect: async key => `encrypted:${key}`, unprotect: async key => key.slice(10), request: async () => ({ ok: true, json: async () => ({ data: [{ id: "test", context_length: 65536, supports_reasoning: true, reasoning_efforts: ["off", "low", "high"] }] }) }) });
     await store.load(); const provider = await store.save({ template: "custom", baseUrl: "http://127.0.0.1:12345/v1", protocol: "openai-completions", key: "isolated-key" });
@@ -53,6 +55,8 @@ test("real PI bridge: discover, stream, remember, background memory, projects an
     }
     const consolidating = body.messages.some(m => typeof m.content === "string" && m.content.includes("记忆整理器"));
     const usedTool = body.messages.some(m => m.role === "tool");
+    const lastUser=body.messages.filter(m=>m.role==="user").at(-1);
+    if(JSON.stringify(lastUser?.content).includes("QUEUE_START")) await new Promise(r=>setTimeout(r,500));
     let delta, finish;
     if (consolidating) { delta = { content: '{"facts":[{"key":"学习目标","content":"学习线性代数"}],"notes":[{"title":"矩阵","body":"矩阵用于表示线性变换。"}],"learningEvents":[{"kind":"goal","subject":"线性代数","detail":"学习线性代数","evidence":"我在学习线性代数","status":"active"}]}' }; finish = "stop"; }
     else if (!usedTool && body.messages.some(m => m.role === "user" && JSON.stringify(m.content).includes("记住"))) {
@@ -127,6 +131,21 @@ test("real PI bridge: discover, stream, remember, background memory, projects an
     start(); await until(m => m.type === "ready"); await command("init");
     assert.equal(messages.filter(m => m.type === "session").at(-1).sessionId, first);
     assert.ok(messages.some(m => m.type === "history" && m.messages.length > 1));
+    for(const layer of ["l1","l2","l3"]) await command("memory_enabled", {layer,enabled:false});
+    const queueStart=messages.length;
+    const runningPrompt=command("prompt",{text:"QUEUE_START"});
+    await until(m=>messages.indexOf(m)>=queueStart && m.type==="started");
+    await command("queue_message",{text:"STEER_TEST",mode:"steer"});
+    await command("queue_message",{text:"FOLLOW_TEST",mode:"followUp"});
+    await runningPrompt;
+    assert.ok(messages.slice(queueStart).some(m=>m.type==="user_delivered" && m.text==="STEER_TEST"));
+    assert.ok(messages.slice(queueStart).some(m=>m.type==="user_delivered" && m.text==="FOLLOW_TEST"));
+    assert.ok(requests.some(r=>JSON.stringify(r.messages).includes("STEER_TEST")));
+    assert.ok(requests.some(r=>JSON.stringify(r.messages).includes("FOLLOW_TEST")));
+    assert.ok(!requests[0].tools.some(t=>["bash","powershell"].includes(t.function?.name)));
+    await command("set_approval",{mode:"auto"});await command("set_file_access",{mode:"full"});
+    assert.equal(messages.filter(m=>m.type==="agent_capabilities").at(-1).access,"full");
+    await command("set_file_access",{mode:"workspace"});
     await command("prompt", { text: "模拟鉴权失败" });
     assert.ok(messages.some(m => m.type === "error" && /authentication|401/.test(m.message)), "SDK 请求失败必须显示错误，不能静默回到就绪");
   } finally {

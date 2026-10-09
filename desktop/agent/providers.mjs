@@ -22,10 +22,13 @@ export function normalizeDiscoveredModel(raw, known) {
   if (!id || id.length > 200) return null;
   const contextWindow = positive(raw.context_window, raw.context_length, raw.max_model_len, raw.max_input_tokens, raw.metadata?.context_window, known?.contextWindow);
   const explicitReasoning = raw.reasoning ?? raw.supports_reasoning ?? raw.capabilities?.reasoning;
-  const reasoning = typeof explicitReasoning === "boolean" ? explicitReasoning : known?.reasoning ?? null;
-  const levels = raw.thinking_levels || raw.reasoning_efforts || raw.supported_reasoning_efforts;
-  const thinkingLevels = Array.isArray(levels) ? levels.filter((level) => ["off", "minimal", "low", "medium", "high", "xhigh"].includes(level)) : null;
-  return { id, name: raw.name || known?.name || id, contextWindow, maxTokens: positive(raw.max_output_tokens, known?.maxTokens), reasoning, thinkingLevels, input: known?.input || ["text"], compat: known?.compat, infoSource: contextWindow || reasoning !== null ? (known ? "catalog+service" : "service") : "unknown" };
+  const levels = raw.thinking_levels || raw.reasoning_efforts || raw.supported_reasoning_efforts || raw.metadata?.reasoning_efforts;
+  let thinkingLevels = Array.isArray(levels) ? [...new Set(["off", ...levels.filter(level => ["off", "minimal", "low", "medium", "high", "xhigh", "max"].includes(level))])] : null;
+  const format = raw.thinking_format || raw.compat?.thinkingFormat;
+  if (["qwen","qwen-chat-template"].includes(format)) thinkingLevels=["off","medium"];
+  const reasoning = typeof explicitReasoning === "boolean" ? explicitReasoning : thinkingLevels?.some(level => level !== "off") ? true : known?.reasoning ?? null;
+  const compat = ["openai", "qwen", "qwen-chat-template", "deepseek"].includes(format) ? { ...known?.compat, thinkingFormat: format, supportsReasoningEffort: format === "openai" } : known?.compat;
+  return { id, name: raw.name || known?.name || id, contextWindow, maxTokens: positive(raw.max_output_tokens, known?.maxTokens), reasoning, thinkingLevels, input: known?.input || ["text"], compat, infoSource: contextWindow || reasoning !== null ? (known ? "catalog+service" : "service") : "unknown" };
 }
 
 export class ProviderStore {
@@ -110,9 +113,14 @@ export class ProviderStore {
     if (input.contextWindow !== undefined) model.contextWindow = positive(input.contextWindow);
     if (typeof input.reasoning === "boolean") model.reasoning = input.reasoning;
     if (input.thinkingFormat) {
+      model.reasoning = true;
       if (!["openai", "qwen", "qwen-chat-template", "deepseek"].includes(input.thinkingFormat)) throw new Error("思考协议无效");
       model.compat = { ...model.compat, thinkingFormat: input.thinkingFormat, supportsReasoningEffort: input.thinkingFormat === "openai" };
       if (["qwen", "qwen-chat-template"].includes(input.thinkingFormat)) model.thinkingLevels = ["off", "medium"];
+    }
+    if (Array.isArray(input.thinkingLevels) && input.thinkingLevels.length && !["qwen", "qwen-chat-template"].includes(model.compat?.thinkingFormat)) {
+      if (input.thinkingLevels.some(level => !["off", "minimal", "low", "medium", "high", "xhigh", "max"].includes(level))) throw new Error("思考档位无效");
+      model.thinkingLevels = [...new Set(["off", ...input.thinkingLevels])]; model.reasoning = true;
     }
     model.infoSource = "user";
     await this.persist(); await this.install(runtime);
@@ -123,7 +131,7 @@ export class ProviderStore {
     current.providers ||= {};
     for (const provider of this.providers) {
       if (!provider.models.length) { delete current.providers[provider.id]; continue; }
-      current.providers[provider.id] = { baseUrl: provider.baseUrl, api: provider.protocol, models: provider.models.map((model) => ({ id: model.id, name: model.name, ...(model.contextWindow ? { contextWindow: model.contextWindow } : {}), ...(model.maxTokens ? { maxTokens: model.maxTokens } : {}), reasoning: model.reasoning === true, input: model.input || ["text"], ...(model.compat ? { compat: model.compat } : {}) })) };
+      current.providers[provider.id] = { baseUrl: provider.baseUrl, api: provider.protocol, models: provider.models.map((model) => ({ id: model.id, name: model.name, ...(model.contextWindow ? { contextWindow: model.contextWindow } : {}), ...(model.maxTokens ? { maxTokens: model.maxTokens } : {}), reasoning: model.reasoning === true, input: model.input || ["text"], ...(model.compat ? { compat: model.compat } : {}), ...(model.thinkingLevels ? { thinkingLevelMap: Object.fromEntries(["minimal","low","medium","high","xhigh","max"].map(level => [level,model.thinkingLevels.includes(level) ? level : null])) } : {}) })) };
     }
     const temporary = `${this.modelsPath}.tmp`; await writeFile(temporary, JSON.stringify(current, null, 2)); await rename(temporary, this.modelsPath);
     await runtime.refresh();

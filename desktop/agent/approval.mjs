@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 const MUTATING_TOOLS = new Set(["edit", "write", "bash", "powershell"]);
 
-export function createApprovalGate(send, timeoutMs = 5 * 60 * 1000) {
+export function createApprovalGate(send, timeoutMs = 5 * 60 * 1000, policy = () => "manual") {
   const pending = new Map();
 
   const block = (reason) => ({ block: true, terminate: true, reason });
@@ -22,6 +22,7 @@ export function createApprovalGate(send, timeoutMs = 5 * 60 * 1000) {
     pending.delete(requestId);
     clearTimeout(request.timer);
     request.resolve(decision === "allow" ? undefined : block(reason || "用户拒绝了此操作"));
+    send({ type: "tool_permission_result", requestId, decision, mode: "manual" });
   }
 
   function extension(pi) {
@@ -29,6 +30,10 @@ export function createApprovalGate(send, timeoutMs = 5 * 60 * 1000) {
       const extraMutation = (event.toolName === "file_manage" && event.input.action !== "list") || (event.toolName === "browser" && ["click", "fill"].includes(event.input.action));
       if (!MUTATING_TOOLS.has(event.toolName) && !extraMutation) return undefined;
       const requestId = randomUUID();
+      if (policy() === "auto" && !(event.toolName === "browser" && ["click", "fill"].includes(event.input.action))) {
+        send({ type: "tool_permission_result", requestId, toolCallId: event.toolCallId, name: event.toolName, decision: "allow", mode: "auto" });
+        return undefined;
+      }
       send({ type: "tool_permission_request", requestId, toolCallId: event.toolCallId, name: event.toolName, args: event.input });
       return await new Promise((resolve) => {
         const timer = setTimeout(() => {

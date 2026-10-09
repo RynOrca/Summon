@@ -12,6 +12,7 @@ import { createMemoryAgent } from "./memory-agent.mjs";
 import { CapabilityStore } from "./capabilities.mjs";
 import { createLearningTools, LEARNING_TOOLS } from "./learning-tools.mjs";
 import { LearnerStore, learnerExtension } from "./learner.mjs";
+import { FileScope, sandboxTools, FILE_TOOLS } from "./sandbox.mjs";
 import {
   createAgentSession,
   DefaultResourceLoader,
@@ -57,9 +58,12 @@ let runtime;
 let session;
 let busy = false;
 let queue = Promise.resolve();
-const approvalGate = createApprovalGate(send);
+const securityPath = join(dataDir, "security.json");
+const security = await readJson(securityPath, { approval: "manual" });
+const scope = new FileScope({ workspace: () => cwd, readOnly: () => [capabilities.state.vaultPath, join(dataDir,"skills"), join(dataDir, "attachments")].filter(Boolean), fullAccess: () => security.access === "full" });
+const approvalGate = createApprovalGate(send, undefined, () => security.approval);
 const memoryAgent = createMemoryAgent({ memory, learner, send, currentSession: () => session, runtime: getRuntime });
-const learningTools = createLearningTools({ capabilities, currentWorkspace: () => cwd, roles, send });
+const learningTools = createLearningTools({ capabilities, currentWorkspace: () => cwd, roles, send, scope });
 const learnerTools = learnerExtension({ learner, memory, currentSession: () => session, send });
 let generationStart = null, firstDelta = null, outputTokens = 0, generationMs = 0, missingUsage = false;
 function emitTelemetry() {
@@ -110,7 +114,7 @@ async function openSession(provider, modelId, sessionManager) {
     noExtensions: true,
     noSkills: true,
     additionalSkillPaths: capabilities.enabledSkills(),
-    extensionFactories: [approvalGate.extension, memoryAgent.extension, learningTools.extension, learnerTools],
+    extensionFactories: [pi => scope.extension(pi), approvalGate.extension, memoryAgent.extension, learningTools.extension, learnerTools],
     appendSystemPromptOverride: (base) => {
       const instructions = roles.current()?.system;
       return instructions ? [...base, instructions] : base;
@@ -122,7 +126,8 @@ async function openSession(provider, modelId, sessionManager) {
     agentDir,
     modelRuntime: models,
     model,
-    tools: ["read", "ls", "find", "grep", "edit", "write", "bash", "powershell", "remember", "record_learning_event", ...LEARNING_TOOLS],
+    tools: [...FILE_TOOLS, "remember", "record_learning_event", ...LEARNING_TOOLS],
+    customTools: sandboxTools(scope),
     sessionManager,
     settingsManager,
     resourceLoader,
@@ -133,6 +138,8 @@ async function openSession(provider, modelId, sessionManager) {
   Object.assign(appState, { activeSessionId: session.sessionId, projectPath, provider: session.model?.provider, modelId: session.model?.id });
   await saveJson(metadataPath, metadata); await saveJson(appStatePath, appState);
   session.subscribe((event) => {
+    if (event.type === "queue_update") send({ type: "queue", steering: event.steering, followUp: event.followUp });
+    if (event.type === "message_start" && event.message.role === "user" && busy) send({ type: "user_delivered", text: typeof event.message.content === "string" ? event.message.content : event.message.content?.filter(b => b.type === "text").map(b => b.text).join("\n") });
     if (event.type === "message_start" && event.message.role === "assistant") { generationStart = performance.now(); firstDelta = null; }
     if (event.type === "message_end" && event.message.role === "assistant") {
       const n = event.message.usage?.output;
@@ -176,9 +183,10 @@ function thinkingLevels() {
   const model = session?.model;
   return model && runtime ? providers.modelInfo(model.provider, model.id, runtime).thinkingLevels : ["off"];
 }
+function thinkingInfo() { const model=session?.model; const info=model && runtime ? providers.modelInfo(model.provider,model.id,runtime) : null; return {thinkingFormat:info?.compat?.thinkingFormat,reasoningKnown:info?.reasoning != null}; }
 function emitSession() {
   if (!session) return;
-  send({ type: "session", model: session.model && session.model.provider !== "unknown" ? `${session.model.provider}/${session.model.id}` : null, modelName: session.model?.provider !== "unknown" ? session.model?.name || session.model?.id : null, sessionId: session.sessionId, sessionName: session.sessionName || "", thinkingLevel: session.thinkingLevel, availableThinkingLevels: thinkingLevels(), workspace: projectPath, roleId: roles.activeId });
+  send({ type: "session", model: session.model && session.model.provider !== "unknown" ? `${session.model.provider}/${session.model.id}` : null, modelName: session.model?.provider !== "unknown" ? session.model?.name || session.model?.id : null, sessionId: session.sessionId, sessionName: session.sessionName || "", thinkingLevel: session.thinkingLevel, availableThinkingLevels: thinkingLevels(), ...thinkingInfo(), workspace: projectPath, roleId: roles.activeId });
 }
 async function emitState() {
   const models = await getRuntime();
@@ -189,6 +197,8 @@ async function emitState() {
   send({ type: "memory", state: memory.snapshot() });
   send({ type: "learner", state: learner.snapshot() });
   send({ type: "capabilities", state: capabilities.snapshot() });
+  const active = new Set(session?.getActiveToolNames() || []);
+  send({ type: "agent_capabilities", approval: security.approval, access: security.access === "full" ? "full" : "workspace", workspace: cwd, readOnly: scope.readOnly(), tools: (session?.getAllTools() || []).map(t => ({ name: t.name, description: t.description, active: active.has(t.name) && !(["web_search", "fetch_url"].includes(t.name) && (!capabilities.state.webEnabled || !capabilities.key)) && !(t.name === "browser" && !capabilities.state.browserEnabled), scope: ["write", "edit", "file_manage"].includes(t.name) ? (security.access === "full" ? "完全文件权限" : "当前工作区") : FILE_TOOLS.includes(t.name) ? "任意可读取目录" : "按工具配置" })), extensions: ["文件范围限制", "权限审批", "分层记忆", "学习画像", "联网与笔记工具"], mcp: [], terminal: "disabled" });
   emitSession();
 }
 
@@ -206,6 +216,21 @@ async function handle(command) {
       }
       case "get_state":
         await emitState(); send({ type: "ack", id }); break;
+      case "set_approval":
+        if (!["manual", "auto"].includes(command.mode)) throw new Error("无效的审批模式");
+        security.approval = command.mode; await saveJson(securityPath, security); await emitState(); send({ type: "ack", id }); break;
+      case "set_file_access":
+        if (!["workspace", "full"].includes(command.mode)) throw new Error("无效的文件权限范围");
+        if (busy) throw new Error("请等待当前任务结束后切换文件范围");
+        security.access = command.mode; await saveJson(securityPath, security); await emitState(); send({ type: "ack", id }); break;
+      case "queue_message": {
+        if (!session || !busy) throw new Error("当前没有正在运行的任务，请直接发送消息");
+        if (typeof command.text !== "string" || !command.text.trim()) throw new Error("消息不能为空");
+        if (!["steer", "followUp"].includes(command.mode)) throw new Error("请选择引导或排队");
+        await session[command.mode](command.text); send({ type: "queue", steering: session.getSteeringMessages(), followUp: session.getFollowUpMessages() }); send({ type: "ack", id }); break;
+      }
+      case "clear_queue":
+        session?.clearQueue(); send({ type: "queue", steering: [], followUp: [] }); send({ type: "ack", id }); break;
       case "configure_capabilities":
       case "import_skill":
       case "toggle_skill": {
@@ -345,7 +370,7 @@ async function handle(command) {
         if (!session) throw new Error("会话尚未就绪");
         if (!thinkingLevels().includes(command.level)) throw new Error("该模型不支持此思考深度");
         session.setThinkingLevel(command.level, { persist: true });
-        send({ type: "thinking_level", level: session.thinkingLevel, availableThinkingLevels: thinkingLevels() });
+        send({ type: "thinking_level", level: session.thinkingLevel, availableThinkingLevels: thinkingLevels(), ...thinkingInfo() });
         send({ type: "ack", id });
         break;
       }
@@ -476,7 +501,7 @@ for await (const line of createInterface({ input: process.stdin })) {
     send({ type: "error", message: "Invalid JSON command" });
     continue;
   }
-  if (command.type === "abort" || command.type === "tool_decision") {
+  if (["abort", "tool_decision", "queue_message", "clear_queue", "set_approval"].includes(command.type)) {
     void handle(command);
   } else {
     queue = queue.then(() => handle(command));
