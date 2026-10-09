@@ -17,6 +17,7 @@ test("Vault paragraph recall, edits, file boundaries and skill import stay isola
     const store=new CapabilityStore(data,{encrypt:async k=>"encrypted:"+k,decrypt:async k=>k.slice(10)});await store.load();await store.configure({vaultPath:vault,key:"isolated-key",webEnabled:true});
     const hits=await store.searchNotes("矩阵");assert.equal(hits[0].path,note);assert.ok(hits.some(h=>h.startLine===3 && h.content.includes("线性变换")));assert.ok(!hits.some(h=>h.path.includes(".obsidian")));
     assert.equal(await store.resolveFile(hits[0].url,root),note);await assert.rejects(store.resolveFile(process.execPath,root));
+    await writeFile(join(root,"space note.html"),"<h1>test</h1>"); assert.equal(await store.resolveFile("space%20note.html",root),join(root,"space note.html"));
     const id=await store.importSkill(skill);assert.equal(store.enabledSkills().length,1);assert.equal(await readFile(join(store.enabledSkills()[0],"helper.txt"),"utf8"),"support");await store.toggleSkill(id,false);assert.deepEqual(store.enabledSkills(),[]);
     await writeFile(note,"# 特征值\n\n特征值描述变换。\n");assert.equal((await store.searchNotes("矩阵")).length,0);assert.ok((await store.searchNotes("特征值")).length);
     assert.ok(!(await readFile(store.path,"utf8")).includes("isolated-key"));assert.ok(!(JSON.stringify(store.snapshot())).includes("isolated-key"));

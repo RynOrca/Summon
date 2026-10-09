@@ -21,7 +21,8 @@ export class AgentBrowser {
       this.socket=new WebSocket(version.webSocketDebuggerUrl);
       await new Promise((res,rej)=>{ const timer=setTimeout(()=>rej(new Error("浏览器连接超时")),5000); this.socket.addEventListener("open",()=>{clearTimeout(timer);res();},{once:true}); this.socket.addEventListener("error",()=>{clearTimeout(timer);rej(new Error("浏览器连接失败"));},{once:true}); });
       this.socket.addEventListener("message",e=>{ const msg=JSON.parse(e.data); const req=this.pending.get(msg.id); if(req) { this.pending.delete(msg.id); clearTimeout(req.timer); msg.error ? req.reject(new Error(msg.error.message)) : req.resolve(msg.result); } });
-      this.socket.addEventListener("close",()=>{ for(const req of this.pending.values()) {clearTimeout(req.timer);req.reject(new Error("浏览器已断开"));} this.pending.clear(); this.sessionId=null; });
+      const ownedSocket=this.socket;
+      this.socket.addEventListener("close",()=>{ if(this.socket && this.socket!==ownedSocket)return; for(const req of this.pending.values()) {clearTimeout(req.timer);req.reject(new Error("浏览器已断开"));} this.pending.clear(); this.sessionId=null; });
       const target=await this.call("Target.createTarget",{url:"about:blank"}); const attached=await this.call("Target.attachToTarget",{targetId:target.targetId,flatten:true}); this.sessionId=attached.sessionId;
       await this.call("Page.enable");
     } catch(e) { this.close(); throw e; }
@@ -29,6 +30,8 @@ export class AgentBrowser {
   call(method,params={}) { const id=++this.sequence; return new Promise((resolve,reject)=>{ const timer=setTimeout(()=>{this.pending.delete(id);reject(new Error("浏览器操作超时"));},15000); this.pending.set(id,{resolve,reject,timer}); this.socket.send(JSON.stringify({id,method,params,...(this.sessionId?{sessionId:this.sessionId}:{})})); }); }
   async evaluate(expression) { const r=await this.call("Runtime.evaluate",{expression,returnByValue:true,awaitPromise:true}); if(r.exceptionDetails) throw new Error("网页操作失败"); return r.result.value; }
   async run({action,url,index,text}) {
+    clearTimeout(this.idleTimer);
+    this.idleTimer=setTimeout(()=>this.close(),60000); this.idleTimer.unref();
     await this.start();
     if(action==="navigate") { const u=new URL(url); if(!["http:","https:"].includes(u.protocol) || u.username || u.password) throw new Error("浏览器只接受 HTTP(S) 地址"); const r=await this.call("Page.navigate",{url:u.href}); if(r.errorText) throw new Error(r.errorText); await this.evaluate(`new Promise(resolve => { if(document.readyState==='complete') resolve(); else { addEventListener('load',()=>resolve(),{once:true}); setTimeout(resolve,4000); } })`); }
     if(action==="click" || action==="fill") {
@@ -39,5 +42,13 @@ export class AgentBrowser {
     const snapshot=await this.evaluate(`(()=>{const elements=[...document.querySelectorAll('a,button,input,textarea,select,[role="button"]')].filter(e=>e.getBoundingClientRect().width&&e.getBoundingClientRect().height).slice(0,150); document.querySelectorAll('[data-summon-element]').forEach(e=>e.removeAttribute('data-summon-element')); const controls=elements.map((e,i)=>{e.setAttribute('data-summon-element',String(i+1));return {index:i+1,tag:e.tagName,label:(e.innerText||e.getAttribute('aria-label')||e.placeholder||e.type||'').slice(0,150),href:e.href};}); return {url:location.href,title:document.title,text:document.body.innerText.slice(0,14000),controls};})()`);
     return {content:[{type:"text",text:JSON.stringify(snapshot)}],details:{url:snapshot.url}};
   }
-  close() { this.socket?.close(); this.child?.kill(); this.sessionId=null; }
+  close() {
+    clearTimeout(this.idleTimer);
+    const child=this.child, socket=this.socket;
+    if(socket?.readyState===1) {
+      socket.send(JSON.stringify({id:++this.sequence,method:"Browser.close"}));
+      const fallback=setTimeout(()=>child?.kill(),2000); fallback.unref(); child?.once("exit",()=>clearTimeout(fallback));
+    } else child?.kill();
+    this.socket=null; this.child=null; this.sessionId=null;
+  }
 }

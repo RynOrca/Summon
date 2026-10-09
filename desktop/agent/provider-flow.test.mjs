@@ -111,6 +111,9 @@ test("real PI bridge: discover, stream, remember, background memory, projects an
     assert.ok(prompt.includes("TEST_ROLE_SYSTEM_PRIORITY")); assert.ok(prompt.includes("TEST_SKILL_DESCRIPTION")); assert.ok(!prompt.includes("ONLY_BODY_SENTINEL")); assert.ok(prompt.includes("线性代数.md")); assert.ok(prompt.includes("summon-file:"));
     for (const name of ["current_time", "web_search", "fetch_url", "browser", "file_manage", "search_notes", "record_learning_event"]) assert.ok(requests[0].tools.some(t => t.function?.name === name), `missing ${name}`);
     const telemetry = messages.filter(m => m.type === "telemetry" && m.tokPerSecond).at(-1); assert.equal(telemetry.capacity, 65536); assert.ok(telemetry.tokens > 0 && telemetry.percent > 0); assert.equal(telemetry.outputTokens, 40); assert.ok(telemetry.tokPerSecond > 0);
+    const skillId = messages.filter(m => m.type === "capabilities").at(-1).state.skills[0].id;
+    await command("toggle_skill", { skillId, enabled: false }); await command("prompt", { text: "当前技能已关闭" });
+    assert.ok(!JSON.stringify(requests.at(-1).messages.filter(m => ["system", "developer"].includes(m.role))).includes("TEST_SKILL_DESCRIPTION"), "disabled skill must leave effective system prompt");
     assert.ok(requests[0].messages.some(m => ["system", "developer"].includes(m.role) && JSON.stringify(m.content).includes("remember")), JSON.stringify(requests[0].messages[0]));
     assert.equal(requests[0].reasoning_effort, "high");
     const first = messages.filter(m => m.type === "session").at(-1).sessionId;

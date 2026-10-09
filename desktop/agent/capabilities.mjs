@@ -76,7 +76,7 @@ export class CapabilityStore {
     return hits.sort((a,b)=>b.score-a.score).slice(0,Math.min(8,Math.max(1,limit)));
   }
   async resolveFile(input,workspace) {
-    let raw=String(input); if(raw.startsWith("summon-file:")) raw=decodeURIComponent(raw.slice(12).split("#")[0]); else if(raw.startsWith("file:")) raw=new URL(raw).pathname.replace(/^\/(?=[A-Za-z]:)/,"");
+    let raw=String(input); if(raw.startsWith("summon-file:")) raw=decodeURIComponent(raw.slice(12).split("#")[0]); else if(raw.startsWith("file:")) raw=decodeURIComponent(new URL(raw).pathname).replace(/^\/(?=[A-Za-z]:)/,""); else raw=decodeURIComponent(raw.split("#")[0]);
     const path=await realpath(resolve(workspace,raw)), roots=[workspace,this.state.vaultPath,join(this.dir,"attachments")].filter(Boolean);
     if(!roots.some(r=>inside(r,path)) || !(await lstat(path)).isFile()) throw new Error("文件不在当前项目、笔记库或附件目录内");
     if(![".html",".htm",".md",".txt",".pdf",".png",".jpg",".jpeg",".svg",".csv"].includes(extname(path).toLowerCase())) throw new Error("此文件类型不支持直接打开"); return path;

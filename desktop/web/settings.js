@@ -65,6 +65,7 @@ function showSection(section) {
   for (const page of document.querySelectorAll(".page")) page.hidden = page.id !== section;
   for (const button of document.querySelectorAll("nav button")) button.classList.toggle("active", button.dataset.section === section);
   [$("page-title").textContent, $("page-description").textContent] = headings[section]; notice("");
+  document.querySelector("main").scrollTop = 0;
 }
 function editProvider(template, provider = null) {
   editing = template; providerId = provider?.id || null;

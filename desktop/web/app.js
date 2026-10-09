@@ -152,7 +152,7 @@ function toolStart(event) {
 function toolEnd(event) {
   const row = toolRows.get(event.id);
   if (!row) return;
-  const blocks = event.result?.content || [];
+  const blocks = Array.isArray(event.result) ? event.result : event.result?.content || [];
   row.content.textContent += "\n\n结果\n" + (blocks.length ? blocks.filter(b => b.type === "text").map(b => b.text).join("\n") : pretty(event.result));
   for (const block of blocks) if (block.type === "image" && /^image\/(png|jpeg|webp)$/.test(block.mimeType)) { const img = document.createElement("img"); img.src = `data:${block.mimeType};base64,${block.data}`; img.alt = "工具截图"; img.className = "tool-image"; row.content.append(img); }
   updateDisclosure(row, event.isError ? "error" : "done");
@@ -420,7 +420,7 @@ function onEvent(event) {
       }
       break;
     }
-    case "started": submitted = null; setRunning(true); break;
+    case "started": submitted = null; $("token-speed").textContent = "— tok/s"; setRunning(true); break;
     case "done": case "settled":
       setRunning(false); if (thinkingRow) updateDisclosure(thinkingRow, "done");
       assistantRow = null; thinkingRow = null; break;
