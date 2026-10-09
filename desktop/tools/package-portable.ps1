@@ -26,6 +26,7 @@ New-Item -ItemType Directory -Force -Path (Join-Path $Output 'runtime'), (Join-P
 Copy-Item -LiteralPath $nodeExe -Destination (Join-Path $Output 'runtime\node.exe') -Force
 Copy-Item -LiteralPath (Join-Path $agentDir 'bridge.mjs') -Destination (Join-Path $Output 'agent\bridge.mjs') -Force
 Copy-Item -LiteralPath (Join-Path $agentDir 'approval.mjs') -Destination (Join-Path $Output 'agent\approval.mjs') -Force
+Copy-Item -LiteralPath (Join-Path $agentDir 'roles.mjs') -Destination (Join-Path $Output 'agent\roles.mjs') -Force
 Copy-Item -LiteralPath (Join-Path $agentDir 'package.json') -Destination (Join-Path $Output 'agent\package.json') -Force
 Copy-Item -LiteralPath (Join-Path $agentDir 'node_modules') -Destination (Join-Path $Output 'agent\node_modules') -Recurse -Force
 Copy-Item -LiteralPath (Join-Path $desktopDir 'PI-DESKTOP-LICENSE') -Destination (Join-Path $Output 'PI-DESKTOP-LICENSE') -Force

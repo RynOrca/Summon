@@ -123,6 +123,28 @@ fn dismiss(window: tauri::WebviewWindow) {
     let _ = window.hide();
 }
 
+#[tauri::command]
+async fn choose_workspace() -> Result<Option<String>, String> {
+    #[cfg(windows)]
+    {
+        tauri::async_runtime::spawn_blocking(|| {
+            let script = "$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[Text.UTF8Encoding]::new(); $shell=New-Object -ComObject Shell.Application; $folder=$shell.BrowseForFolder(0,'选择工作目录',0,0); if($folder){[Console]::Write($folder.Self.Path)}";
+            let mut picker = Command::new("powershell.exe");
+            picker.args(["-NoProfile", "-NonInteractive", "-STA", "-Command", script]);
+            use std::os::windows::process::CommandExt;
+            picker.creation_flags(0x08000000); // Hide the console; keep the native folder dialog visible.
+            let output = picker.output().map_err(|error| error.to_string())?;
+            if !output.status.success() {
+                return Err(String::from_utf8_lossy(&output.stderr).trim().to_owned());
+            }
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+            Ok(if path.is_empty() { None } else { Some(path) })
+        }).await.map_err(|error| error.to_string())?
+    }
+    #[cfg(not(windows))]
+    { Err("Folder selection is currently available on Windows only".into()) }
+}
+
 fn startup_log(message: &str) {
     let paths = [
         std::env::current_exe().ok().and_then(|exe| exe.parent().map(|dir| dir.join("startup.log"))),
@@ -239,7 +261,7 @@ fn run_desktop() -> tauri::Result<()> {
         .manage(AgentState::default())
         .plugin(tauri_plugin_window_state::Builder::new().with_state_flags(BOUNDS).build())
         .plugin(shortcuts)
-        .invoke_handler(tauri::generate_handler![dismiss, agent_command])
+        .invoke_handler(tauri::generate_handler![dismiss, agent_command, choose_workspace])
         .setup(|app| {
             startup_log("Creating Tauri window");
             let exe_dir = std::env::current_exe()?.parent().ok_or("Executable directory unavailable")?.to_path_buf();

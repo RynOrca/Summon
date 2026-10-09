@@ -2,6 +2,7 @@ import { createInterface } from "node:readline";
 import { mkdir, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { createApprovalGate } from "./approval.mjs";
+import { RoleStore } from "./roles.mjs";
 import {
   createAgentSession,
   DefaultResourceLoader,
@@ -18,6 +19,8 @@ const agentDir = join(dataDir, "agent");
 const sessionsDir = join(dataDir, "sessions");
 await mkdir(agentDir, { recursive: true });
 await mkdir(sessionsDir, { recursive: true });
+const roles = new RoleStore(dataDir);
+await roles.load();
 
 const send = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
 let runtime;
@@ -49,6 +52,10 @@ async function openSession(provider, modelId, sessionManager = SessionManager.co
     settingsManager,
     noExtensions: true,
     extensionFactories: [approvalGate.extension],
+    appendSystemPromptOverride: (base) => {
+      const instructions = roles.current()?.system;
+      return instructions ? [...base, instructions] : base;
+    },
   });
   await resourceLoader.reload();
   const created = await createAgentSession({
@@ -78,7 +85,7 @@ async function openSession(provider, modelId, sessionManager = SessionManager.co
       send({ type: "settled" });
     }
   });
-  send({ type: "session", model: session.model && session.model.provider !== "unknown" ? `${session.model.provider}/${session.model.id}` : null, sessionId: session.sessionId, workspace: cwd });
+  send({ type: "session", model: session.model && session.model.provider !== "unknown" ? `${session.model.provider}/${session.model.id}` : null, sessionId: session.sessionId, workspace: cwd, roleId: roles.activeId });
   send({
     type: "history",
     messages: session.state.messages.map((message) => ({
@@ -101,7 +108,45 @@ async function handle(command) {
         const models = await getRuntime();
         const available = await models.getAvailable();
         send({ type: "models", id, models: available.map((model) => ({ provider: model.provider, id: model.id, name: model.name })) });
+        send({ type: "roles", ...roles.list() });
         await openSession(command.provider, command.model);
+        break;
+      }
+      case "save_role": {
+        if (busy) throw new Error("请先等待当前回复结束");
+        const roleId = await roles.save(command);
+        if (roleId === roles.activeId) {
+          const model = session?.model;
+          await openSession(model?.provider === "unknown" ? undefined : model?.provider,
+            model?.provider === "unknown" ? undefined : model?.id);
+        }
+        send({ type: "roles", ...roles.list() });
+        send({ type: "ack", id });
+        break;
+      }
+      case "select_role": {
+        if (busy) throw new Error("请先等待当前回复结束");
+        await roles.select(command.roleId);
+        const model = session?.model;
+        await openSession(model?.provider === "unknown" ? undefined : model?.provider,
+          model?.provider === "unknown" ? undefined : model?.id,
+          SessionManager.create(cwd, sessionsDir));
+        send({ type: "roles", ...roles.list() });
+        send({ type: "ack", id });
+        break;
+      }
+      case "delete_role": {
+        if (busy) throw new Error("请先等待当前回复结束");
+        const wasActive = roles.activeId === command.roleId;
+        await roles.delete(command.roleId);
+        if (wasActive) {
+          const model = session?.model;
+          await openSession(model?.provider === "unknown" ? undefined : model?.provider,
+            model?.provider === "unknown" ? undefined : model?.id,
+            SessionManager.create(cwd, sessionsDir));
+        }
+        send({ type: "roles", ...roles.list() });
+        send({ type: "ack", id });
         break;
       }
       case "set_key": {

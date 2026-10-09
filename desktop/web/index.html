@@ -13,6 +13,7 @@
     <symbol id="icon-new" viewBox="0 0 16 16"><path fill="currentColor" d="M8 2.5a.75.75 0 0 1 .75.75v4h4a.75.75 0 0 1 0 1.5h-4v4a.75.75 0 0 1-1.5 0v-4h-4a.75.75 0 0 1 0-1.5h4v-4A.75.75 0 0 1 8 2.5Z"/></symbol>
     <symbol id="icon-history" viewBox="0 0 16 16"><path fill="currentColor" d="M8 2.5a5.5 5.5 0 1 0 5.27 6.98.7.7 0 0 1 1.35.38A7 7 0 1 1 10.6 3.4l1.2-1.2a.7.7 0 1 1 .99.99l-1.9 1.9a.7.7 0 0 1-.99 0L8 3.12A5.47 5.47 0 0 0 8 2.5Zm-.3 2.7a.65.65 0 0 1 1.3 0V8l1.87 1.08a.65.65 0 1 1-.65 1.13L8.05 8.8a.65.65 0 0 1-.35-.57V5.2Z"/></symbol>
     <symbol id="icon-spark" viewBox="0 0 16 16"><path fill="currentColor" d="m8 1.5 1.45 5.05L14.5 8l-5.05 1.45L8 14.5 6.55 9.45 1.5 8l5.05-1.45L8 1.5Z"/></symbol>
+    <symbol id="icon-role" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" d="M2 8s2.2-3.5 6-3.5S14 8 14 8s-2.2 3.5-6 3.5S2 8 2 8Z"/><circle cx="8" cy="8" r="1.7" fill="currentColor"/></symbol>
     <symbol id="icon-settings" viewBox="0 0 16 16"><path fill="currentColor" d="M8 5.6a2.4 2.4 0 1 0 0 4.8 2.4 2.4 0 0 0 0-4.8Zm0 1.3a1.1 1.1 0 1 1 0 2.2 1.1 1.1 0 0 1 0-2.2ZM6.5 1.7h3l.3 1.3.8.4 1.2-.6 1.5 2.6-1 .9v1l1 .9-1.5 2.6-1.2-.6-.8.4-.3 1.3h-3l-.3-1.3-.8-.4-1.2.6-1.5-2.6 1-.9v-1l-1-.9 1.5-2.6 1.2.6.8-.4.3-1.3Z"/></symbol>
     <symbol id="icon-hide" viewBox="0 0 16 16"><path fill="currentColor" d="M3 7.25h10v1.5H3z"/></symbol>
     <symbol id="icon-chevron" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="m4.5 6 3.5 3.5L11.5 6"/></symbol>
@@ -27,6 +28,7 @@
         <button id="header-new-chat" class="icon-button" type="button" title="新对话" aria-label="新对话"><svg><use href="#icon-new"/></svg></button>
         <button id="history-button" class="icon-button" type="button" title="对话历史" aria-label="对话历史"><svg><use href="#icon-history"/></svg></button>
         <button id="model-button" class="model-chip" type="button" title="选择模型"><svg><use href="#icon-spark"/></svg><span id="model-label">选择模型</span><svg class="chip-chevron"><use href="#icon-chevron"/></svg></button>
+        <button id="role-button" class="model-chip role-chip" type="button" title="角色预设"><svg><use href="#icon-role"/></svg><span id="role-label">Agent</span><svg class="chip-chevron"><use href="#icon-chevron"/></svg></button>
       </div>
       <div class="header-actions">
         <button id="settings-button" class="icon-button" type="button" title="设置" aria-label="设置"><svg><use href="#icon-settings"/></svg></button>
@@ -71,10 +73,22 @@
       <button id="save-key" class="settings-action" type="button">应用 Key 并刷新模型</button>
       <label>模型<select id="model-picker"><option value="">自动选择</option></select></label>
       <button id="select-model" class="settings-action" type="button">使用此模型</button>
-      <label>工作目录<input id="workspace" autocomplete="off" spellcheck="false" placeholder="例如 D:\Code\MyProject"></label>
-      <button id="change-workspace" class="settings-action" type="button">切换工作目录</button>
+      <label>工作目录<input id="workspace" readonly placeholder="尚未选择"></label>
+      <button id="change-workspace" class="settings-action" type="button">选择本地文件夹…</button>
       <div id="settings-error" role="alert"></div>
     </form>
+  </dialog>
+  <dialog id="roles-dialog" class="settings-dialog roles-dialog">
+    <div class="settings-head"><h2>角色预设</h2><button id="roles-close" type="button" class="chrome-button" aria-label="关闭">×</button></div>
+    <p>选中角色后会开启新对话。角色说明会加入 Agent 的系统提示词。</p>
+    <div id="roles-list" class="roles-list"></div>
+    <button id="roles-new" class="settings-action" type="button">新建角色</button>
+    <div id="role-editor" hidden>
+      <label>角色名称<input id="role-name" maxlength="60" placeholder="例如：翻译官"></label>
+      <label>角色说明<textarea id="role-system" maxlength="20000" rows="6" placeholder="描述角色的语气、任务和回复规则"></textarea></label>
+      <div class="role-editor-actions"><button id="role-cancel" type="button">取消</button><button id="role-save" class="settings-action" type="button">保存角色</button></div>
+    </div>
+    <p id="role-error" class="history-error" role="alert" hidden></p>
   </dialog>
 </body>
 </html>

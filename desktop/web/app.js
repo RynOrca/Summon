@@ -7,6 +7,10 @@ const transcript = $("transcript");
 const prompt = $("prompt");
 const settings = $("settings");
 const historyDrawer = $("history-drawer");
+const rolesDialog = $("roles-dialog");
+let roles = [];
+let activeRoleId = "agent";
+let editingRoleId = null;
 let sequence = 0;
 let running = false;
 let assistantRow = null;
@@ -192,6 +196,66 @@ function renderSessions(sessions) {
     list.append(button);
   }
 }
+function roleError(error) {
+  $("role-error").textContent = String(error);
+  $("role-error").hidden = false;
+}
+function renderRoles() {
+  const list = $("roles-list");
+  list.replaceChildren();
+  const active = roles.find((role) => role.id === activeRoleId);
+  $("role-label").textContent = active?.name || "Agent";
+  for (const role of roles) {
+    const row = document.createElement("div");
+    row.className = `role-item${role.id === activeRoleId ? " active" : ""}`;
+    const use = document.createElement("button");
+    use.type = "button"; use.className = "role-item-name";
+    use.textContent = `${role.name}${role.id === activeRoleId ? " · 当前" : ""}`;
+    use.title = "使用此角色";
+    use.addEventListener("click", async () => {
+      try { await command("select_role", { roleId: role.id }, true); rolesDialog.close(); prompt.focus(); }
+      catch (error) { roleError(error); }
+    });
+    const edit = document.createElement("button");
+    edit.type = "button"; edit.textContent = "编辑";
+    edit.addEventListener("click", () => {
+      editingRoleId = role.id;
+      $("role-name").value = role.name;
+      $("role-system").value = role.system || "";
+      $("role-editor").hidden = false;
+      $("role-name").focus();
+    });
+    row.append(use, edit);
+    if (!role.builtin) {
+      const remove = document.createElement("button");
+      remove.type = "button"; remove.className = "role-delete"; remove.textContent = "删除";
+      let confirmTimer;
+      remove.addEventListener("click", async () => {
+        if (!remove.classList.contains("confirm")) {
+          remove.classList.add("confirm"); remove.textContent = "确认删除";
+          confirmTimer = setTimeout(() => { remove.classList.remove("confirm"); remove.textContent = "删除"; }, 3000);
+          return;
+        }
+        clearTimeout(confirmTimer);
+        try { await command("delete_role", { roleId: role.id }, true); if (editingRoleId === role.id) $("role-editor").hidden = true; }
+        catch (error) { roleError(error); }
+      });
+      row.append(remove);
+    }
+    list.append(row);
+  }
+}
+async function chooseWorkspace() {
+  try {
+    const path = await tauri.core.invoke("choose_workspace");
+    if (!path) return;
+    await command("change_workspace", { path }, true);
+    if (settings.open) settings.close();
+  } catch (error) {
+    if (settings.open) $("settings-error").textContent = String(error);
+    else errorRow(String(error));
+  }
+}
 async function newSession() {
   try {
     await command("new_session", {}, true);
@@ -221,7 +285,13 @@ function onEvent(event) {
       $("workspace").value = response.workspace || "";
       $("workspace-label").textContent = (response.workspace || "").replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "工作目录";
       $("workspace-button").title = response.workspace || "切换工作目录";
+      if (response.roleId) { activeRoleId = response.roleId; renderRoles(); }
       void command("list_sessions");
+      break;
+    case "roles":
+      roles = response.roles || [];
+      activeRoleId = response.activeId || "agent";
+      renderRoles();
       break;
     case "sessions": renderSessions(response.sessions || []); break;
     case "history": restoreHistory(response.messages || []); status("就绪"); break;
@@ -305,7 +375,7 @@ $("history-close").addEventListener("click", closeHistory);
 $("history-overlay").addEventListener("click", closeHistory);
 $("settings-button").addEventListener("click", () => settings.showModal());
 $("model-button").addEventListener("click", () => { settings.showModal(); $("model-picker").focus(); });
-$("workspace-button").addEventListener("click", () => { settings.showModal(); $("workspace").focus(); });
+$("workspace-button").addEventListener("click", () => void chooseWorkspace());
 $("settings-close").addEventListener("click", () => settings.close());
 $("save-key").addEventListener("click", async () => {
   const provider = $("provider").value.trim(); const key = $("api-key").value.trim();
@@ -321,10 +391,24 @@ $("select-model").addEventListener("click", async () => {
   try { await command("select_model", { provider: value.slice(0, slash), model: value.slice(slash + 1) }, true); settings.close(); }
   catch (error) { $("settings-error").textContent = String(error); }
 });
-$("change-workspace").addEventListener("click", async () => {
-  $("settings-error").textContent = "";
-  try { await command("change_workspace", { path: $("workspace").value }, true); settings.close(); }
-  catch (error) { $("settings-error").textContent = String(error); }
+$("change-workspace").addEventListener("click", () => void chooseWorkspace());
+$("role-button").addEventListener("click", () => { $("role-error").hidden = true; renderRoles(); rolesDialog.showModal(); });
+$("roles-close").addEventListener("click", () => rolesDialog.close());
+$("roles-new").addEventListener("click", () => {
+  editingRoleId = null;
+  $("role-name").value = "";
+  $("role-system").value = "";
+  $("role-editor").hidden = false;
+  $("role-name").focus();
+});
+$("role-cancel").addEventListener("click", () => { $("role-editor").hidden = true; editingRoleId = null; });
+$("role-save").addEventListener("click", async () => {
+  $("role-error").hidden = true;
+  try {
+    await command("save_role", { roleId: editingRoleId, name: $("role-name").value, system: $("role-system").value }, true);
+    $("role-editor").hidden = true;
+    editingRoleId = null;
+  } catch (error) { roleError(error); }
 });
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !historyDrawer.hidden) closeHistory();

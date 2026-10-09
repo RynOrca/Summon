@@ -44,6 +44,8 @@
 .model-chip svg { flex:none; width:14px; height:14px; }
 .model-chip #model-label { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .model-chip .chip-chevron { width:12px; height:12px; color:var(--ds-text-faint); }
+.role-chip { flex:none; max-width:110px; }
+.header-primary #model-button { max-width:min(160px,calc(100% - 178px)); }
 .chat-body { position:relative; flex:1; min-height:0; isolation:isolate; }
 .thread-scroll {
   height:100%; overflow-x:hidden; overflow-y:auto; padding:14px 17px 88px;
@@ -60,8 +62,10 @@
 .message-row.assistant .message-bubble { line-height:1.62; }
 .tool-row { margin:4px 0; }
 .fade-band {
-  position:absolute; inset:auto 0 0; height:70px; z-index:2; pointer-events:none;
-  background:linear-gradient(180deg,transparent 2%,var(--ds-bg-primary) 93%);
+  position:absolute; inset:auto 0 0; height:92px; z-index:2; pointer-events:none;
+  background:linear-gradient(180deg,transparent 0%,var(--ds-bg-primary) 88%);
+  -webkit-backdrop-filter:blur(5px); backdrop-filter:blur(5px);
+  -webkit-mask-image:linear-gradient(180deg,transparent 0%,#000 54%); mask-image:linear-gradient(180deg,transparent 0%,#000 54%);
 }
 .status-line {
   position:relative; z-index:3; display:flex; align-items:center; gap:6px;
@@ -72,13 +76,13 @@
 .status-line.is-busy .status-pulse { background:#fff; animation:pulse 1s infinite; }
 .status-line.is-error .status-pulse { background:var(--ds-error); }
 .composer-status { flex:1; min-width:0; }
-.composer-dock { position:relative; flex:none; justify-content:stretch; padding:0 11px 12px; background:var(--ds-bg-primary); }
+.composer-dock { position:relative; flex:none; justify-content:stretch; padding:0 11px 12px; background:transparent; }
 .composer-stack { width:100%; max-width:none; }
 .composer-shell {
-  border:1px solid #ffffff16; border-radius:14px;
-  background:var(--ds-bg-composer); box-shadow:none;
+  border:0; border-radius:0;
+  background:transparent; box-shadow:none;
 }
-.composer-shell:focus-within { border-color:#ffffff30; box-shadow:none; }
+.composer-shell:focus-within { box-shadow:none; }
 .composer-input-wrap { min-height:72px; padding:11px 12px 0; }
 .composer-input { min-height:56px; max-height:150px; padding:0; font-size:13px; line-height:1.55; }
 .composer-toolbar { min-height:38px; gap:6px; padding:0 8px 8px 10px; }
@@ -103,9 +107,9 @@
 .stop-button svg { width:15px; height:15px; }
 .history-overlay { position:absolute; inset:0; z-index:9; background:#0009; }
 .history-drawer {
-  position:absolute; inset:0 0 0 auto; z-index:10; display:flex; flex-direction:column;
-  width:min(310px,86vw); min-width:0; padding:12px; border-left:1px solid #ffffff20;
-  background:#202020; box-shadow:-12px 0 28px #0005;
+  position:absolute; inset:0 auto 0 0; z-index:10; display:flex; flex-direction:column;
+  width:min(310px,86vw); min-width:0; padding:12px; border-right:1px solid #ffffff20;
+  background:#202020; box-shadow:12px 0 28px #0005;
 }
 .history-head { display:flex; align-items:center; justify-content:space-between; min-height:34px; padding:0 2px 9px; }
 .history-head strong { font-size:13px; font-weight:600; }
@@ -127,10 +131,24 @@
 .history-error { color:var(--ds-error); font-size:11px; line-height:1.45; }
 .settings-dialog { width:min(360px,calc(100vw - 22px)); border-radius:12px; background:#252525; }
 .settings-dialog .settings-action { border-radius:7px; }
+.roles-dialog { width:min(420px,calc(100vw - 22px)); }
+.roles-list { display:flex; flex-direction:column; gap:5px; margin:12px 0; }
+.role-item { display:flex; align-items:center; gap:6px; padding:6px; border:1px solid #ffffff13; border-radius:8px; }
+.role-item.active { border-color:#ffffff70; background:#ffffff0b; }
+.role-item-name { flex:1; min-width:0; padding:6px; background:transparent; color:#fff; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.role-item button:not(.role-item-name) { flex:none; border-radius:6px; padding:5px 7px; background:#ffffff12; color:var(--ds-text-secondary); font-size:11px; }
+.role-item button:hover { color:#fff; background:#ffffff20; }
+.role-item .role-delete.confirm { background:#8d3030; color:#fff; }
+.roles-dialog textarea { width:100%; min-height:110px; resize:vertical; border:1px solid #ffffff25; border-radius:8px; padding:8px 9px; outline:none; background:#1a1a1a; color:#fff; }
+.role-editor-actions { display:flex; gap:8px; }
+.role-editor-actions button { flex:1; border-radius:7px; padding:8px; background:#ffffff13; color:#fff; }
+.role-editor-actions .settings-action { background:#e9e9e9; color:#181818; }
+@media (prefers-reduced-transparency:reduce) { .fade-band { -webkit-backdrop-filter:none; backdrop-filter:none; } }
 @media (max-width:390px) {
   .chat-header { padding-inline:7px; }
   .header-primary,.header-actions { gap:2px; }
-  .model-chip { max-width:calc(100% - 66px); }
+  .header-primary #model-button { max-width:min(115px,calc(100% - 150px)); }
+  .role-chip { max-width:90px; }
   .thread-scroll { padding-inline:13px; }
   .composer-dock { padding-inline:8px; }
 }
