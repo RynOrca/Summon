@@ -20,6 +20,14 @@ function powerShell(script, input) {
   });
 }
 
+export async function protectKey(key) {
+  return powerShell("Add-Type -AssemblyName System.Security; $b=[Text.Encoding]::UTF8.GetBytes([Console]::In.ReadToEnd()); $e=[Security.Cryptography.ProtectedData]::Protect($b,$null,[Security.Cryptography.DataProtectionScope]::CurrentUser); [Console]::Write([Convert]::ToBase64String($e))", key);
+}
+
+export async function unprotectKey(encrypted) {
+  return powerShell("Add-Type -AssemblyName System.Security; $b=[Convert]::FromBase64String([Console]::In.ReadToEnd()); $d=[Security.Cryptography.ProtectedData]::Unprotect($b,$null,[Security.Cryptography.DataProtectionScope]::CurrentUser); [Console]::Write([Text.Encoding]::UTF8.GetString($d))", encrypted);
+}
+
 export function validateEndpoint(baseUrl, modelId) {
   if (typeof baseUrl !== "string" || typeof modelId !== "string") throw new Error("请填写 Base URL 和 Model ID");
   const parsed = new URL(baseUrl.trim());

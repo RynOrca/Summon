@@ -5,7 +5,7 @@ import { join } from "node:path";
 const MAX_PROFILE = 6000;
 const MAX_NOTES = 100;
 const MAX_NOTE_BODY = 20000;
-const defaultState = () => ({ enabled: { l1: true, l2: true, l3: true }, profile: "", notes: [] });
+const defaultState = () => ({ enabled: { l1: true, l2: true, l3: true }, profile: "", facts: [], notes: [] });
 const historyCache = new Map();
 
 function terms(text) {
@@ -65,11 +65,11 @@ async function recentHistory(root, query, currentSessionId) {
     if (cached.sessionId === currentSessionId) continue;
     for (const content of cached.contents) {
       const relevance = score(query, content);
-      if (relevance) candidates.push({ relevance, modified: info.mtimeMs, content: content.slice(0, 500) });
+      if (relevance) candidates.push({ relevance, modified: info.mtimeMs, content: content.slice(0, 500), sessionId: cached.sessionId });
     }
   }
   candidates.sort((a, b) => b.relevance - a.relevance || b.modified - a.modified);
-  return candidates.slice(0, 3).map((item) => item.content);
+  return candidates.slice(0, 3).map((item) => `[会话 ${item.sessionId.slice(0, 8)}] ${item.content}`);
 }
 
 export class MemoryStore {
@@ -77,6 +77,7 @@ export class MemoryStore {
     this.path = join(directory, "memory.json");
     this.sessionsDirectory = sessionsDirectory;
     this.state = defaultState();
+    this.persistence = Promise.resolve();
   }
 
   async load() {
@@ -86,17 +87,22 @@ export class MemoryStore {
     if (!saved || typeof saved !== "object") throw new Error("记忆文件无效");
     this.state.enabled = Object.fromEntries(["l1", "l2", "l3"].map((key) => [key, saved.enabled?.[key] !== false]));
     this.state.profile = typeof saved.profile === "string" ? saved.profile.slice(0, MAX_PROFILE) : "";
+    this.state.facts = Array.isArray(saved.facts) ? saved.facts.slice(0, 40).filter((fact) => typeof fact.key === "string" && typeof fact.content === "string") : [];
+    if (!this.state.facts.length && this.state.profile) this.state.facts.push({ key: "已有画像", content: this.state.profile, source: "legacy" });
     this.state.notes = Array.isArray(saved.notes) ? saved.notes.filter((note) =>
       typeof note?.id === "string" && typeof note.title === "string" && typeof note.body === "string")
-      .slice(0, MAX_NOTES).map((note) => ({ id: note.id, title: note.title.slice(0, 100), body: note.body.slice(0, MAX_NOTE_BODY) })) : [];
+      .slice(0, MAX_NOTES).map((note) => ({ id: note.id, title: note.title.slice(0, 100), body: note.body.slice(0, MAX_NOTE_BODY), source: note.source, updated: note.updated })) : [];
   }
 
   snapshot() { return structuredClone(this.state); }
 
   async persist() {
-    const temporary = `${this.path}.${process.pid}.tmp`;
-    await writeFile(temporary, JSON.stringify(this.state, null, 2), "utf8");
-    await rename(temporary, this.path);
+    const content = JSON.stringify(this.state, null, 2);
+    const operation = this.persistence.catch(() => {}).then(async () => {
+      const temporary = `${this.path}.${process.pid}.tmp`;
+      await writeFile(temporary, content, "utf8"); await rename(temporary, this.path);
+    });
+    this.persistence = operation; await operation;
   }
 
   async setEnabled(layer, enabled) {
@@ -108,6 +114,7 @@ export class MemoryStore {
   async setProfile(profile) {
     if (typeof profile !== "string" || profile.length > MAX_PROFILE) throw new Error("学习者画像最多 6000 字");
     this.state.profile = profile.trim();
+    this.state.facts = profile.trim() ? [{ key: "画像", content: profile.trim(), source: "user" }] : [];
     await this.persist();
   }
 
@@ -130,9 +137,39 @@ export class MemoryStore {
     await this.persist();
   }
 
+  async applyAgentUpdate(update, source) {
+    if (this.state.enabled.l1 && Array.isArray(update.facts)) {
+      for (const fact of update.facts.slice(0, 8)) {
+        if (typeof fact?.key !== "string" || typeof fact?.content !== "string" || !fact.content.trim()) continue;
+        const value = { key: fact.key.trim().slice(0, 80), content: fact.content.trim().slice(0, 600), source, updated: new Date().toISOString() };
+        const index = this.state.facts.findIndex((item) => item.key === value.key);
+        if (index >= 0) this.state.facts[index] = value;
+        else if (this.state.facts.length < 40) this.state.facts.push(value);
+      }
+      this.state.profile = this.state.facts.map((fact) => `${fact.key}：${fact.content}`).join("\n").slice(0, MAX_PROFILE);
+    }
+    if (this.state.enabled.l2 && Array.isArray(update.notes)) {
+      for (const note of update.notes.slice(0, 3)) {
+        if (typeof note?.title !== "string" || typeof note?.body !== "string" || !note.body.trim()) continue;
+        const title = note.title.trim().slice(0, 100);
+        const existing = this.state.notes.find((item) => item.title === title);
+        const value = { title, body: note.body.trim().slice(0, MAX_NOTE_BODY), source, updated: new Date().toISOString() };
+        if (existing) Object.assign(existing, value);
+        else if (this.state.notes.length < MAX_NOTES) this.state.notes.push({ id: randomUUID(), ...value });
+      }
+    }
+    await this.persist();
+  }
+
+  async deleteFact(key) {
+    this.state.facts = this.state.facts.filter((fact) => fact.key !== key);
+    this.state.profile = this.state.facts.map((fact) => `${fact.key}：${fact.content}`).join("\n").slice(0, MAX_PROFILE);
+    await this.persist();
+  }
+
   async context(query, currentSessionId) {
     const parts = [];
-    if (this.state.enabled.l1 && this.state.profile) parts.push(`学习者画像（用户可编辑）：\n${this.state.profile}`);
+    if (this.state.enabled.l1 && this.state.profile) parts.push(`学习者画像（Agent 整理，当前用户纠正优先）：\n${this.state.profile.slice(0, 2200)}`);
     if (!terms(query).length) return parts.join("\n\n").slice(0, 5000);
     if (this.state.enabled.l2) {
       const matches = this.state.notes.map((note) => ({ note, relevance: score(query, `${note.title} ${note.body}`) }))

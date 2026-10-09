@@ -31,7 +31,12 @@ Copy-Item -LiteralPath (Join-Path $agentDir 'images.mjs') -Destination (Join-Pat
 Copy-Item -LiteralPath (Join-Path $agentDir 'files.mjs') -Destination (Join-Path $Output 'agent\files.mjs') -Force
 Copy-Item -LiteralPath (Join-Path $agentDir 'endpoint.mjs') -Destination (Join-Path $Output 'agent\endpoint.mjs') -Force
 Copy-Item -LiteralPath (Join-Path $agentDir 'memory.mjs') -Destination (Join-Path $Output 'agent\memory.mjs') -Force
+Copy-Item -LiteralPath (Join-Path $agentDir 'providers.mjs') -Destination (Join-Path $Output 'agent\providers.mjs') -Force
+Copy-Item -LiteralPath (Join-Path $agentDir 'memory-agent.mjs') -Destination (Join-Path $Output 'agent\memory-agent.mjs') -Force
 Copy-Item -LiteralPath (Join-Path $agentDir 'package.json') -Destination (Join-Path $Output 'agent\package.json') -Force
-Copy-Item -LiteralPath (Join-Path $agentDir 'node_modules') -Destination (Join-Path $Output 'agent\node_modules') -Recurse -Force
+# Copy dependency trees without mirroring/deleting destination files.
+& robocopy.exe (Join-Path $agentDir 'node_modules') (Join-Path $Output 'agent\node_modules') /E /NFL /NDL /NJH /NJS /NP /R:1 /W:1 | Out-Null
+if ($LASTEXITCODE -gt 7) { throw "Agent dependency copy failed (robocopy $LASTEXITCODE)" }
 Copy-Item -LiteralPath (Join-Path $desktopDir 'PI-DESKTOP-LICENSE') -Destination (Join-Path $Output 'PI-DESKTOP-LICENSE') -Force
+Copy-Item -LiteralPath (Join-Path $desktopDir 'README.md') -Destination (Join-Path $Output '使用说明.md') -Force
 Write-Host "Portable build: $Output"

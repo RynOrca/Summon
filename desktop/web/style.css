@@ -177,3 +177,16 @@
   .thread-scroll { padding-inline:13px; }
   .composer-dock { padding-inline:8px; }
 }
+
+/* Quiet controls: keep scrolling and keyboard navigation without scrollbar chrome. */
+* { scrollbar-width:none !important; } ::-webkit-scrollbar { display:none; }
+.thinking-chip { flex:none; max-width:82px; height:28px; border:1px solid #ffffff18; border-radius:7px; background:#202020; color:#bbb; font-size:11px; outline:none; }
+.thinking-chip:disabled { opacity:.55; }
+.header-primary #model-button { flex:1; max-width:170px; margin-left:0; }
+.header-primary .role-chip { max-width:80px; margin-left:0; }
+.header-primary .role-chip svg:first-child { display:none; }
+.model-list { max-height:330px; overflow:auto; margin:12px 0; }
+.model-option { display:grid; gap:5px; width:100%; padding:12px 9px; text-align:left; color:#eee; background:transparent; border-radius:7px; }
+.model-option:hover { background:#ffffff10; }.model-option span { font-size:11px; color:#999; }
+.history-section { font-weight:400; color:#888; font-size:12px; margin:15px 7px 5px; }
+.history-item.active { background:#ffffff12; color:#fff; }.history-project summary { padding:9px 7px; color:#bbb; cursor:pointer; }.history-project .history-item { padding-left:25px; }

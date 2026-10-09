@@ -1,46 +1,52 @@
-# Summon 独立桌面版（开发中）
+# Summon 独立桌面版
 
-Windows 上的 Tauri / WebView2 窗口。窗口内使用原对话悬浮窗的紧凑布局，消息、工具、思考行和深色配色适配自 PI-Desktop 0.16.1；Agent 使用同版依赖 `@earendil-works/pi-coding-agent@1.0.1`。独立版拥有自己的会话和模型配置目录，不读取或改写 PI-Desktop 用户数据。
+轻量的 Windows 悬浮 Agent。Tauri / WebView2 承载界面，PI Agent SDK 运行对话与工具。Summon 使用独立的数据目录，不改写 PI-Desktop 用户数据。
 
-## 构建
+## 当前版本
 
-1. 安装 Rust stable、Node.js 22.19+ 和 Windows WebView2 Runtime。
-2. 在 `desktop/agent` 运行 `npm ci`。
-3. 在项目根目录运行 `powershell -File desktop/tools/package-portable.ps1 -Output "$env:USERPROFILE\\Downloads\\Summon-portable"`。如果当前环境不能从项目所在盘运行新 exe，先将 `CARGO_TARGET_DIR` 指向 C 盘临时目录再运行构建脚本。
-4. 从输出文件夹中的 `Summon.exe` 启动。整个文件夹需要一起保留。2026-10-09 已验证能打开的交付目录是 `C:\\Users\\Orca\\Downloads\\Summon-portable-20261009`。
+Git 版本：`summon-settings-agent-memory-2026-10-09`。
+便携包：`C:\Users\Orca\Downloads\Summon-reworked-20261009`，运行其中的 `Summon.exe`。保留整个文件夹；更新前通过旧版托盘退出旧实例，再启动新版。再次启动同一应用会呼出已有窗口。
 
-首次使用在顶部模型或设置入口配置模型。左上角可新建对话、打开左侧历史；底部工作目录标签会打开 Windows 文件夹选择窗口。顶部角色入口可选择、编辑和新增角色，选中角色会开启新对话；自定义角色可在三秒内点两次删除。角色保存在 Summon 自己的数据目录，角色说明通过 Agent 系统提示词生效。内置「快捷对话」目前仍使用独立版的同一 Agent 后端，原插件的联网搜索工具尚未接入。其他提供商的 Key 仅在当前 Agent 进程中保留；远程兼容模型的 Key 可加密保存。会话存于系统分配的 Summon 应用数据目录；空会话直到发送首条消息才写入磁盘。读取类工具自动运行；`edit`、`write`、`bash`、`powershell` 每次都会在对话中等待允许或拒绝，等待五分钟、切换会话或停止生成都会自动拒绝。
+## 配置和使用
 
-## 轻量版新增设置
+- **独立设置窗口**：顶部齿轮打开通用、模型、记忆、角色与关于。关闭设置不退出应用。
+- **统一提供商配置**：模型页先选择提供商卡片或自定义，再填写名称、协议、Base URL 和 API Key。本地、电脑 A 与云服务使用同一流程；支持 OpenAI 及 Anthropic 兼容协议。无鉴权服务可留空 Key。Key 使用当前 Windows 用户的 DPAPI 加密保存，已有 Key 留空保留。
+- **模型发现**：点击“获取模型与信息”会保存配置并请求 `/models`。服务返回的上下文长度与思考能力优先，已知提供商可补充 PI 模型目录。接口仅返回 ID 时显示未知；展开补充项填写 Model ID、上下文、思考能力和协议。Qwen 的 `chat_template_kwargs` / `enable_thinking` 变体支持二档开关。发现失败不会自动切换当前对话的模型。
+- **聊天工具栏**：模型选择器支持搜索，紧邻的思考档位选择器只提供当前模型支持的选项。角色入口用于选择和快速管理；完整编辑也在设置中。
+- **项目与历史**：左侧历史分为无项目会话及按文件夹分组的项目会话。新对话默认无项目，底部文件夹入口选择项目目录；打开历史会恢复会话与项目。空会话在发送消息后才落盘。支持当前会话改名和整段复制。
+- **快捷键**：通用页点击快捷键按钮，直接按组合键录入；Esc 取消，失去焦点也取消。全局注册冲突会提示；保存后重启保留。首次默认依次尝试 Alt+Shift+C、Alt+Shift+Q、Alt+Shift+J、F3。
+- **开机自启**：通用页开启后写入当前用户 Windows Run 项，登录时隐藏驻留托盘。便携包移动后再次运行应用会刷新路径。
+- **窗口**：点击主窗内弹窗之外或按 Esc 关闭弹窗。滚动条隐藏，鼠标滚轮、触控板与键盘滚动仍可用。标题栏关闭后驻留托盘。
 
-当前验收包：`C:\Users\Orca\Downloads\Summon-lightweight-20261009-complete\Summon.exe`。请保留整个文件夹一起运行。
+## Agent 记忆
 
-- 远程模型：在「模型设置」输入电脑 A 的 OpenAI 兼容 `Base URL`、`Model ID` 和 `API Key`，保存后自动选中该模型。兼容接口使用 `openai-completions`；服务器还需支持该协议及所选模型的工具调用。URL 和模型标识写入 Summon 独立的 `models.json`，Key 用 Windows 当前用户 DPAPI 加密保存，换 Windows 账号后需重新输入。
-- 桌面：设置中可改全局快捷键，注册失败会提示占用；可打开或关闭开机自启。开机自启使用当前用户的 Windows Run 项，登录后隐藏在托盘，便携包移动后需再运行一次 Summon 才能更新路径。
-- 记忆：顶部「记」打开 L1 学习者画像、L2 文本知识库和 L3 跨对话检索，三层各自可关闭。L1 可手工修改；L2 可粘贴或导入 TXT/Markdown，资料可编辑和两步删除；L3 从 Summon 自身最近的会话文件检索相关片段。每轮只放入少量匹配内容，不自动采集外部文件或更改 PI-Desktop 会话。当前不支持 PDF 入库和自动提取画像。
+由 Agent 整理，设置中查看结果、控制三层开关和两步删除；无需手填画像或知识笔记。在对话中可直接要求记住或纠正。
 
-首次使用建议先在电脑 B 的浏览器确认电脑 A 的服务地址可达，再在 Summon 中配置同一地址。若服务需要特定的 OpenAI 兼容变体，当前界面尚不能切换协议类型。
+1. L1：明确的学习背景、目标与稳定偏好，精简后每轮注入。
+2. L2：Agent 归档可复用知识笔记，以本地文本匹配检索。
+3. L3：从 Summon 历史会话检索相关片段，保留会话来源。
 
-模型设置可调整当前模型支持的思考深度。左侧历史可重命名当前会话，或复制当前会话中的用户与助手文字。
+Agent 可调用 `remember` 工具即时更新。回复结束 2.5 秒后，用当前模型后台整理最近对话；下一次提问、切换会话或关闭记忆会取消尚未完成的整理。后台整理失败不会阻塞回答，也不会部署向量数据库。原版手工画像和笔记会迁移保留。当前不能保证模型永远正确提取事实，可以在对话中纠正或在设置删除。
 
-输入区左下角的「＋」可选择图片，也可直接粘贴或拖入图片。每次最多 8 张，单张最多 5 MB；支持 PNG、JPEG、WebP 和 GIF。图片作为结构化内容发送给支持图片输入的模型。
+## 文件和工具
 
-同一入口也支持普通文件。文件先复制到 Summon 独立数据目录下的当前会话附件文件夹，再把路径交给 Agent 的读取工具；当前每个文件最多 5 MB，每次图片和文件合计最多 8 个。会话附件目前不会自动清理，请勿将它当作临时文件保险箱。
+输入区“＋”支持图片和普通文件，支持粘贴和拖放，每次最多 8 个、每个最多 5 MB。图片作为结构化内容发给模型；普通文件复制到隔离会话附件目录后由 Agent 读取。附件不会自动清理。
 
-窗口呼出快捷键依次尝试 `Alt+Shift+C`、`Alt+Shift+Q`、`Alt+Shift+J`、`F3`。调整位置、尺寸后隐藏或退出会写入 Tauri 窗口状态。用户已确认 C 盘便携包能显示窗口，窗口状态文件已写入位置与尺寸；快捷键和重启恢复仍待验收。
+读取工具可直接运行；edit、write、bash、powershell 每次会询问允许或拒绝，五分钟超时、停止或切换会话自动拒绝。Agent 的记忆更新不修改外部项目文件。
 
-新版只保留一个 Summon 实例；再次双击会呼出已有窗口。更新便携包前，请通过旧版托盘菜单退出所有旧实例，再启动新版，以免旧进程继续占用快捷键。
+## 诊断
 
-2026-10-09 的单实例便携包位于 `C:\\Users\\Orca\\Downloads\\Summon-portable-20261009-single-instance`；该包与上文首次成功打开的旧版分开放置。
+Agent 启动使用便携包内置 Node 和桥接模块，记录路径、stderr 和退出码。中断后最多自动尝试恢复三次，并恢复会话；已发送的用户任务不会自动重发。
 
-悬浮窗界面版位于 `C:\\Users\\Orca\\Downloads\\Summon-portable-20261009-floating-ui`；退出旧版后台实例后，从该文件夹启动 `Summon.exe` 查看新界面。
+日志：便携包目录 `startup.log`（不可写时 `%TEMP%/Summon-startup.log`），应用数据目录 `%APPDATA%/dev.rynorca.summon/agent.log`。启动失败会提供错误说明。模型请求失败也会在聊天中显示。
 
-带左侧历史、文件夹选择和角色预设的新版位于 `C:\\Users\\Orca\\Downloads\\Summon-portable-20261009-floating-ui-roles`；请运行此目录中的 `Summon.exe`。
+## 构建与验收
 
-包含思考深度、会话命名和复制对话的最新版位于 `C:\\Users\\Orca\\Downloads\\Summon-portable-20261009-session-controls`。
+Node.js 22.19+、Rust stable、WebView2 Runtime。先在 desktop/agent 执行 npm ci，再运行 desktop/tools/package-portable.ps1。当前环境从 D 盘执行新 exe 会失败，因此 Cargo target 和桌面验收包使用 C 盘临时目录；构建脚本设置 stable 工具链。
 
-带图片附件的最新版位于 `C:\\Users\\Orca\\Downloads\\Summon-portable-20261009-images`。
+隔离测试：`node --test --test-isolation=none desktop/agent/*.test.mjs`。
+真实桌面验收脚本：desktop/tools/desktop-acceptance.cjs，需要设置 SUMMON_TEST_PACKAGE 和 SUMMON_PLAYWRIGHT_PATH。脚本只启动、终止自己的测试实例，使用 SUMMON_TEST_DATA_DIR 隔离数据、窗口状态和单实例锁，并通过测试用 WebView2 调试端口验证界面。正式启动没有调试端口。
 
-如果通过 Windows SmartScreen 后仍无窗口，检查便携包文件夹里的 `startup.log`；若没有，再检查 `%TEMP%\\Summon-startup.log`。新版在 Tauri 启动失败时会弹出错误说明；请保留完整便携包文件夹，单独复制 `Summon.exe` 会缺少 Agent 运行文件。WebView2 的数据默认写入便携包的 `data/webview`，文件夹不可写时回退到系统临时目录。
+本轮完整 PI 模拟 API 链路与真实桌面操作已验证：模型发现、流式回复、思考档位、Agent 记忆、项目分类、快捷键录入和 Agent 中断恢复。截图与报告在项目 dist/acceptance。电脑 A 的真实回复、实际速度和 Windows 重登自启尚未验收。
 
-PI-Desktop 来源与许可证见 [PI-DESKTOP-LICENSE](./PI-DESKTOP-LICENSE)。
+PI-Desktop 来源与 LGPL-3.0 许可证见 PI-DESKTOP-LICENSE。

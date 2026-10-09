@@ -5,13 +5,12 @@ const tauri = window.__TAURI__;
 const messages = $("messages");
 const transcript = $("transcript");
 const prompt = $("prompt");
-const settings = $("settings");
+const modelsDialog = $("models-dialog");
+let modelCatalog = [];
+let reconnectAttempts = 0;
+let reconnectTimer;
 const historyDrawer = $("history-drawer");
 const rolesDialog = $("roles-dialog");
-const memoryDialog = $("memory-dialog");
-let roles = [];
-let memoryState = { enabled: { l1: true, l2: true, l3: true }, profile: "", notes: [] };
-let editingNoteId = null;
 let activeRoleId = "agent";
 let editingRoleId = null;
 let activeSessionId = "";
@@ -236,41 +235,55 @@ function openHistory() {
   void command("list_sessions");
 }
 function renderSessions(sessions) {
-  const list = $("history-list");
-  list.replaceChildren();
-  if (!sessions.length) {
-    const empty = document.createElement("div");
-    empty.className = "history-empty";
-    empty.textContent = "还没有保存的对话";
-    list.append(empty);
-    return;
+  const list = $("history-list"); list.replaceChildren();
+  function addConversation(parent, item) {
+    const button = document.createElement("button"); button.type = "button";
+    button.className = "history-item" + (item.id === activeSessionId ? " active" : "");
+    button.textContent = item.title || "新对话"; button.title = button.textContent;
+    button.onclick = async () => {
+      try { await command("open_session", { sessionId: item.id }, true); closeHistory(); prompt.focus(); }
+      catch (error) { $("history-error").textContent = String(error); $("history-error").hidden = false; }
+    };
+    parent.append(button);
   }
-  for (const item of sessions) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "history-item";
-    button.textContent = String(item.title || "新对话").slice(0, 80);
-    button.title = button.textContent;
-    button.addEventListener("click", async () => {
-      try {
-        await command("open_session", { sessionId: item.id }, true);
-        closeHistory();
-        prompt.focus();
-      } catch (error) {
-        $("history-error").textContent = String(error);
-        $("history-error").hidden = false;
-      }
-    });
-    list.append(button);
+  const heading = (text) => { const h = document.createElement("h3"); h.className = "history-section"; h.textContent = text; list.append(h); };
+  heading("会话");
+  const loose = sessions.filter(item => !item.projectPath);
+  loose.forEach(item => addConversation(list, item));
+  if (!loose.length) { const e = document.createElement("p"); e.className = "history-empty"; e.textContent = "暂无无项目对话"; list.append(e); }
+  heading("项目");
+  const projects = new Map();
+  for (const item of sessions.filter(item => item.projectPath)) {
+    if (!projects.has(item.projectPath)) projects.set(item.projectPath, []);
+    projects.get(item.projectPath).push(item);
+  }
+  for (const [path, items] of projects) {
+    const group = document.createElement("details"); group.open = true; group.className = "history-project";
+    const title = document.createElement("summary"); title.textContent = "▱ " + path.split(/[\\/]/).filter(Boolean).pop(); title.title = path;
+    group.append(title); items.forEach(item => addConversation(group, item)); list.append(group);
   }
 }
+function renderModels() {
+  const list = $("model-list"); list.replaceChildren();
+  const search = $("model-search").value.toLowerCase();
+  for (const model of modelCatalog.filter(m => `${m.provider} ${m.name} ${m.id}`.toLowerCase().includes(search))) {
+    const button = document.createElement("button"); button.className = "model-option";
+    const title = document.createElement("strong"); title.textContent = model.name || model.id;
+    const meta = document.createElement("span"); meta.textContent = `${model.providerName || model.provider} · ${model.contextWindow ? Math.round(model.contextWindow / 1024) + "K 上下文" : "上下文未知"}`;
+    button.append(title, meta); button.onclick = async () => {
+      try { await command("select_model", { provider: model.provider, model: model.id }, true); modelsDialog.close(); }
+      catch (error) { errorRow(String(error)); }
+    }; list.append(button);
+  }
+  if (!list.childElementCount) { const p = document.createElement("p"); p.textContent = "没有可用模型，请先配置提供商。"; list.append(p); }
+}
 function renderThinkingLevels(levels, selected) {
-  const names = { off: "关闭", minimal: "最少", low: "低", medium: "中等", high: "高", xhigh: "很高" };
+  const names = { off: "思考关闭", minimal: "最少", low: "低", medium: "中等", high: "高", xhigh: "很高" };
   const picker = $("thinking-level");
   picker.replaceChildren();
   for (const level of levels || []) picker.add(new Option(names[level] || level, level));
   picker.value = selected || "";
-  $("set-thinking-level").disabled = picker.options.length < 2;
+  picker.disabled = picker.options.length < 2;
 }
 function roleError(error) {
   $("role-error").textContent = String(error);
@@ -321,53 +334,19 @@ function renderRoles() {
     list.append(row);
   }
 }
-function memoryError(error) {
-  $("memory-error").textContent = String(error);
-  $("memory-error").hidden = false;
-}
-function renderMemory() {
-  for (const layer of ["l1", "l2", "l3"]) $("memory-" + layer).checked = memoryState.enabled[layer] !== false;
-  $("memory-profile").value = memoryState.profile || "";
-  const list = $("memory-notes"); list.replaceChildren();
-  for (const note of memoryState.notes || []) {
-    const row = document.createElement("div"); row.className = "memory-note";
-    const edit = document.createElement("button"); edit.type = "button"; edit.textContent = note.title;
-    edit.title = "编辑资料";
-    edit.addEventListener("click", () => {
-      editingNoteId = note.id;
-      $("memory-note-title").value = note.title;
-      $("memory-note-body").value = note.body;
-      $("memory-note-save").textContent = "更新资料";
-    });
-    const remove = document.createElement("button"); remove.type = "button"; remove.textContent = "删除";
-    let timer;
-    remove.addEventListener("click", async () => {
-      if (!remove.classList.contains("confirm")) {
-        remove.classList.add("confirm"); remove.textContent = "确认删除";
-        timer = setTimeout(() => { remove.classList.remove("confirm"); remove.textContent = "删除"; }, 3000);
-        return;
-      }
-      clearTimeout(timer);
-      try { await command("memory_note_delete", { noteId: note.id }, true); }
-      catch (error) { memoryError(error); }
-    });
-    row.append(edit, remove); list.append(row);
-  }
-}
 async function chooseWorkspace() {
   try {
     const path = await tauri.core.invoke("choose_workspace");
     if (!path) return;
     await command("change_workspace", { path }, true);
-    if (settings.open) settings.close();
+
   } catch (error) {
-    if (settings.open) $("settings-error").textContent = String(error);
-    else errorRow(String(error));
+    errorRow(String(error));
   }
 }
 async function newSession() {
   try {
-    await command("new_session", {}, true);
+    await command("new_session", { noProject: true }, true);
     closeHistory();
     prompt.focus();
   } catch (error) {
@@ -379,23 +358,20 @@ function onEvent(event) {
   if (!response || typeof response !== "object") return;
   const handledReply = Boolean(response.id && pending.has(response.id) && ["ack", "error", "done", "conversation", "file_staged"].includes(response.type));
   if (handledReply) {
-    const { resolve, reject } = pending.get(response.id); pending.delete(response.id);
+    const { resolve, reject, timer } = pending.get(response.id); clearTimeout(timer); pending.delete(response.id);
     response.type === "error" ? reject(new Error(response.message)) : resolve(response);
   }
   switch (response.type) {
     case "ready": status("正在读取模型…"); break;
-    case "models": {
-      const picker = $("model-picker"); picker.replaceChildren(new Option("自动选择", ""));
-      for (const model of response.models || []) picker.add(new Option(`${model.provider} / ${model.name || model.id}`, `${model.provider}/${model.id}`));
-      break;
-    }
+    case "models": modelCatalog = response.models || []; renderModels(); break;
     case "session":
-      $("model-label").textContent = response.model || "选择模型";
+      reconnectAttempts = 0;
+      $("model-label").textContent = response.modelName || response.model || "选择模型";
+      $("model-button").title = response.model || "选择模型";
       activeSessionId = response.sessionId || "";
       activeSessionName = response.sessionName || "";
       renderThinkingLevels(response.availableThinkingLevels, response.thinkingLevel);
-      $("workspace").value = response.workspace || "";
-      $("workspace-label").textContent = (response.workspace || "").replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "工作目录";
+      $("workspace-label").textContent = (response.workspace || "").replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "无项目";
       $("workspace-button").title = response.workspace || "切换工作目录";
       if (response.roleId) { activeRoleId = response.roleId; renderRoles(); }
       void command("list_sessions");
@@ -410,13 +386,8 @@ function onEvent(event) {
       activeRoleId = response.activeId || "agent";
       renderRoles();
       break;
-    case "endpoint":
-      $("remote-base-url").value = response.config?.baseUrl || "";
-      $("remote-model-id").value = response.config?.modelId || "";
-      $("remote-api-key").placeholder = response.hasKey ? "已保存，可留空" : "输入 API Key";
-      break;
-    case "credential_error": errorRow(response.message || "远程模型凭据无法读取"); break;
-    case "memory": memoryState = response.state || memoryState; renderMemory(); break;
+    case "credential_error": errorRow(response.message || "模型凭据无法读取"); break;
+    case "memory_status": if (!running) status(response.status === "organizing" ? "Agent 正在整理记忆…" : "就绪"); break;
     case "sessions": renderSessions(response.sessions || []); break;
     case "history": restoreHistory(response.messages || []); status("就绪"); break;
     case "delta": {
@@ -460,15 +431,21 @@ function onEvent(event) {
       }
       if (!handledReply) errorRow(response.message || "PI Agent 出错");
       setRunning(false); break;
-    case "disconnected": status("PI Agent 已断开"); setRunning(false); break;
+    case "disconnected":
+      setRunning(false); status("PI Agent 已断开，正在恢复连接…");
+      for (const entry of pending.values()) { clearTimeout(entry.timer); entry.reject(new Error("Agent 连接断开，请重新执行操作")); } pending.clear();
+      if (reconnectAttempts < 3) {
+        clearTimeout(reconnectTimer); reconnectTimer = setTimeout(() => { reconnectAttempts++; void command("init"); }, 600 * (reconnectAttempts + 1));
+      } else { status("Agent 启动失败，请检查设置或 agent.log"); }
+      break;
   }
 }
 function command(type, args = {}, awaitReply = false) {
   if (!tauri) return Promise.reject(new Error("需要在 Tauri 桌面窗口中运行"));
-  const id = String(++sequence);
-  const response = awaitReply ? new Promise((resolve, reject) => pending.set(id, { resolve, reject })) : Promise.resolve();
+  const id = `chat-${++sequence}`;
+  const response = awaitReply ? new Promise((resolve, reject) => { const timer = setTimeout(() => { pending.delete(id); reject(new Error("操作超时，请检查 Agent 连接")); }, 30000); pending.set(id, { resolve, reject, timer }); }) : Promise.resolve();
   tauri.core.invoke("agent_command", { command: { id, type, ...args } }).catch((error) => {
-    if (pending.has(id)) { pending.get(id).reject(error); pending.delete(id); }
+    if (pending.has(id)) { clearTimeout(pending.get(id).timer); pending.get(id).reject(error); pending.delete(id); }
     else errorRow(String(error));
   });
   return response;
@@ -528,7 +505,6 @@ prompt.addEventListener("input", () => {
   updateSendAvailability();
 });
 $("stop-button").addEventListener("click", () => void command("abort"));
-$("hide-button").addEventListener("click", () => void tauri?.core.invoke("dismiss"));
 $("header-new-chat").addEventListener("click", () => void newSession());
 $("history-new-chat").addEventListener("click", () => void newSession());
 $("history-button").addEventListener("click", openHistory);
@@ -563,93 +539,23 @@ $("rename-save").addEventListener("click", async () => {
     $("rename-error").hidden = false;
   }
 });
-$("settings-button").addEventListener("click", () => settings.showModal());
-$("memory-button").addEventListener("click", () => { $("memory-error").hidden = true; renderMemory(); memoryDialog.showModal(); });
-$("memory-close").addEventListener("click", () => memoryDialog.close());
-for (const layer of ["l1", "l2", "l3"]) {
-  $("memory-" + layer).addEventListener("change", async (event) => {
-    try { await command("memory_enabled", { layer, enabled: event.target.checked }, true); }
-    catch (error) { event.target.checked = !event.target.checked; memoryError(error); }
+$("settings-button").addEventListener("click", () => void tauri?.core.invoke("open_settings", { section: "general" }).catch(error => errorRow(String(error))));
+$("model-button").addEventListener("click", () => { renderModels(); modelsDialog.showModal(); $("model-search").focus(); });
+$("model-search").addEventListener("input", renderModels);
+$("models-close").addEventListener("click", () => modelsDialog.close());
+$("configure-models").addEventListener("click", () => { modelsDialog.close(); void tauri?.core.invoke("open_settings", { section: "models" }); });
+$("thinking-level").addEventListener("change", async () => {
+  try { await command("set_thinking_level", { level: $("thinking-level").value }, true); }
+  catch (error) { errorRow(String(error)); void command("get_state"); }
+});
+$("workspace-button").addEventListener("click", () => void chooseWorkspace());
+for (const dialog of document.querySelectorAll("dialog")) {
+  dialog.addEventListener("click", event => {
+    if (event.target !== dialog) return;
+    const bounds = dialog.getBoundingClientRect();
+    if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) dialog.close();
   });
 }
-$("memory-profile-save").addEventListener("click", async () => {
-  try { await command("memory_profile", { profile: $("memory-profile").value }, true); $("memory-error").hidden = true; }
-  catch (error) { memoryError(error); }
-});
-$("memory-note-save").addEventListener("click", async () => {
-  try {
-    await command("memory_note_save", { noteId: editingNoteId, title: $("memory-note-title").value, body: $("memory-note-body").value }, true);
-    editingNoteId = null;
-    $("memory-note-title").value = ""; $("memory-note-body").value = "";
-    $("memory-note-save").textContent = "保存资料";
-    $("memory-error").hidden = true;
-  } catch (error) { memoryError(error); }
-});
-$("memory-note-new").addEventListener("click", () => {
-  editingNoteId = null;
-  $("memory-note-title").value = "";
-  $("memory-note-body").value = "";
-  $("memory-note-save").textContent = "保存资料";
-  $("memory-note-title").focus();
-});
-$("memory-import").addEventListener("click", () => $("memory-file-picker").click());
-$("memory-file-picker").addEventListener("change", async (event) => {
-  const file = event.target.files?.[0];
-  event.target.value = "";
-  if (!file) return;
-  if (file.size > 100 * 1024) { memoryError("资料文件最多 100 KB"); return; }
-  try {
-    const body = await file.text();
-    if (body.length > 20000) throw new Error("资料正文最多 20000 字，请拆分后导入");
-    await command("memory_note_save", { title: file.name.replace(/\.(txt|md|markdown)$/i, ""), body }, true);
-    $("memory-error").hidden = true;
-  } catch (error) { memoryError(error); }
-});
-$("model-button").addEventListener("click", () => { settings.showModal(); $("model-picker").focus(); });
-$("workspace-button").addEventListener("click", () => void chooseWorkspace());
-$("settings-close").addEventListener("click", () => settings.close());
-$("save-remote").addEventListener("click", async () => {
-  $("settings-error").textContent = "";
-  try {
-    await command("configure_remote", {
-      baseUrl: $("remote-base-url").value,
-      modelId: $("remote-model-id").value,
-      key: $("remote-api-key").value,
-    }, true);
-    $("remote-api-key").value = "";
-    settings.close();
-  } catch (error) { $("settings-error").textContent = String(error); }
-});
-$("save-shortcut").addEventListener("click", async () => {
-  $("settings-error").textContent = "";
-  try { $("global-shortcut").value = await tauri.core.invoke("set_shortcut", { shortcut: $("global-shortcut").value }); }
-  catch (error) { $("settings-error").textContent = String(error); }
-});
-$("autostart").addEventListener("change", async (event) => {
-  $("settings-error").textContent = "";
-  try { await tauri.core.invoke("set_autostart", { enabled: event.target.checked }); }
-  catch (error) { event.target.checked = !event.target.checked; $("settings-error").textContent = String(error); }
-});
-$("save-key").addEventListener("click", async () => {
-  const provider = $("provider").value.trim(); const key = $("api-key").value.trim();
-  $("settings-error").textContent = "";
-  try { await command("set_key", { provider, key }, true); $("api-key").value = ""; await command("init", { provider }); }
-  catch (error) { $("settings-error").textContent = String(error); }
-});
-$("select-model").addEventListener("click", async () => {
-  const value = $("model-picker").value;
-  if (!value) return;
-  const slash = value.indexOf("/");
-  $("settings-error").textContent = "";
-  try { await command("select_model", { provider: value.slice(0, slash), model: value.slice(slash + 1) }, true); settings.close(); }
-  catch (error) { $("settings-error").textContent = String(error); }
-});
-$("set-thinking-level").addEventListener("click", async () => {
-  $("settings-error").textContent = "";
-  try { await command("set_thinking_level", { level: $("thinking-level").value }, true); settings.close(); }
-  catch (error) { $("settings-error").textContent = String(error); }
-});
-$("change-workspace").addEventListener("click", () => void chooseWorkspace());
 $("role-button").addEventListener("click", () => { $("role-error").hidden = true; renderRoles(); rolesDialog.showModal(); });
 $("roles-close").addEventListener("click", () => rolesDialog.close());
 $("roles-new").addEventListener("click", () => {
@@ -673,10 +579,6 @@ document.addEventListener("keydown", (event) => {
 });
 updateSendAvailability();
 if (tauri) {
-  tauri.core.invoke("desktop_preferences").then((prefs) => {
-    $("global-shortcut").value = prefs.activeShortcut || prefs.shortcut || "";
-    $("autostart").checked = prefs.autostart === true;
-  }).catch((error) => { $("settings-error").textContent = String(error); });
   tauri.event.listen("agent-event", onEvent).then(() => command("init")).catch((error) => errorRow(String(error)));
 } else {
   status("请在 Tauri 桌面窗口中运行");

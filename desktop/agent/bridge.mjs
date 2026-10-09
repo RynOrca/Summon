@@ -1,5 +1,5 @@
 import { createInterface } from "node:readline";
-import { mkdir, stat } from "node:fs/promises";
+import { mkdir, stat, readFile, writeFile, rename } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { createApprovalGate } from "./approval.mjs";
 import { RoleStore } from "./roles.mjs";
@@ -7,6 +7,8 @@ import { normalizeImages } from "./images.mjs";
 import { stageFile } from "./files.mjs";
 import { EndpointStore, REMOTE_PROVIDER, validateEndpoint } from "./endpoint.mjs";
 import { MemoryStore } from "./memory.mjs";
+import { ProviderStore } from "./providers.mjs";
+import { createMemoryAgent } from "./memory-agent.mjs";
 import {
   createAgentSession,
   DefaultResourceLoader,
@@ -23,11 +25,25 @@ const agentDir = join(dataDir, "agent");
 const sessionsDir = join(dataDir, "sessions");
 await mkdir(agentDir, { recursive: true });
 await mkdir(sessionsDir, { recursive: true });
+const neutralWorkspace = join(dataDir, "workspace");
+await mkdir(neutralWorkspace, { recursive: true });
+const appStatePath = join(dataDir, "app-state.json");
+const metadataPath = join(dataDir, "session-meta.json");
+async function readJson(path, fallback) { try { return JSON.parse(await readFile(path, "utf8")); } catch (error) { if (error.code === "ENOENT") return fallback; throw error; } }
+async function saveJson(path, value) { await writeFile(`${path}.tmp`, JSON.stringify(value, null, 2)); await rename(`${path}.tmp`, path); }
+const appState = await readJson(appStatePath, {});
+if (appState.provider === "unknown") { delete appState.provider; delete appState.modelId; }
+const metadata = await readJson(metadataPath, {});
+let projectPath = appState.projectPath || null;
+if (projectPath && !(await stat(projectPath).catch(() => null))?.isDirectory()) projectPath = null;
+cwd = projectPath || neutralWorkspace;
 const roles = new RoleStore(dataDir);
 await roles.load();
 const endpoint = new EndpointStore(agentDir);
 const memory = new MemoryStore(dataDir, sessionsDir);
 await memory.load();
+const providers = new ProviderStore(agentDir);
+await providers.load();
 
 const send = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
 let runtime;
@@ -35,14 +51,7 @@ let session;
 let busy = false;
 let queue = Promise.resolve();
 const approvalGate = createApprovalGate(send);
-
-function memoryExtension(pi) {
-  pi.on("before_agent_start", async (event) => {
-    const recalled = await memory.context(event.prompt, session?.sessionId);
-    if (!recalled) return undefined;
-    return { systemPrompt: `${event.systemPrompt}\n\n<user_memory>\n${recalled}\n</user_memory>\n历史和资料可能有误；当前用户指令优先。` };
-  });
-}
+const memoryAgent = createMemoryAgent({ memory, send, currentSession: () => session, runtime: getRuntime });
 
 async function getRuntime() {
   if (!runtime) {
@@ -57,11 +66,20 @@ async function getRuntime() {
     } catch (error) {
       send({ type: "credential_error", message: `远程模型凭据无法读取，请重新输入 Key：${error.message}` });
     }
+    await providers.install(runtime);
   }
   return runtime;
 }
 
-async function openSession(provider, modelId, sessionManager = SessionManager.continueRecent(cwd, sessionsDir)) {
+async function openSession(provider, modelId, sessionManager) {
+  memoryAgent.cancel();
+  if (!sessionManager) {
+    if (session) sessionManager = session.sessionManager;
+    else {
+      const saved = (await SessionManager.listAll(sessionsDir)).find((item) => item.id === appState.activeSessionId);
+      sessionManager = saved ? SessionManager.open(saved.path, sessionsDir, cwd) : SessionManager.create(cwd, sessionsDir);
+    }
+  }
   approvalGate.cancel("会话已切换，工具操作未执行");
   const models = await getRuntime();
   const model = provider && modelId ? models.getModel(provider, modelId) : undefined;
@@ -72,7 +90,7 @@ async function openSession(provider, modelId, sessionManager = SessionManager.co
     agentDir,
     settingsManager,
     noExtensions: true,
-    extensionFactories: [approvalGate.extension, memoryExtension],
+    extensionFactories: [approvalGate.extension, memoryAgent.extension],
     appendSystemPromptOverride: (base) => {
       const instructions = roles.current()?.system;
       return instructions ? [...base, instructions] : base;
@@ -84,19 +102,24 @@ async function openSession(provider, modelId, sessionManager = SessionManager.co
     agentDir,
     modelRuntime: models,
     model,
-    tools: ["read", "ls", "find", "grep", "edit", "write", "bash", "powershell"],
+    tools: ["read", "ls", "find", "grep", "edit", "write", "bash", "powershell", "remember"],
     sessionManager,
     settingsManager,
     resourceLoader,
   });
   session?.dispose();
   session = created.session;
+  metadata[session.sessionId] = { projectPath };
+  Object.assign(appState, { activeSessionId: session.sessionId, projectPath, provider: session.model?.provider, modelId: session.model?.id });
+  await saveJson(metadataPath, metadata); await saveJson(appStatePath, appState);
   session.subscribe((event) => {
     if (event.type === "message_update") {
       const update = event.assistantMessageEvent;
       if (update.type === "text_delta" || update.type === "thinking_delta") {
         send({ type: "delta", kind: update.type === "text_delta" ? "text" : "thinking", text: update.delta });
       }
+    } else if (event.type === "message_end" && event.message.role === "assistant" && event.message.stopReason === "error") {
+      send({ type: "error", message: event.message.errorMessage || "模型请求失败，请检查服务地址、凭据和模型信息" });
     } else if (event.type === "tool_execution_start") {
       send({ type: "tool_start", id: event.toolCallId, name: event.toolName, args: event.args });
     } else if (event.type === "tool_execution_end") {
@@ -105,7 +128,7 @@ async function openSession(provider, modelId, sessionManager = SessionManager.co
       send({ type: "settled" });
     }
   });
-  send({ type: "session", model: session.model && session.model.provider !== "unknown" ? `${session.model.provider}/${session.model.id}` : null, sessionId: session.sessionId, sessionName: session.sessionName || "", thinkingLevel: session.thinkingLevel, availableThinkingLevels: session.getAvailableThinkingLevels(), workspace: cwd, roleId: roles.activeId });
+  emitSession();
   send({
     type: "history",
     messages: session.state.messages.map((message) => ({
@@ -120,19 +143,55 @@ async function openSession(provider, modelId, sessionManager = SessionManager.co
   });
 }
 
+function thinkingLevels() {
+  const model = session?.model;
+  return model && runtime ? providers.modelInfo(model.provider, model.id, runtime).thinkingLevels : ["off"];
+}
+function emitSession() {
+  if (!session) return;
+  send({ type: "session", model: session.model && session.model.provider !== "unknown" ? `${session.model.provider}/${session.model.id}` : null, modelName: session.model?.provider !== "unknown" ? session.model?.name || session.model?.id : null, sessionId: session.sessionId, sessionName: session.sessionName || "", thinkingLevel: session.thinkingLevel, availableThinkingLevels: thinkingLevels(), workspace: projectPath, roleId: roles.activeId });
+}
+async function emitState() {
+  const models = await getRuntime();
+  const available = await models.getAvailable();
+  send({ type: "models", models: available.map((model) => ({ ...providers.modelInfo(model.provider, model.id, models), provider: model.provider, id: model.id, name: model.name })) });
+  send({ type: "providers", providers: providers.snapshot(), templates: providers.templates(models) });
+  send({ type: "roles", ...roles.list() });
+  send({ type: "memory", state: memory.snapshot() });
+  emitSession();
+}
+
 async function handle(command) {
   const id = command.id;
   try {
     switch (command.type) {
       case "init": {
-        const models = await getRuntime();
-        const available = await models.getAvailable();
-        send({ type: "models", id, models: available.map((model) => ({ provider: model.provider, id: model.id, name: model.name })) });
         const remoteConfig = await endpoint.config();
         send({ type: "endpoint", config: remoteConfig, hasKey: await endpoint.loadKey().then(Boolean).catch(() => false) });
-        send({ type: "memory", state: memory.snapshot() });
-        send({ type: "roles", ...roles.list() });
-        await openSession(command.provider || (remoteConfig ? REMOTE_PROVIDER : undefined), command.model || remoteConfig?.modelId);
+        if (!session) await openSession(command.provider || appState.provider || (remoteConfig ? REMOTE_PROVIDER : undefined), command.model || appState.modelId || remoteConfig?.modelId);
+        await emitState();
+        send({ type: "ack", id });
+        break;
+      }
+      case "get_state":
+        await emitState(); send({ type: "ack", id }); break;
+      case "save_provider": {
+        if (busy) throw new Error("请等待当前回复结束");
+        const saved = await providers.save(command);
+        await providers.install(await getRuntime());
+        await emitState(); send({ type: "ack", id, providerId: saved.id });
+        break;
+      }
+      case "discover_models": {
+        if (busy) throw new Error("请等待当前回复结束");
+        await providers.discover(command.providerId, await getRuntime());
+        await emitState(); send({ type: "ack", id });
+        break;
+      }
+      case "update_model": {
+        if (busy) throw new Error("请等待当前回复结束");
+        await providers.updateModel(command.providerId, command.model, await getRuntime());
+        await emitState(); send({ type: "ack", id });
         break;
       }
       case "configure_remote": {
@@ -152,6 +211,7 @@ async function handle(command) {
         break;
       }
       case "memory_enabled":
+        memoryAgent.cancel();
         await memory.setEnabled(command.layer, command.enabled);
         send({ type: "memory", state: memory.snapshot() });
         send({ type: "ack", id });
@@ -167,10 +227,20 @@ async function handle(command) {
         send({ type: "ack", id });
         break;
       case "memory_note_delete":
+        memoryAgent.cancel();
         await memory.deleteNote(command.noteId);
         send({ type: "memory", state: memory.snapshot() });
         send({ type: "ack", id });
         break;
+      case "memory_fact_delete":
+        memoryAgent.cancel(); await memory.deleteFact(command.key);
+        send({ type: "memory", state: memory.snapshot() }); send({ type: "ack", id }); break;
+      case "memory_consolidate":
+          if (busy) throw new Error("请等待当前回复结束");
+          if (!session?.model || session.model.provider === "unknown") throw new Error("请先配置并选择模型");
+          if (!session.state.messages.some(message => message.role === "user")) throw new Error("请先进行对话，再整理记忆");
+          if (!memory.state.enabled.l1 && !memory.state.enabled.l2) throw new Error("请先开启画像或知识库记忆");
+        memoryAgent.cancel(); void memoryAgent.consolidate(); send({ type: "ack", id }); break;
       case "save_role": {
         if (busy) throw new Error("请先等待当前回复结束");
         const roleId = await roles.save(command);
@@ -222,9 +292,9 @@ async function handle(command) {
       case "set_thinking_level": {
         if (busy) throw new Error("请先等待当前回复结束");
         if (!session) throw new Error("会话尚未就绪");
-        if (!session.getAvailableThinkingLevels().includes(command.level)) throw new Error("该模型不支持此思考深度");
+        if (!thinkingLevels().includes(command.level)) throw new Error("该模型不支持此思考深度");
         session.setThinkingLevel(command.level, { persist: true });
-        send({ type: "thinking_level", level: session.thinkingLevel, availableThinkingLevels: session.getAvailableThinkingLevels() });
+        send({ type: "thinking_level", level: session.thinkingLevel, availableThinkingLevels: thinkingLevels() });
         send({ type: "ack", id });
         break;
       }
@@ -262,30 +332,35 @@ async function handle(command) {
         const next = resolve(command.path.trim());
         if (!(await stat(next)).isDirectory()) throw new Error("Workspace path is not a folder");
         const previous = cwd;
+        const previousProject = projectPath;
         const model = session?.model;
         cwd = next;
+        projectPath = next;
         try {
-          await openSession(model?.provider === "unknown" ? undefined : model?.provider, model?.provider === "unknown" ? undefined : model?.id);
+          await openSession(model?.provider === "unknown" ? undefined : model?.provider, model?.provider === "unknown" ? undefined : model?.id, SessionManager.create(cwd, sessionsDir));
         } catch (error) {
           cwd = previous;
+          projectPath = previousProject;
           throw error;
         }
         send({ type: "ack", id });
         break;
       }
       case "list_sessions": {
-        const sessions = await SessionManager.list(cwd, sessionsDir);
+        const sessions = await SessionManager.listAll(sessionsDir);
         send({ type: "sessions", id, sessions: sessions.map((item) => ({
           id: item.id,
           title: item.name || item.firstMessage || "新会话",
           modified: item.modified,
           messageCount: item.messageCount,
+          projectPath: metadata[item.id] ? metadata[item.id].projectPath : ((item.cwd === neutralWorkspace || item.cwd === process.env.SUMMON_WORKSPACE) ? null : item.cwd),
         })) });
         break;
       }
       case "new_session": {
         if (busy) throw new Error("Wait for the current response to finish");
         const model = session?.model;
+        if (command.noProject) { projectPath = null; cwd = neutralWorkspace; }
         await openSession(model?.provider === "unknown" ? undefined : model?.provider,
           model?.provider === "unknown" ? undefined : model?.id,
           SessionManager.create(cwd, sessionsDir));
@@ -295,12 +370,11 @@ async function handle(command) {
       case "open_session": {
         if (busy) throw new Error("Wait for the current response to finish");
         if (typeof command.sessionId !== "string") throw new Error("Session ID is required");
-        const path = SessionManager.findById(cwd, command.sessionId, sessionsDir);
-        if (!path) throw new Error("Session not found in this workspace");
-        const model = session?.model;
-        await openSession(model?.provider === "unknown" ? undefined : model?.provider,
-          model?.provider === "unknown" ? undefined : model?.id,
-          SessionManager.open(path, sessionsDir, cwd));
+        const info = (await SessionManager.listAll(sessionsDir)).find((item) => item.id === command.sessionId);
+        if (!info) throw new Error("找不到该会话");
+        projectPath = metadata[info.id] ? metadata[info.id].projectPath : ((info.cwd === neutralWorkspace || info.cwd === process.env.SUMMON_WORKSPACE) ? null : info.cwd);
+        cwd = projectPath || neutralWorkspace;
+        await openSession(undefined, undefined, SessionManager.open(info.path, sessionsDir, cwd));
         send({ type: "ack", id });
         break;
       }
@@ -312,10 +386,12 @@ async function handle(command) {
         const images = normalizeImages(command.images);
         if (!command.text.trim() && !images.length) throw new Error("请输入消息或添加图片");
         busy = true;
+        memoryAgent.cancel();
         send({ type: "started", id });
         try {
           await session.prompt(command.text, { images });
           send({ type: "done", id });
+          memoryAgent.schedule();
         } finally {
           busy = false;
         }
@@ -353,5 +429,7 @@ for await (const line of createInterface({ input: process.stdin })) {
     queue = queue.then(() => handle(command));
   }
 }
+await queue;
+memoryAgent.cancel();
 session?.dispose();
 approvalGate.cancel("Agent 进程已退出");
