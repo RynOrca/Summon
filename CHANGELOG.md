@@ -1,5 +1,10 @@
 # 更新记录
 
+## 2026-10-09 · Git 版本 `summon-portable-user-verified-2026-10-09`
+
+- 用户确认 C 盘便携包已成功显示窗口；启动日志记录窗口创建和初始化完成，窗口状态文件已写入位置与尺寸。
+- 将相同 exe 和完整运行文件复制到 `C:\\Users\\Orca\\Downloads\\Summon-portable-20261009`，交付目录不含测试日志和 WebView2 缓存；更新构建及验收说明。
+
 ## 2026-10-09 · Git 版本 `summon-webview-startup-diagnostics-2026-10-09`
 
 - 将 Tauri 主窗口改为显式创建，给 WebView2 指定便携包内数据目录，并在目录不可写时回退到临时目录。
