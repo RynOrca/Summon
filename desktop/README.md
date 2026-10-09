@@ -13,6 +13,6 @@ Windows 上的 Tauri / WebView2 窗口。对话布局与消息、工具、思考
 
 窗口呼出快捷键依次尝试 `Alt+Shift+C`、`Alt+Shift+Q`、`Alt+Shift+J`、`F3`。调整位置、尺寸后隐藏或退出会写入 Tauri 窗口状态。当前开发环境 WebView2 启动报系统错误 5，真实窗口行为尚未完成验证。
 
-如果通过 Windows SmartScreen 后仍无窗口，检查 `%LOCALAPPDATA%\\Summon\\startup.log`。新版在 Tauri 启动失败时也会弹出错误说明；请保留完整便携包文件夹，单独复制 `Summon.exe` 会缺少 Agent 运行文件。
+如果通过 Windows SmartScreen 后仍无窗口，检查便携包文件夹里的 `startup.log`；若没有，再检查 `%TEMP%\\Summon-startup.log`。新版在 Tauri 启动失败时会弹出错误说明；请保留完整便携包文件夹，单独复制 `Summon.exe` 会缺少 Agent 运行文件。WebView2 的数据默认写入便携包的 `data/webview`，文件夹不可写时回退到系统临时目录。
 
 PI-Desktop 来源与许可证见 [PI-DESKTOP-LICENSE](./PI-DESKTOP-LICENSE)。

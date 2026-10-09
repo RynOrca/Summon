@@ -1,5 +1,11 @@
 # 更新记录
 
+## 2026-10-09 · Git 版本 `summon-webview-startup-diagnostics-2026-10-09`
+
+- 将 Tauri 主窗口改为显式创建，给 WebView2 指定便携包内数据目录，并在目录不可写时回退到临时目录。
+- 捕获 Tauri 初始化时的 panic；启动日志写在 exe 同目录，失败时显示具体错误，解决旧版静默退出且日志缺失的问题。
+- 打包脚本支持指定 C 盘构建目录；当前环境 D 盘新复制的 exe 无法执行。C 盘测试版可进入程序，但 WebView2 在无图形测试环境中报 `0x8000FFFF`，真实桌面验收待完成。
+
 ## 2026-10-09 · Git 版本 `summon-startup-diagnostics-2026-10-09`
 
 - 启动时写入 `%LOCALAPPDATA%\\Summon\\startup.log`，启动失败显示错误弹窗和日志位置，避免正式版静默退出。

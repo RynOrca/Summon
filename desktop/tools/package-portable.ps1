@@ -17,10 +17,11 @@ $Output = [IO.Path]::GetFullPath($Output)
 if (Test-Path -LiteralPath $Output) { $Output = "$Output-$(Get-Date -Format yyyyMMdd-HHmmss)" }
 New-Item -ItemType Directory -Force -Path $Output | Out-Null
 $env:RUSTUP_TOOLCHAIN = 'stable'
+$targetDir = if ($env:CARGO_TARGET_DIR) { [IO.Path]::GetFullPath($env:CARGO_TARGET_DIR) } else { Join-Path $projectDir 'target' }
 Push-Location $projectDir
 try { & cargo build --release; if ($LASTEXITCODE -ne 0) { throw 'Cargo release build failed' } }
 finally { Pop-Location }
-Copy-Item -LiteralPath (Join-Path $projectDir 'target\release\summon-desktop.exe') -Destination (Join-Path $Output 'Summon.exe') -Force
+Copy-Item -LiteralPath (Join-Path $targetDir 'release\summon-desktop.exe') -Destination (Join-Path $Output 'Summon.exe') -Force
 New-Item -ItemType Directory -Force -Path (Join-Path $Output 'runtime'), (Join-Path $Output 'agent') | Out-Null
 Copy-Item -LiteralPath $nodeExe -Destination (Join-Path $Output 'runtime\node.exe') -Force
 Copy-Item -LiteralPath (Join-Path $agentDir 'bridge.mjs') -Destination (Join-Path $Output 'agent\bridge.mjs') -Force

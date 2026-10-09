@@ -3,7 +3,7 @@
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    Emitter, Manager, WindowEvent,
+    Emitter, Manager, WebviewWindowBuilder, WindowEvent,
 };
 use tauri_plugin_global_shortcut::{ShortcutState, GlobalShortcutExt};
 use tauri_plugin_window_state::{AppHandleExt, StateFlags};
@@ -124,16 +124,15 @@ fn dismiss(window: tauri::WebviewWindow) {
 }
 
 fn startup_log(message: &str) {
-    let path = std::env::var_os("LOCALAPPDATA")
-        .map(PathBuf::from)
-        .unwrap_or_else(std::env::temp_dir)
-        .join("Summon")
-        .join("startup.log");
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
-        let _ = writeln!(file, "{message}");
+    let paths = [
+        std::env::current_exe().ok().and_then(|exe| exe.parent().map(|dir| dir.join("startup.log"))),
+        Some(std::env::temp_dir().join("Summon-startup.log")),
+    ];
+    for path in paths.into_iter().flatten() {
+        if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+            let _ = writeln!(file, "{message}");
+            break;
+        }
     }
 }
 
@@ -172,8 +171,7 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
     Ok(())
 }
 
-fn main() {
-    startup_log("Starting Summon");
+fn run_desktop() -> tauri::Result<()> {
     let shortcuts = tauri_plugin_global_shortcut::Builder::new()
         .with_handler(|app, _shortcut, event| {
             if event.state() == ShortcutState::Pressed {
@@ -182,12 +180,27 @@ fn main() {
         })
         .build();
 
-    let result = tauri::Builder::default()
+    tauri::Builder::default()
         .manage(AgentState::default())
         .plugin(tauri_plugin_window_state::Builder::new().with_state_flags(BOUNDS).build())
         .plugin(shortcuts)
         .invoke_handler(tauri::generate_handler![dismiss, agent_command])
         .setup(|app| {
+            startup_log("Creating Tauri window");
+            let exe_dir = std::env::current_exe()?.parent().ok_or("Executable directory unavailable")?.to_path_buf();
+            let portable_webview_dir = exe_dir.join("data").join("webview");
+            let webview_dir = if std::fs::create_dir_all(&portable_webview_dir).is_ok() {
+                portable_webview_dir
+            } else {
+                let fallback = std::env::temp_dir().join("Summon").join("webview");
+                std::fs::create_dir_all(&fallback)?;
+                fallback
+            };
+            startup_log(&format!("WebView2 data directory: {}", webview_dir.display()));
+            let config = &app.config().app.windows[0];
+            WebviewWindowBuilder::from_config(app.handle(), config)?
+                .data_directory(webview_dir)
+                .build()?;
             startup_log("Tauri window created");
             if let Err(error) = setup_tray(app) {
                 startup_log(&format!("Tray unavailable: {error}"));
@@ -208,10 +221,20 @@ fn main() {
                 let _ = window.hide();
             }
         })
-        .run(tauri::generate_context!());
-    if let Err(error) = result {
-        let message = format!("Summon 无法启动：{error}\n\n请将 %LOCALAPPDATA%\\Summon\\startup.log 中的内容发给开发者。 ");
-        startup_log(&format!("Startup failed: {error:?}"));
-        show_startup_error(&message);
-    }
+        .run(tauri::generate_context!())
+}
+
+fn main() {
+    startup_log("Starting Summon");
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(run_desktop));
+    let error = match result {
+        Ok(Ok(())) => return,
+        Ok(Err(error)) => format!("{error:?}"),
+        Err(panic) => panic.downcast_ref::<String>().cloned()
+            .or_else(|| panic.downcast_ref::<&str>().map(|value| (*value).to_string()))
+            .unwrap_or_else(|| "Unknown startup panic".to_string()),
+    };
+    let message = format!("Summon 无法启动：{error}\n\n请将便携包文件夹中的 startup.log 发给开发者；若文件不存在，请查看系统临时目录中的 Summon-startup.log。");
+    startup_log(&format!("Startup failed: {error}"));
+    show_startup_error(&message);
 }
