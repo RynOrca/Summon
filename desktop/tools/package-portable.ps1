@@ -38,5 +38,5 @@ Copy-Item -LiteralPath (Join-Path $agentDir 'package.json') -Destination (Join-P
 & robocopy.exe (Join-Path $agentDir 'node_modules') (Join-Path $Output 'agent\node_modules') /E /NFL /NDL /NJH /NJS /NP /R:1 /W:1 | Out-Null
 if ($LASTEXITCODE -gt 7) { throw "Agent dependency copy failed (robocopy $LASTEXITCODE)" }
 Copy-Item -LiteralPath (Join-Path $desktopDir 'PI-DESKTOP-LICENSE') -Destination (Join-Path $Output 'PI-DESKTOP-LICENSE') -Force
-Copy-Item -LiteralPath (Join-Path $desktopDir 'README.md') -Destination (Join-Path $Output '使用说明.md') -Force
+Copy-Item -LiteralPath (Join-Path $desktopDir 'README.md') -Destination (Join-Path $Output 'README.md') -Force
 Write-Host "Portable build: $Output"

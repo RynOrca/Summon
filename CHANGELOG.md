@@ -1,5 +1,9 @@
 # 更新记录
 
+## 2026-10-09 · Git 版本 `summon-settings-agent-memory-portable-2026-10-09`
+
+- 修正 Windows PowerShell 5 读取无 BOM 脚本造成中文说明文件名乱码的问题，便携包统一使用 README.md；功能代码基于 `6ab6c12`。
+
 ## 2026-10-09 · Git 版本 `summon-settings-agent-memory-2026-10-09`
 
 - 根据八项用户反馈重做独立设置窗口与分类导航；统一提供商卡片、配置与模型发现，移除本地/远程分栏。密钥继续使用 DPAPI，旧配置迁移保留。
