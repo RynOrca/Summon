@@ -12,11 +12,48 @@ use std::{
     io::{BufRead, BufReader, Write},
     path::PathBuf,
     process::{Child, ChildStdin, Command, Stdio},
-    sync::{Mutex, Arc},
+    sync::{Mutex, Arc, atomic::{AtomicBool, AtomicU64, Ordering}},
     thread,
 };
 
 const BOUNDS: StateFlags = StateFlags::SIZE.union(StateFlags::POSITION);
+
+#[derive(Default)]
+struct BoundsAutosave {
+    revision: Arc<AtomicU64>,
+    pending: Arc<AtomicBool>,
+}
+
+// One short-lived worker per burst, not per resize event. Flush on the UI thread
+// after geometry settles so the plugin's native window reads cannot deadlock it.
+fn schedule_bounds_save(app: &tauri::AppHandle) {
+    let state = app.state::<BoundsAutosave>();
+    state.revision.fetch_add(1, Ordering::SeqCst);
+    if state.pending.swap(true, Ordering::SeqCst) { return; }
+    let revision = state.revision.clone();
+    let pending = state.pending.clone();
+    let app = app.clone();
+    thread::spawn(move || loop {
+        let observed = revision.load(Ordering::SeqCst);
+        thread::sleep(std::time::Duration::from_millis(500));
+        if revision.load(Ordering::SeqCst) != observed { continue; }
+        pending.store(false, Ordering::SeqCst);
+        if revision.load(Ordering::SeqCst) != observed {
+            if pending.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_ok() { continue; }
+            break;
+        }
+        let current = revision.clone();
+        let handle = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            if current.load(Ordering::SeqCst) == observed {
+                if let Err(error) = handle.save_window_state(BOUNDS) {
+                    startup_log(&format!("Window bounds autosave failed: {error}"));
+                }
+            }
+        });
+        break;
+    });
+}
 
 struct AgentProcess {
     child: Child,
@@ -427,6 +464,7 @@ fn run_desktop() -> tauri::Result<()> {
     tauri::Builder::default()
         .manage(AgentState::default())
         .manage(ShortcutStateStore::default())
+        .manage(BoundsAutosave::default())
         .plugin(window_state.build())
         .plugin(shortcuts)
         .invoke_handler(tauri::generate_handler![dismiss, agent_command, choose_workspace, open_local_file, desktop_preferences, set_shortcut, set_autostart, open_settings, capture_shortcut])
@@ -477,6 +515,9 @@ fn run_desktop() -> tauri::Result<()> {
             Ok(())
         })
         .on_window_event(|window, event| {
+            if matches!(event, WindowEvent::Moved(_) | WindowEvent::Resized(_)) {
+                schedule_bounds_save(window.app_handle());
+            }
             if let WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 let _ = window.app_handle().save_window_state(BOUNDS);
