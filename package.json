@@ -1,29 +1,13 @@
 {
-  "name": "summon-4-pi",
-  "version": "0.4.0",
-  "private": false,
-  "description": "对话悬浮窗 Summon — a hotkey-summoned chat window for PI-Desktop that drives a real host session (Agent mode, with attachments) or a quick chat with local read tools and web search.",
-  "license": "MIT",
+  "name": "reed",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Reed 一苇 — 一苇以航，轻渡学海。独立 Windows 学习 Agent。",
   "scripts": {
-    "test": "node tools/smoke-chat.mjs",
-    "test:vendor": "node tools/check-vendor-effects.mjs",
-    "lint": "node tools/lint-html-scripts.mjs",
-    "design": "node tools/check-design-port.mjs",
-    "tokens": "node tools/inspect-renderer-tokens.mjs",
-    "preview": "node tools/preview-panel.mjs",
-    "layout": "node tools/measure-layout.mjs",
-    "export:design": "node tools/export-design-base.mjs",
-    "vendor:morphicons": "node tools/fetch-morphicons.mjs",
-    "vendor:curve": "node tools/fetch-curve-loader.mjs",
-    "vendor": "npm run vendor:morphicons && npm run vendor:curve",
-    "build:renderer": "node tools/build-renderer.mjs",
-    "renderer:check": "node tools/build-renderer.mjs --check",
-    "check": "node tools/check-plugin.mjs plugins/local.summon-chat",
-    "pack": "node tools/pack-plugin.mjs plugins/local.summon-chat",
-    "verify": "npm run test && npm run test:vendor && npm run lint && npm run renderer:check && npm run design && npm run check",
-    "verify:package": "node tools/verify-package.mjs dist/local.summon-chat-0.26.1.piplug",
-    "verify:release": "npm run pack && npm run verify:package"
-  },
-  "comment": "No \"type\": \"module\" on purpose — the plugin's main.js is CommonJS, and a root-level type:module would make Node treat it as ESM. tools/*.mjs are ESM via their extension.",
-  "devDependencies": {}
+    "test": "node --test --test-isolation=none desktop/agent/*.test.mjs",
+    "agent:install": "npm ci --prefix desktop/agent",
+    "build": "powershell -NoProfile -ExecutionPolicy Bypass -File desktop/tools/package-portable.ps1",
+    "test:desktop": "node desktop/tools/desktop-acceptance.cjs",
+    "test:window": "node desktop/tools/window-state-acceptance.cjs"
+  }
 }

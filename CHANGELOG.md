@@ -2,7 +2,8 @@
 
 ## 2026-10-10 — Reed 一苇品牌与独立仓库
 
-Git 版本标签：`reed-brand-2026-10-10`（完成验收后创建）。
+Git 版本标签：`reed-brand-2026-10-10`。
+品牌成果提交：`7b750749a673b5de327a37eefbe859db7c5de6f4`。
 迁移前版本：`43f7e3ded46b23a151fbb4ec9c6edd0b6bdcfe02`，回退标签 `reed-before-migration-2026-10-10`。
 
 - 产品名称改为 Reed 一苇，主 slogan“一苇以航，轻渡学海。”。

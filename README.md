@@ -1,139 +1,149 @@
-# 对话悬浮窗 Summon
-
-> 一个全局快捷键呼出的对话浮窗，接你的真实 PI-Desktop 会话 —— 过程、附件、权限，全都看得见。
-
-给 [PI-Desktop](https://github.com/vastsa/PI-Desktop) 写的插件。按一下 `Alt+Shift+C`，悬浮窗出现在
-任何界面之上（panel 形态），**呼出即可打字**；它驱动的是宿主的**真实会话**，不是复刻的对话层。
+# Reed 一苇
 
 <p align="center">
-  <img src="docs/preview/empty-dark.png" width="240" alt="空状态" />
-  <img src="docs/preview/turn-dark.png" width="240" alt="一轮进行中的处理过程" />
-  <img src="docs/preview/transcript-dark.png" width="240" alt="一轮结束后的时间线" />
+  <img src="desktop/web/assets/branding/glass-light.png" width="128" alt="Reed 一苇图标" />
 </p>
 
-| 插件 | 快捷键 | 说明 |
-|---|---|---|
-| **对话悬浮窗 Summon**<br>`local.summon-chat` | `Alt+Shift+C` | Agent 模式（真实会话）+ 快捷对话（本地 `read` / 联网搜索）+ 角色预设 + 处理过程时间线 + 附件（图片 / 文件） |
+<p align="center"><strong>一苇以航，轻渡学海。</strong></p>
 
-## 安装
+Reed 是一款面向学习与日常工作的独立 Windows 桌面 Agent。它以快捷键唤出的轻量窗口承载对话，把角色、学习流程、长期记忆和 Obsidian 笔记连接起来，让提问、练习与复习能够接续进行。
 
-### 从插件市场（推荐）
+应用使用 Tauri、WebView2 和 PI Agent SDK 构建。运行无需安装 PI-Desktop，也无需安装其插件。当前版本为源码与 Windows 便携构建阶段。
 
-PI-Desktop → **插件页 → 插件市场**，搜索 **对话悬浮窗** 或 `local.summon-chat`。
+## 主要能力
 
-### 手动安装
+| 能力 | 说明 |
+| --- | --- |
+| 轻量桌面窗口 | 无系统标题栏、圆角、托盘驻留、全局快捷键；主窗与设置窗分别记住大小和位置 |
+| 模型配置 | OpenAI / Anthropic 兼容接口；模型发现、上下文上限、推理协议与视觉能力可编辑 |
+| 对话与附件 | Markdown、表格、图片粘贴与预览、本地文档链接；回复时发送默认排队，可将队列项转为引导 |
+| 上下文与速度 | 上下文占用圆环、自动和手动压缩、模型与思考档位展示；接口返回 token 用量时显示 tok/s |
+| 角色与技能 | 内置 Agent、Planner；角色说明注入系统提示词，可绑定独立技能文件并设置必须使用 |
+| 学习与记忆 | 学习目标、偏好、概念、误解与复习记录；长期记忆、知识笔记和历史片段召回 |
+| Obsidian 笔记库 | 从 Markdown 笔记中查找相关段落，引用原文件和行号，并提醒复习 |
+| 工具与扩展 | 文件工具、独立浏览器、当前时间、Tavily 搜索与正文提取；MCP 按需发现和调用 |
+| 权限与审批 | 工作区写入边界、自定义只读目录、完全文件权限；自动审批 / 手动确认 |
+| 外观 | 两套原画图标，支持浅色、深色和跟随系统；启动首屏展示 Reed 一苇 |
 
-到 [Releases](https://github.com/RynOrca/Summon/releases) 下载 `.piplug`，然后
-**插件页 → 溢出菜单 → 安装插件包**。
+## 外观
 
-> 需要 PI-Desktop `>= 0.16.0`。
+两套原画图标分别提供浅色与深色版本，默认使用写实套。圆角外部为透明区域。
 
-## 功能
+![两套浅深色透明图标](.github/assets/icon-variants.png)
 
-### 处理过程时间线
+<details>
+<summary>通用设置预览</summary>
 
-每次回答前面一条可折叠的时间线，数据全部来自宿主**已经落盘**的字段：
-思考内容、工具名与参数、结果、用时、搜索关键词、来源网址、token 用量。
-默认折叠，点开看细节 —— 而不是把一大坨原始 JSON 糊在屏幕上。
+![Reed 通用设置浅色模式](.github/assets/general-light.png)
 
-### Agent 模式 = 真实会话
+</details>
 
-权限、工具、skills、沙盒、模型与主窗口**完全一致**，因为它就是同一个会话。
-发送后悬浮窗会显示**此刻在干什么**（`正在调用 Bash：rg -n …`），并在疑似等待授权时
-提示你去主窗口点允许 —— 那张授权卡片插件看不到，我们如实说明而不是让它看起来卡死。
+## 开始使用
 
-### 附件
+1. 从源码构建便携包，运行其中的 `Reed.exe`。保留 `agent/` 和 `runtime/` 文件夹与程序在一起。
+2. 打开设置 → 模型，选择提供商或自定义接口，填写 Base URL、API Key，获取模型列表。
+3. 编辑模型，确认上下文上限、推理能力与视觉支持。接口没有返回的能力需要手动补充；发送图片前请启用支持视觉。
+4. 在输入区点击 **Model**，选择模型、思考档位并确认；点击 **Role** 选择角色。
+5. 可选：设置项目目录、连接 Obsidian Vault、导入技能、配置 Tavily 或 MCP。
 
-粘贴或拖入文件即可。**图片走宿主的附件通道**（和主窗口贴图同一条路），
-支持视觉的模型会**真的看到图**；不支持时会提前提示，而不是发完才发现。
-文件落在会话项目下的 `.summon/uploads/`。
+默认思考档位为 `off / low / medium / high / xhigh`，默认选择 `off`。这些默认选项不代表服务器声明支持全部档位，实际行为取决于模型服务及其推理协议。
 
-### 快捷对话
+更新时先通过托盘退出旧版，再启动新版。用户配置与聊天保存在程序目录之外，替换便携包不会重置配置。
 
-不建会话、直接问：本地 `read` 工具能读工作区文件，`web_search` 能联网
-（内置 DuckDuckGo + Bing 兜底，也支持自填 Tavily / SearXNG 等端点）。
-**快捷对话不接受图片** —— `agent.complete` 只收文本，我们选择明确拒绝而不是假装修好了。
+## 学习流程与角色
 
-### 角色预设
+角色负责回答原则，技能负责具体步骤。角色编辑中可绑定技能并开启“必须使用”。技能正文保持为独立 `SKILL.md`，便于编辑、更新和复用。
 
-为不同类型的提问保存 System Prompt 与工具开关；System Prompt 里可用 `/技能名` 引用技能。
+内置三个流程：
 
-## 权限与安全
+- **教学**：确认学习目标和基础 → 讲解与示例 → 理解检查 → 总结与记录。
+- **练习生成**：确定考点与难度 → 生成练习 → 收集作答 → 反馈与错因 → 后续练习。
+- **间隔复习**：找出待复习概念 → 先回忆再揭示 → 判断薄弱点 → 更新记录 → 安排下一次复习。
 
-| 权限 | 用途 |
-|---|---|
-| `ui.panel` / `ui.view` | 对话窗口 / 角色编辑器 |
-| `keyboard.globalShortcut` | 系统级呼出 |
-| `notify` | 状态提示 |
-| `models.list` | 模型菜单 |
-| `agent.complete` | 快捷对话（消耗你的额度） |
-| `desktop.control` | Agent 模式（驱动宿主会话） |
-| `net.fetch` / `net.anyHost` | 联网搜索（后者允许自填端点） |
-| `fs.read` | 读工作区文件（`read` 工具、拖入附件的字节） |
+按需绑定只把名称和说明提供给 Agent，相关任务再读取正文。必须使用的绑定会在匹配流程开始前由程序加载正文，技能停用或读取失败会阻止该流程。自定义流程可用 `/skill 技能名` 明确启动；不会每轮加载全部正文。角色指令进入系统提示词，Planner 的修改工具由程序禁用；模型本身的回答仍需要结合实际输出检查。
 
-`manifest.fs.read` 只声明了读（`{ root: "workspace", scope: ["**/*"] }`）；
-`clipboard.read`、`fs.write`、`agent.tool.register` 都**没有**声明 —— 用不到就不声明，
-`pi-plugin check` 也会对未使用的权限报警。
+## 数据与权限
 
-**安全说明**
+- 配置存储在 `%APPDATA%\dev.rynorca.summon\user-config.json`。沿用旧标识是为了兼容升级；提供商、加密凭据、角色、技能、笔记库、MCP 与桌面偏好集中保存。
+- API Key 在 Windows 上使用当前用户的 DPAPI 加密。加密配置不能直接作为跨账户迁移凭据使用。
+- 会话、记忆、学习事件、附件和窗口状态保存在独立数据文件中。笔记库索引读取 Vault 原文件，不修改原笔记。
+- 默认允许读取其他位置的文件，写入限制在当前工作区；自定义只读目录禁止修改。只有完全文件权限可解除这些写入限制。
+- 未隔离的 bash / PowerShell 已关闭。文件范围限制不是操作系统进程沙盒；外部 MCP 进程和调用要求完全文件权限，并遵循审批设置。
+- 模型请求会把对应对话、附件以及召回内容发送给所选服务；Tavily 和远程 MCP 请求会访问配置的服务。服务费用及数据处理规则由各提供商决定。
 
-- **网络**：只访问你在设置里指定的搜索端点，以及内置的 DuckDuckGo / Bing。不发送任何凭据，
-  不把文件内容外发 —— 除非你自己把某个端点配成了会接收内容的服务。
-- **文件读**：限工作区（`scope: ["**/*"]`）；越界由宿主拒绝并如实回灌给模型。
-- **文件写**：附件落地用**插件进程里的 `node:fs`** 写进会话项目的 `.summon/uploads/`
-  （宿主的 `pi.fs` 只有 UTF-8 的 `writeText`，写不了图片字节）。因此**边界由插件自己守**：
-  只写那个目录，写到磁盘的文件名只保留扩展名、其余自己生成，页面的输入拼不出目录之外的路径。
-  测试里有 `../../evil.sh` 与 24 MB 上限两条断言。
-- **会话**：Agent 模式通过宿主已有的 `desktop.control` 操作驱动会话，不绕过宿主的权限模式、
-  沙盒与授权卡片；需要授权时插件只提示你去主窗口处理，不会替你答应。
-- **无遥测**、无后台服务、不保存任何凭据。
+## 从源码构建
 
-## 卸载与残留
+当前桌面实现主要支持 Windows。准备：
 
-插件自身的设置随卸载移除。附件留在 `.summon/uploads/` 里（**不会**自动删除）——
-确认不再需要时直接删掉 `.summon/` 目录即可。
+- Node.js **22.19 或更高版本**、npm；
+- Rust stable；
+- Visual Studio C++ 构建工具及 Windows SDK；
+- Microsoft Edge WebView2 Runtime。
 
-## 开发
+在仓库根目录运行 PowerShell：
 
-```bash
-npm test          # 两个插件的 smoke 测试（假宿主跑真实 main.js）
-npm run verify    # test + 第三方动效 + lint + 产物一致性 + 设计移植 + 真实 pi-plugin check
-npm run pack      # 产出 .piplug 到 dist/
-npm run preview   # 生成离线预览页（turn / quick / attach / set / light …）
+```powershell
+npm ci --prefix desktop/agent
+./desktop/tools/package-portable.ps1 -Output ./dist/Reed-portable
 ```
 
-改界面改 `plugins/local.summon-chat/renderer/renderer.template.html`
-（`renderer/index.html` 是 `npm run build:renderer` 的产物）。
-在 PI-Desktop 里开发：**插件页 → 溢出菜单 → 加载开发插件 → 选 `plugins/<id>`**。
-加了新权限后必须**重新加载目录**，热重载不覆盖权限变更。
+输出目录包含 `Reed.exe`、内置 Node 运行时和 Agent 依赖。脚本不会覆盖已有输出目录，会为新构建添加时间后缀。
 
-细节文档：[架构与硬限制](docs/chat-widget-architecture.md) ·
-[Host API 调研](docs/api-findings.md) · [设计规范](docs/design-spec.md) ·
-[插件 README](plugins/local.summon-chat/README.md)
+图标的运行资源已经包含在源码中。需要从原画重新制作透明图标时，安装 Pillow 后运行：
 
-## 已知限制
+```powershell
+python desktop/tools/extract-icons.py
+./desktop/tools/generate-icon.ps1
+```
 
-- **逐字显示不是流式传输**：宿主给插件的三条路都没有回答文本的增量通道，所以
-  「一个字一个字出现」是表现层效果；真正边跑边出现的是**过程**。证据见
-  [架构文档 §3.1](docs/chat-widget-architecture.md)。
-- **授权卡片只在主窗口**：插件事件目录里没有权限事件，也没有「列出待批请求」的操作，
-  所以悬浮窗只能提示你去主窗口处理。
-- **快捷对话收不了图片**：`pi.agent.complete` 的入参是纯文本。
-- **不置顶**：panel 形态换来的是「呼出即可打字」，置顶只有 widget 能拿到。
+透明蒙版仅改变边缘 alpha，保留圆角块内原画；PNG 和多尺寸 ICO 供窗口、托盘与 Windows 程序使用。系统文件管理器显示默认写实浅色图标，运行中的窗口和托盘随应用外观切换。
 
-## 设计来源
+## 测试
 
-界面**结构**按随包提供的设计系统「鲸唤 Summon 原型源码包 v1.4」实现，**配色与字号**
-换成 PI-Desktop 自己的设计 Token（灰阶、中性强调色、白 alpha 文字阶梯），默认跟随主软件主题。
+```powershell
+npm test
+```
 
-两段第三方动效以内联方式打包（面板必须是单个自包含 HTML），源码与许可证见
-[docs/vendor/](docs/vendor/)：
+自动测试使用临时数据和本地模拟接口，覆盖模型、图片、文件范围、审批、记忆、笔记库、MCP、角色与技能绑定。
 
-| 文件 | 上游 | 用在哪 |
-|---|---|---|
-| `morphicons.js` | [guillermolg00/morphicons](https://github.com/guillermolg00/morphicons) (MIT) | 发送键的 Send↔Stop 形变 |
-| `curve-loader.js` | [Paidax01/math-curve-loaders](https://github.com/Paidax01/math-curve-loaders) (MIT) | 「正在思考 / 正在搜索」的曲线加载动效 |
+桌面验收需要 Playwright，并设置其模块路径和已构建便携包路径：
 
-## 许可证
+```powershell
+$env:SUMMON_TEST_PACKAGE = (Resolve-Path ./dist/Reed-portable).Path
+$env:SUMMON_PLAYWRIGHT_PATH = '<Playwright 模块绝对路径>'
+node desktop/tools/desktop-acceptance.cjs
+node desktop/tools/window-state-acceptance.cjs
+```
 
-[MIT](LICENSE) © Orca。第三方组件的许可证与出处见 [NOTICE.md](NOTICE.md)。
+桌面脚本使用隔离程序副本与用户数据，仅启动和终止自己的测试实例。真实模型验收是显式选择的单独脚本，必须通过 `SUMMON_LIVE_URL` 与 `SUMMON_LIVE_MODEL` 提供测试服务；源码不预设私人地址。
+
+## 源码结构
+
+```text
+desktop/
+  agent/       PI Agent SDK 桥接、模型、学习、工具与自动测试
+  agent/skills/ 独立教学、练习和间隔复习流程
+  src-tauri/   原生窗口、托盘、快捷键与进程宿主
+  web/         对话与设置界面
+  design/      原始品牌图标
+  tools/       便携构建、透明图标提取与桌面验收
+PLAN.md        当前计划与后续事项
+CHANGELOG.md   变更记录与 Git 版本标签
+NOTICE.md      第三方来源与许可证说明
+```
+
+仓库当前主分支只维护独立应用。早期插件保留在 Git 历史中，便于回溯。依赖、用户配置、API Key、会话、附件、日志和构建产物不应上传，已在 `.gitignore` 中排除。
+
+## 当前限制与后续计划
+
+- 笔记检索使用本地关键词匹配，尚未提供向量检索。
+- MCP 支持 stdio 与 Streamable HTTP，尚未提供 OAuth 登录。
+- 生成中的队列目前只支持文本消息。
+- 已有模拟接口和隔离桌面验收；真实 Tavily、用户 MCP、Windows 重登自启仍需按实际环境验收。
+- 正式安装包、自动更新及更多平台支持尚未完成。
+
+## 许可证与致谢
+
+本项目原创部分采用 [MIT License](LICENSE)。界面中有改编自 PI-Desktop 的部分，保留其 LGPL-3.0 声明及许可证；分发时请同时保留这些文件和相关源码要求，详见 [NOTICE.md](NOTICE.md)。Marked 与其他依赖遵循各自许可证。
+
+感谢 PI Agent SDK、PI-Desktop、Tauri、WebView2 与 Marked。Reed 使用独立宿主和数据目录，不包含 PI-Desktop 插件。
