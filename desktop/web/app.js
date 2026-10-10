@@ -237,7 +237,10 @@ function openHistory() {
   $("history-error").hidden = true;
   void command("list_sessions");
 }
+let showArchived=false;
+$("history-archives").onclick=()=>{showArchived=!showArchived;$("history-archives").textContent=showArchived?"返回会话":"查看已归档";void command("list_sessions");};
 function renderSessions(sessions) {
+  sessions=sessions.filter(item=>!!item.archived===showArchived);
   const list = $("history-list"); list.replaceChildren();
   function addConversation(parent, item) {
     const button = document.createElement("button"); button.type = "button";
@@ -247,7 +250,13 @@ function renderSessions(sessions) {
       try { await command("open_session", { sessionId: item.id }, true); closeHistory(); prompt.focus(); }
       catch (error) { $("history-error").textContent = String(error); $("history-error").hidden = false; }
     };
-    parent.append(button);
+    const row=document.createElement("div");row.className="history-conversation";
+    const archive=document.createElement("button");archive.className="history-action";archive.textContent=item.archived?"恢复":"归档";
+    const remove=document.createElement("button");remove.className="history-action";remove.textContent="删除";let timer;
+    async function change(type,args){try{await command(type,{sessionId:item.id,...args},true);void command("list_sessions");}catch(e){$("history-error").textContent=String(e);$("history-error").hidden=false;}}
+    archive.onclick=()=>change("archive_session",{archived:!item.archived});
+    remove.onclick=()=>{if(remove.classList.contains("danger")){clearTimeout(timer);void change("delete_session",{confirm:true});}else{remove.textContent="确认删除";remove.classList.add("danger");timer=setTimeout(()=>{remove.textContent="删除";remove.classList.remove("danger");},3000);}};
+    row.append(button,archive,remove);parent.append(row);
   }
   const heading = (text) => { const h = document.createElement("h3"); h.className = "history-section"; h.textContent = text; list.append(h); };
   heading("会话");
@@ -262,7 +271,7 @@ function renderSessions(sessions) {
   }
   for (const [path, items] of projects) {
     const group = document.createElement("details"); group.open = true; group.className = "history-project";
-    const title = document.createElement("summary"); title.textContent = "▱ " + path.split(/[\\/]/).filter(Boolean).pop(); title.title = path;
+    const title = document.createElement("summary"); title.textContent = path.split(/[\\/]/).filter(Boolean).pop(); title.title = path; title.prepend(icon("folder"));
     group.append(title); items.forEach(item => addConversation(group, item)); list.append(group);
   }
 }
@@ -395,7 +404,7 @@ function onEvent(event) {
       $("model-button").title = response.model || "选择模型";
       activeSessionId = response.sessionId || "";
       activeSessionName = response.sessionName || "";
-      updateModelChip(response);
+      updateModelChip(response);$("compaction-state").textContent=response.autoCompaction?"自动压缩已开启":"自动压缩已关闭";
       $("workspace-label").textContent = (response.workspace || "").replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "无项目";
       $("workspace-button").title = response.workspace || "切换工作目录";
       if (response.roleId) { activeRoleId = response.roleId; renderRoles(); }
@@ -443,6 +452,7 @@ function onEvent(event) {
       }
       break;
     }
+    case "compaction": $("compaction-state").textContent=response.status==="running"?"正在压缩上下文…":response.status==="error"?"压缩失败："+response.message:response.status==="skipped"?response.message:"上下文已压缩";$("compact-now").disabled=response.status==="running";break;
     case "started": submitted = null; $("token-speed").textContent = "— tok/s"; setRunning(true); break;
     case "done": case "settled":
       setRunning(false); if (thinkingRow) updateDisclosure(thinkingRow, "done");
@@ -467,6 +477,7 @@ function onEvent(event) {
       break;
   }
 }
+$("compact-now").onclick=async()=>{const b=$("compact-now");b.disabled=true;try{await command("compact",{},true);}catch(e){$("compaction-state").textContent=String(e);}finally{b.disabled=false;}};
 function renderTelemetry(data) {
   const percent = data.percent === null ? null : Math.min(100, Math.max(0, data.percent));
   $("context-percent").textContent = percent === null ? "?" : `${Math.round(percent)}`;
@@ -485,7 +496,7 @@ document.addEventListener("click", event => {
 function command(type, args = {}, awaitReply = false) {
   if (!tauri) return Promise.reject(new Error("需要在 Tauri 桌面窗口中运行"));
   const id = `chat-${++sequence}`;
-  const response = awaitReply ? new Promise((resolve, reject) => { const timer = setTimeout(() => { pending.delete(id); reject(new Error("操作超时，请检查 Agent 连接")); }, 30000); pending.set(id, { resolve, reject, timer }); }) : Promise.resolve();
+  const response = awaitReply ? new Promise((resolve, reject) => { const timer = setTimeout(() => { pending.delete(id); reject(new Error("操作超时，请检查 Agent 连接")); }, type==="compact"?180000:30000); pending.set(id, { resolve, reject, timer }); }) : Promise.resolve();
   tauri.core.invoke("agent_command", { command: { id, type, ...args } }).catch((error) => {
     if (pending.has(id)) { clearTimeout(pending.get(id).timer); pending.get(id).reject(error); pending.delete(id); }
     else errorRow(String(error));

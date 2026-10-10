@@ -32,8 +32,8 @@ export function normalizeDiscoveredModel(raw, known) {
 }
 
 export class ProviderStore {
-  constructor(directory, { protect = protectKey, unprotect = unprotectKey, request = fetch } = {}) {
-    this.directory = directory;
+  constructor(directory, { protect = protectKey, unprotect = unprotectKey, request = fetch, config = null } = {}) {
+    this.directory = directory; this.config=config;
     this.path = join(directory, "providers.json");
     this.modelsPath = join(directory, "models.json");
     this.providers = [];
@@ -41,7 +41,7 @@ export class ProviderStore {
     this.protect = protect; this.unprotect = unprotect; this.request = request;
   }
   async load() {
-    try { const data = JSON.parse(await readFile(this.path, "utf8")); this.providers = Array.isArray(data.providers) ? data.providers : []; }
+    try { const data = this.config ? await this.config.get("providers",this.path,null) : JSON.parse(await readFile(this.path, "utf8")); if(!data)throw Object.assign(new Error("legacy config"),{code:"ENOENT"}); this.providers = Array.isArray(data.providers) ? data.providers : []; }
     catch (error) {
       if (error.code !== "ENOENT") throw error;
       const legacy = new EndpointStore(this.directory);
@@ -54,10 +54,11 @@ export class ProviderStore {
       }
     }
     for (const provider of this.providers) {
-      try { this.keys.set(provider.id, await this.unprotect(await readFile(join(this.directory, `${provider.id}.dpapi`), "utf8"))); }
+      try { this.keys.set(provider.id, await this.unprotect(await this.encryptedKey(provider.id))); }
       catch (error) { if (error.code !== "ENOENT") provider.credentialError = "凭据无法读取，请重新输入"; }
     }
   }
+  async encryptedKey(id){const data=this.config?await this.config.read():{};if(data.credentials?.[id])return data.credentials[id];const old=await readFile(join(this.directory,`${id}.dpapi`),"utf8");if(this.config)await this.config.update(d=>{d.credentials||={};d.credentials[id]=old;});return old;}
   templates(runtime) {
     const catalog = runtime.getModels();
     return presets.map((preset) => {
@@ -66,9 +67,10 @@ export class ProviderStore {
     });
   }
   snapshot() { return this.providers.map((provider) => ({ ...provider, hasKey: Boolean(this.keys.get(provider.id)) })); }
-  async persist() { const temporary = `${this.path}.tmp`; await writeFile(temporary, JSON.stringify({ providers: this.providers }, null, 2)); await rename(temporary, this.path); }
+  async persist() { if(this.config){await this.config.set("providers",{providers:this.providers});return;} const temporary = `${this.path}.tmp`; await writeFile(temporary, JSON.stringify({ providers: this.providers }, null, 2)); await rename(temporary, this.path); }
   async saveKey(id, key) {
     if (typeof key !== "string" || key.length > 4096) throw new Error("API Key 无效");
+    if(this.config){const encrypted=await this.protect(key);await this.config.update(d=>{d.credentials||={};d.credentials[id]=encrypted;});this.keys.set(id,key);return;}
     const temporary = join(this.directory, `${id}.dpapi.tmp`);
     await writeFile(temporary, await this.protect(key)); await rename(temporary, join(this.directory, `${id}.dpapi`));
     this.keys.set(id, key);
@@ -123,7 +125,7 @@ export class ProviderStore {
   async remove(id,runtime) {
     const index=this.providers.findIndex(p=>p.id===id);
     if(index<0)throw new Error("找不到该提供商");
-    this.providers.splice(index,1);await this.persist();this.keys.delete(id);
+    this.providers.splice(index,1);await this.persist();this.keys.delete(id); if(this.config)await this.config.update(d=>{if(d.credentials)delete d.credentials[id];});
     await unlink(join(this.directory,`${id}.dpapi`)).catch(e=>{if(e.code!=="ENOENT")throw e;});
     const config=await readFile(this.modelsPath,"utf8").then(JSON.parse).catch(e=>{if(e.code==="ENOENT")return{};throw e;});
     if(config.providers)delete config.providers[id];

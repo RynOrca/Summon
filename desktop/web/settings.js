@@ -14,13 +14,14 @@ function command(type, args = {}) {
   });
 }
 const headings = { general: ["通用", "窗口与快捷键"], models: ["模型", "选择提供商，连接你的模型"], memory: ["记忆", "由 Agent 整理的学习信息"], vault: ["笔记库", "引用你的 Obsidian 笔记，回到原文复习"], skills: ["技能仓库", "管理 Agent 可用的技能"], tools: ["工具", "搜索、浏览器与文件能力"], roles: ["角色", "角色说明作为系统指令，每轮生效"], about: ["关于", "轻量的个人 Agent 入口"] };
+headings.mcp=["MCP","按需加载外部工具"];
 headings.security = ["权限与范围", "文件范围与审批方式分别管理"]; headings.agent = ["Agent 能力", "实际加载的工具、扩展、技能与 MCP 状态"];
 let agentCapabilities = {};
 function renderAgent(state = agentCapabilities) {
-  agentCapabilities = state; $("approval-mode").value = state.approval || "manual"; $("file-access").value = state.access || "workspace";
+  agentCapabilities = state;renderMcp(state.mcp||[]); $("approval-mode").value = state.approval || "manual"; $("file-access").value = state.access || "workspace";
   $("security-workspace").textContent = state.workspace || ""; $("security-readonly").textContent = state.readOnly?.filter(p=>!state.customReadOnly?.includes(p)).join("\n") || "未连接只读目录";
   $("agent-summary").textContent = `${state.tools?.filter(t=>t.active).length || 0} 个可用工具 · ${capabilities.skills?.filter(s=>s.enabled).length || 0} 个启用技能 · 终端已关闭`;
-  $("agent-extensions").textContent = "内置扩展：" + (state.extensions || []).join("、"); $("agent-mcp").textContent = state.mcp?.length ? "MCP：" + state.mcp.join("、") : "MCP：未连接服务器。现有浏览器、搜索和文件能力通过内置工具提供。";
+  $("agent-extensions").textContent = "内置扩展：" + (state.extensions || []).join("、"); $("agent-mcp").textContent = state.mcp?.length ? "MCP：" + state.mcp.map(s=>s.name+(s.connected?"（已连接）":"（按需）")).join("、") : "MCP：未连接服务器。现有浏览器、搜索和文件能力通过内置工具提供。";
   $("custom-readonly").replaceChildren();
   for(const path of state.customReadOnly||[]){const row=element("div",undefined,"readonly-item"),label=element("span",path);const remove=element("button","移除","secondary");remove.onclick=()=>action(()=>command("remove_readonly",{path}));row.append(label,remove);$("custom-readonly").append(row);}
   $("agent-tool-list").replaceChildren(); const query = $("agent-tool-query").value.toLowerCase();
@@ -219,6 +220,7 @@ if (tauri) {
       if (r.type === "memory") { memory = r.state; renderMemory(); }
       if (r.type === "learner") renderLearner(r.state);
       if (r.type === "capabilities") renderCapabilities(r.state);
+      if(r.type==="mcp_status"){agentCapabilities.mcp=r.servers;renderMcp(r.servers);}
       if (r.type === "agent_capabilities") { renderAgent(r); if($("notice").textContent.includes("Agent 连接断开")) notice(""); }
       if (r.type === "roles") renderRoles(r.roles || []);
       if (r.type === "memory_status") $("memory-status").textContent = ({ organizing:" 正在整理…", saved:" 已整理", error:" 整理失败，可稍后重试" })[r.status] || "";
@@ -228,5 +230,13 @@ if (tauri) {
     await command("get_state");
   });
 } else notice("请在 Summon 桌面应用中打开设置。", true);
-for (const button of document.querySelectorAll("nav button")) button.prepend(icon(({general:"settings",models:"model",memory:"memory",vault:"book",skills:"skill",tools:"tools",security:"shield",agent:"activity",roles:"role",about:"info"})[button.dataset.section]));
+for (const button of document.querySelectorAll("nav button")) button.prepend(icon(({general:"settings",models:"model",memory:"memory",vault:"book",skills:"skill",tools:"tools",security:"shield",agent:"activity",mcp:"tools",roles:"role",about:"info"})[button.dataset.section]));
 $("close").replaceChildren(icon("close")); windowHandles(tauri);
+
+let editingMcp=null;
+function renderMcp(servers){$("mcp-list").replaceChildren();for(const server of servers){const row=element("div",undefined,"card");row.append(element("h3",server.name),element("p",`${server.transport} · ${server.enabled?"启用":"停用"} · ${server.connected?"已连接":"按需连接"}`));
+const edit=element("button","编辑","secondary");edit.onclick=()=>{editingMcp=server.id;$("mcp-name").value=server.name;$("mcp-transport").value=server.transport;$("mcp-url").value=server.url||"";$("mcp-command").value=server.command||"";$("mcp-args").value=JSON.stringify(server.args||[]);$("mcp-enabled").checked=server.enabled;$("mcp-key").value="";};
+const discover=element("button","发现工具","secondary");discover.onclick=()=>action(async()=>{discover.disabled=true;try{await command("discover_mcp",{serverId:server.id});notice("工具发现完成；空闲后自动断开。");}finally{discover.disabled=false;}});
+const remove=deletionButton("删除",()=>command("delete_mcp",{serverId:server.id}));row.append(edit,discover,remove);if(server.tools?.length)row.append(element("pre",JSON.stringify(server.tools,null,2),"mcp-tools"));$("mcp-list").append(row);}}
+$("mcp-new").onclick=()=>{editingMcp=null;$("mcp-form").reset();};
+$("mcp-form").onsubmit=e=>{e.preventDefault();void action(async()=>{await command("save_mcp",{serverId:editingMcp,name:$("mcp-name").value,transport:$("mcp-transport").value,url:$("mcp-url").value,command:$("mcp-command").value,args:JSON.parse($("mcp-args").value),key:$("mcp-key").value,enabled:$("mcp-enabled").checked});$("mcp-key").value="";notice("MCP 配置已保存，尚未启动服务器。");});};

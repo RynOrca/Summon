@@ -109,7 +109,7 @@ struct AgentState(Mutex<Option<AgentProcess>>);
 struct ShortcutStateStore(Mutex<String>);
 
 fn preferences_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    Ok(data_directory(app)?.join("desktop-prefs.json"))
+    Ok(data_directory(app)?.join("user-config.json"))
 }
 
 fn data_directory(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -119,18 +119,18 @@ fn data_directory(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 }
 
 fn read_preferences(app: &tauri::AppHandle) -> serde_json::Value {
-    preferences_path(app).ok().and_then(|path| std::fs::read_to_string(path).ok())
-        .and_then(|text| serde_json::from_str(&text).ok())
-        .unwrap_or_else(|| serde_json::json!({"shortcut":"Alt+Shift+C","autostart":false}))
+    let saved=preferences_path(app).ok().and_then(|p|std::fs::read_to_string(p).ok()).and_then(|s|serde_json::from_str::<serde_json::Value>(&s).ok());
+    saved.and_then(|v|v.get("desktop").cloned()).or_else(||data_directory(app).ok().and_then(|p|std::fs::read_to_string(p.join("desktop-prefs.json")).ok()).and_then(|s|serde_json::from_str(&s).ok()))
+        .unwrap_or_else(||serde_json::json!({"shortcut":"Alt+Shift+C","autostart":false}))
 }
-
 fn save_preferences(app: &tauri::AppHandle, value: &serde_json::Value) -> Result<(), String> {
-    let path = preferences_path(app)?;
-    std::fs::create_dir_all(path.parent().ok_or("Invalid preferences path")?).map_err(|error| error.to_string())?;
-    let temporary = path.with_extension("json.tmp");
-    std::fs::write(&temporary, serde_json::to_vec_pretty(value).map_err(|error| error.to_string())?)
-        .map_err(|error| error.to_string())?;
-    std::fs::rename(temporary, path).map_err(|error| error.to_string())
+    let path=preferences_path(app)?;
+    std::fs::create_dir_all(path.parent().ok_or("Invalid preferences path")?).map_err(|e|e.to_string())?;
+    let lock=path.with_extension("json.lock");let start=std::time::Instant::now();
+    loop {match std::fs::create_dir(&lock){Ok(_)=>break,Err(e) if e.kind()==std::io::ErrorKind::AlreadyExists && start.elapsed().as_secs()<10=>{if std::fs::metadata(&lock).ok().and_then(|m|m.modified().ok()).and_then(|t|t.elapsed().ok()).map(|d|d.as_secs()>30).unwrap_or(false){let _=std::fs::remove_dir(&lock);}else{std::thread::sleep(std::time::Duration::from_millis(40));}},Err(e)=>return Err(e.to_string())}}
+    let result=(|| {let mut data=std::fs::read_to_string(&path).ok().map(|s|serde_json::from_str::<serde_json::Value>(&s)).transpose().map_err(|e|e.to_string())?.unwrap_or_else(||serde_json::json!({"version":1}));
+        data["desktop"]=value.clone();let tmp=path.with_extension("json.tmp");std::fs::write(&tmp,serde_json::to_vec_pretty(&data).map_err(|e|e.to_string())?).map_err(|e|e.to_string())?;std::fs::rename(tmp,&path).map_err(|e|e.to_string())})();
+    let _=std::fs::remove_dir(lock);result
 }
 
 #[tauri::command]

@@ -1,5 +1,7 @@
+import {LazyMcp,MCP_TOOLS} from "./mcp.mjs";
+import {UserConfig} from "./user-config.mjs";
 import { createInterface } from "node:readline";
-import { mkdir, stat, readFile, writeFile, rename, realpath } from "node:fs/promises";
+import { mkdir, stat, readFile, writeFile, rename, realpath, unlink } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { createApprovalGate } from "./approval.mjs";
 import { RoleStore } from "./roles.mjs";
@@ -31,6 +33,7 @@ await mkdir(agentDir, { recursive: true });
 await mkdir(sessionsDir, { recursive: true });
 const neutralWorkspace = join(dataDir, "workspace");
 await mkdir(neutralWorkspace, { recursive: true });
+const userConfig=new UserConfig(dataDir);
 const appStatePath = join(dataDir, "app-state.json");
 const metadataPath = join(dataDir, "session-meta.json");
 async function readJson(path, fallback) { try { return JSON.parse(await readFile(path, "utf8")); } catch (error) { if (error.code === "ENOENT") return fallback; throw error; } }
@@ -41,14 +44,15 @@ const metadata = await readJson(metadataPath, {});
 let projectPath = appState.projectPath || null;
 if (projectPath && !(await stat(projectPath).catch(() => null))?.isDirectory()) projectPath = null;
 cwd = projectPath || neutralWorkspace;
-const roles = new RoleStore(dataDir);
+const roles = new RoleStore(dataDir,userConfig);
 await roles.load();
 const endpoint = new EndpointStore(agentDir);
 const memory = new MemoryStore(dataDir, sessionsDir);
 await memory.load();
-const providers = new ProviderStore(agentDir);
+const savedMemory=(await userConfig.read()).memoryEnabled;if(savedMemory)Object.assign(memory.state.enabled,savedMemory);
+const providers = new ProviderStore(agentDir,{config:userConfig});
 await providers.load();
-const capabilities = new CapabilityStore(dataDir);
+const capabilities = new CapabilityStore(dataDir,{config:userConfig});
 await capabilities.load();
 const learner = new LearnerStore(dataDir);
 await learner.load();
@@ -59,8 +63,9 @@ let session;
 let busy = false;
 let queue = Promise.resolve();
 const securityPath = join(dataDir, "security.json");
-const security = await readJson(securityPath, { approval: "manual" });
+const security = await userConfig.get("security",securityPath,{approval:"manual"});
 const scope = new FileScope({ workspace: () => cwd, readOnly: () => [capabilities.state.vaultPath, join(dataDir,"skills"), join(dataDir, "attachments"), ...(security.readOnly || [])].filter(Boolean), fullAccess: () => security.access === "full" });
+const mcp=new LazyMcp({config:userConfig,scope,send});await mcp.load();
 const approvalGate = createApprovalGate(send, undefined, () => security.approval);
 const memoryAgent = createMemoryAgent({ memory, learner, send, currentSession: () => session, runtime: getRuntime });
 const learningTools = createLearningTools({ capabilities, currentWorkspace: () => cwd, roles, send, scope });
@@ -114,7 +119,12 @@ async function openSession(provider, modelId, sessionManager) {
     noExtensions: true,
     noSkills: true,
     additionalSkillPaths: capabilities.enabledSkills(),
-    extensionFactories: [pi => scope.extension(pi), approvalGate.extension, memoryAgent.extension, learningTools.extension, learnerTools],
+    extensionFactories: [pi => scope.extension(pi), pi => {
+      pi.on("tool_call",event=>{
+        const readonly=["read","ls","find","grep","current_time","web_search","fetch_url","search_notes"];
+        if(roles.activeId==="planner" && !readonly.includes(event.toolName)) return {block:true,terminate:true,reason:"Planner 仅允许只读调查，请切换 Agent 执行操作"};
+      });
+    }, approvalGate.extension, memoryAgent.extension, learningTools.extension, learnerTools,pi=>mcp.extension(pi)],
     appendSystemPromptOverride: (base) => {
       const instructions = roles.current()?.system;
       return instructions ? [...base, instructions] : base;
@@ -126,7 +136,7 @@ async function openSession(provider, modelId, sessionManager) {
     agentDir,
     modelRuntime: models,
     model,
-    tools: [...FILE_TOOLS, "remember", "record_learning_event", ...LEARNING_TOOLS],
+    tools: roles.activeId==="planner" ? ["read","ls","find","grep","current_time","web_search","fetch_url","search_notes"] : [...FILE_TOOLS, "remember", "record_learning_event", ...LEARNING_TOOLS,...MCP_TOOLS],
     customTools: sandboxTools(scope),
     sessionManager,
     settingsManager,
@@ -134,10 +144,11 @@ async function openSession(provider, modelId, sessionManager) {
   });
   session?.dispose();
   session = created.session;
-  metadata[session.sessionId] = { projectPath };
+  metadata[session.sessionId] = { ...metadata[session.sessionId], projectPath };
   Object.assign(appState, { activeSessionId: session.sessionId, projectPath, provider: session.model?.provider, modelId: session.model?.id });
   await saveJson(metadataPath, metadata); await saveJson(appStatePath, appState);
   session.subscribe((event) => {
+    if(event.type==="compaction_start" || event.type==="compaction_end") send({type:"compaction",status:event.type.endsWith("start")?"running":event.errorMessage?"error":"done",message:event.errorMessage||"",enabled:session.autoCompactionEnabled});
     if (event.type === "queue_update") send({ type: "queue", steering: event.steering, followUp: event.followUp });
     if (event.type === "message_start" && event.message.role === "user" && busy) send({ type: "user_delivered", text: typeof event.message.content === "string" ? event.message.content : event.message.content?.filter(b => b.type === "text").map(b => b.text).join("\n") });
     if (event.type === "message_start" && event.message.role === "assistant") { generationStart = performance.now(); firstDelta = null; }
@@ -186,7 +197,7 @@ function thinkingLevels() {
 function thinkingInfo() { const model=session?.model; const info=model && runtime ? providers.modelInfo(model.provider,model.id,runtime) : null; return {thinkingFormat:info?.compat?.thinkingFormat,reasoningKnown:info?.reasoning != null}; }
 function emitSession() {
   if (!session) return;
-  send({ type: "session", model: session.model && session.model.provider !== "unknown" ? `${session.model.provider}/${session.model.id}` : null, modelName: session.model?.provider !== "unknown" ? session.model?.name || session.model?.id : null, sessionId: session.sessionId, sessionName: session.sessionName || "", thinkingLevel: session.thinkingLevel, availableThinkingLevels: thinkingLevels(), ...thinkingInfo(), workspace: projectPath, roleId: roles.activeId });
+  send({ type: "session", autoCompaction:session.autoCompactionEnabled, model: session.model && session.model.provider !== "unknown" ? `${session.model.provider}/${session.model.id}` : null, modelName: session.model?.provider !== "unknown" ? session.model?.name || session.model?.id : null, sessionId: session.sessionId, sessionName: session.sessionName || "", thinkingLevel: session.thinkingLevel, availableThinkingLevels: thinkingLevels(), ...thinkingInfo(), workspace: projectPath, roleId: roles.activeId });
 }
 async function emitState() {
   const models = await getRuntime();
@@ -198,7 +209,7 @@ async function emitState() {
   send({ type: "learner", state: learner.snapshot() });
   send({ type: "capabilities", state: capabilities.snapshot() });
   const active = new Set(session?.getActiveToolNames() || []);
-  send({ type: "agent_capabilities", approval: security.approval, access: security.access === "full" ? "full" : "workspace", workspace: cwd, readOnly: scope.readOnly(), customReadOnly: security.readOnly || [], tools: (session?.getAllTools() || []).map(t => ({ name: t.name, description: t.description, active: active.has(t.name) && !(["web_search", "fetch_url"].includes(t.name) && (!capabilities.state.webEnabled || !capabilities.key)) && !(t.name === "browser" && !capabilities.state.browserEnabled), scope: ["write", "edit", "file_manage"].includes(t.name) ? (security.access === "full" ? "完全文件权限" : "当前工作区") : FILE_TOOLS.includes(t.name) ? "任意可读取目录" : "按工具配置" })), extensions: ["文件范围限制", "权限审批", "分层记忆", "学习画像", "联网与笔记工具"], mcp: [], terminal: "disabled" });
+  send({ type: "agent_capabilities", approval: security.approval, access: security.access === "full" ? "full" : "workspace", workspace: cwd, readOnly: scope.readOnly(), customReadOnly: security.readOnly || [], tools: (session?.getAllTools() || []).map(t => ({ name: t.name, description: t.description, active: active.has(t.name) && !(["web_search", "fetch_url"].includes(t.name) && (!capabilities.state.webEnabled || !capabilities.key)) && !(t.name === "browser" && !capabilities.state.browserEnabled), scope: ["write", "edit", "file_manage"].includes(t.name) ? (security.access === "full" ? "完全文件权限" : "当前工作区") : FILE_TOOLS.includes(t.name) ? "任意可读取目录" : "按工具配置" })), extensions: ["文件范围限制", "权限审批", "分层记忆", "学习画像", "联网与笔记工具"], mcp: mcp.snapshot(), terminal: "disabled" });
   emitSession();
 }
 
@@ -214,6 +225,15 @@ async function handle(command) {
         send({ type: "ack", id });
         break;
       }
+      case "save_mcp":
+      case "delete_mcp":
+      case "discover_mcp": {
+        if(busy)throw new Error("请等待当前任务完成");
+        if(command.type==="save_mcp")await mcp.save(command);
+        else if(command.type==="delete_mcp")await mcp.remove(command.serverId);
+        else await mcp.discover(command.serverId);
+        await emitState();send({type:"ack",id});break;
+      }
       case "get_state":
         await emitState(); send({ type: "ack", id }); break;
       case "add_readonly": {
@@ -221,19 +241,19 @@ async function handle(command) {
         if(typeof command.path!=="string" || !command.path.trim())throw new Error("请选择目录");
         const path=await realpath(resolve(command.path));if(!(await stat(path)).isDirectory())throw new Error("请选择目录");
         security.readOnly ||= [];if(!security.readOnly.some(p=>p.toLowerCase()===path.toLowerCase()))security.readOnly.push(path);
-        await saveJson(securityPath,security);await emitState();send({type:"ack",id});break;
+        await userConfig.set("security",security);await emitState();send({type:"ack",id});break;
       }
       case "remove_readonly":
         if(busy)throw new Error("请等待当前任务结束");
         security.readOnly=(security.readOnly || []).filter(p=>p!==command.path);
-        await saveJson(securityPath,security);await emitState();send({type:"ack",id});break;
+        await userConfig.set("security",security);await emitState();send({type:"ack",id});break;
       case "set_approval":
         if (!["manual", "auto"].includes(command.mode)) throw new Error("无效的审批模式");
-        security.approval = command.mode; await saveJson(securityPath, security); await emitState(); send({ type: "ack", id }); break;
+        security.approval = command.mode; await userConfig.set("security",security); await emitState(); send({ type: "ack", id }); break;
       case "set_file_access":
         if (!["workspace", "full"].includes(command.mode)) throw new Error("无效的文件权限范围");
         if (busy) throw new Error("请等待当前任务结束后切换文件范围");
-        security.access = command.mode; await saveJson(securityPath, security); await emitState(); send({ type: "ack", id }); break;
+        await mcp.closeAll();security.access = command.mode; await userConfig.set("security",security); await emitState(); send({ type: "ack", id }); break;
       case "queue_message": {
         if (!session || !busy) throw new Error("当前没有正在运行的任务，请直接发送消息");
         if (typeof command.text !== "string" || !command.text.trim()) throw new Error("消息不能为空");
@@ -309,7 +329,7 @@ async function handle(command) {
       }
       case "memory_enabled":
         memoryAgent.cancel();
-        await memory.setEnabled(command.layer, command.enabled);
+        await memory.setEnabled(command.layer, command.enabled);await userConfig.set("memoryEnabled",memory.state.enabled);
         send({ type: "memory", state: memory.snapshot() });
         send({ type: "ack", id });
         break;
@@ -454,9 +474,28 @@ async function handle(command) {
           title: item.name || item.firstMessage || "新会话",
           modified: item.modified,
           messageCount: item.messageCount,
+          archived: !!metadata[item.id]?.archived,
           projectPath: metadata[item.id] ? metadata[item.id].projectPath : ((item.cwd === neutralWorkspace || item.cwd === process.env.SUMMON_WORKSPACE) ? null : item.cwd),
         })) });
         break;
+      }
+      case "compact": {
+        if(busy || !session) throw new Error("请等待当前任务完成");
+        busy=true;send({type:"compaction",status:"running",enabled:session.autoCompactionEnabled});
+        try { await session.compact(); emitTelemetry();send({type:"compaction",status:"done",enabled:session.autoCompactionEnabled});send({type:"ack",id}); }
+        catch(e){if(e.message?.includes("Nothing to compact")){send({type:"compaction",status:"skipped",message:"当前会话较短，无需压缩；自动压缩仍保持开启",enabled:session.autoCompactionEnabled});send({type:"ack",id,skipped:true});}else{send({type:"compaction",status:"error",message:e.message,enabled:session.autoCompactionEnabled});throw e;}}
+        finally{busy=false;}break;
+      }
+      case "archive_session":
+      case "delete_session": {
+        if(busy)throw new Error("请等待当前任务完成");
+        const info=(await SessionManager.listAll(sessionsDir)).find(item=>item.id===command.sessionId);
+        if(!info)throw new Error("找不到该会话");
+        if(command.type==="delete_session" && command.confirm!==true)throw new Error("删除需要确认");
+        if(info.id===session?.sessionId){const model=session.model;await openSession(model?.provider,model?.id,SessionManager.create(cwd,sessionsDir));}
+        if(command.type==="delete_session"){await unlink(info.path);delete metadata[info.id];}
+        else metadata[info.id]={...metadata[info.id],archived:command.archived!==false};
+        await saveJson(metadataPath,metadata);send({type:"ack",id});break;
       }
       case "new_session": {
         if (busy) throw new Error("Wait for the current response to finish");
@@ -532,7 +571,7 @@ for await (const line of createInterface({ input: process.stdin })) {
     queue = queue.then(() => handle(command));
   }
 }
-await queue;
+await queue;await mcp.closeAll();
 memoryAgent.cancel();
 learningTools.close();
 session?.dispose();

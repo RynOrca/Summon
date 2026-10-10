@@ -33,7 +33,7 @@ Copy-Item -LiteralPath (Join-Path $agentDir 'endpoint.mjs') -Destination (Join-P
 Copy-Item -LiteralPath (Join-Path $agentDir 'memory.mjs') -Destination (Join-Path $Output 'agent\memory.mjs') -Force
 Copy-Item -LiteralPath (Join-Path $agentDir 'providers.mjs') -Destination (Join-Path $Output 'agent\providers.mjs') -Force
 Copy-Item -LiteralPath (Join-Path $agentDir 'memory-agent.mjs') -Destination (Join-Path $Output 'agent\memory-agent.mjs') -Force
-foreach ($module in @('capabilities.mjs', 'browser.mjs', 'learning-tools.mjs', 'learner.mjs', 'sandbox.mjs')) { Copy-Item -LiteralPath (Join-Path $agentDir $module) -Destination (Join-Path $Output "agent\$module") -Force }
+foreach ($module in @('capabilities.mjs', 'browser.mjs', 'learning-tools.mjs', 'learner.mjs', 'sandbox.mjs', 'user-config.mjs', 'mcp.mjs')) { Copy-Item -LiteralPath (Join-Path $agentDir $module) -Destination (Join-Path $Output "agent\$module") -Force }
 Copy-Item -LiteralPath (Join-Path $agentDir 'package.json') -Destination (Join-Path $Output 'agent\package.json') -Force
 # Copy dependency trees without mirroring/deleting destination files.
 & robocopy.exe (Join-Path $agentDir 'node_modules') (Join-Path $Output 'agent\node_modules') /E /NFL /NDL /NJH /NJS /NP /R:1 /W:1 | Out-Null

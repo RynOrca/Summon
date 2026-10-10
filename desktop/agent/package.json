@@ -4,6 +4,7 @@
   "type": "module",
   "version": "0.1.0",
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "1.0.1"
+    "@earendil-works/pi-coding-agent": "1.0.1",
+    "@earendil-works/pi-mcp": "1.1.0"
   }
 }

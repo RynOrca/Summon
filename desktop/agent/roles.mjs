@@ -3,12 +3,14 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 
 const builtins = [
-  { id: "agent", name: "Agent", system: "", builtin: true },
+  { id: "agent", name: "Agent", system: "你是 Agent，负责理解用户任务、执行获准操作并验证结果。用中文清晰回复，遵守权限范围和当前角色的系统规则。", builtin: true },
+  { id: "planner", name: "Planner", system: "你是 Planner，只负责分析、调查和制定计划。你可以读取资料、检索知识与查看当前时间；不能创建、修改、移动或删除文件，也不能执行有副作用的工具。即使用户要求立即执行，也应输出可执行的步骤与验收条件，说明需要切换 Agent 才能实施。用中文回复。", builtin: true },
   { id: "quick", name: "快捷对话", system: "你是一个简洁、直接的中文助手。", builtin: true },
 ];
 
 export class RoleStore {
-  constructor(directory) {
+  constructor(directory,config=null) {
+    this.config=config;
     this.path = join(directory, "roles.json");
     this.roles = builtins.map((role) => ({ ...role }));
     this.activeId = "agent";
@@ -16,7 +18,7 @@ export class RoleStore {
 
   async load() {
     let saved;
-    try { saved = JSON.parse(await readFile(this.path, "utf8")); }
+    try { saved = this.config ? await this.config.get("roles",this.path,this.list()) : JSON.parse(await readFile(this.path, "utf8")); }
     catch (error) {
       if (error.code === "ENOENT") return;
       throw error;
@@ -24,7 +26,7 @@ export class RoleStore {
     if (!saved || !Array.isArray(saved.roles)) throw new Error("角色预设文件无效");
     for (const role of saved.roles) {
       if (!role || typeof role.id !== "string" || typeof role.name !== "string" || typeof role.system !== "string") continue;
-      if (role.id === "agent" || role.id === "quick") {
+      if (builtins.some(item=>item.id===role.id)) {
         const builtin = this.roles.find((item) => item.id === role.id);
         builtin.name = role.name.slice(0, 60) || builtin.name;
         builtin.system = role.system.slice(0, 20000);
@@ -39,6 +41,7 @@ export class RoleStore {
   current() { return this.roles.find((role) => role.id === this.activeId); }
 
   async persist() {
+    if(this.config){await this.config.set("roles",this.list());return;}
     const temporary = `${this.path}.${process.pid}.tmp`;
     await writeFile(temporary, JSON.stringify(this.list(), null, 2), "utf8");
     await rename(temporary, this.path);

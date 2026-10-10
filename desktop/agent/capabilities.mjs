@@ -21,14 +21,15 @@ async function walk(root, accept, budget = { files:0, bytes:0 }) {
   await visit(root); return found;
 }
 export class CapabilityStore {
-  constructor(dir,{encrypt=protectKey,decrypt=unprotectKey}={}) { this.dir=dir; this.path=join(dir,"capabilities.json"); this.encrypt=encrypt; this.decrypt=decrypt; this.state={skills:[],vaultPath:null,webEnabled:false,browserEnabled:true}; this.cache=new Map(); this.key=""; }
-  async load() { try { Object.assign(this.state,JSON.parse(await readFile(this.path,"utf8"))); } catch(e) { if(e.code!=="ENOENT") throw e; } try { this.key=await this.decrypt(await readFile(join(this.dir,"tavily-key.dpapi"),"utf8")); } catch(e) { if(e.code!=="ENOENT") this.keyError="搜索凭据无法读取，请重新保存"; } }
+  constructor(dir,{encrypt=protectKey,decrypt=unprotectKey,config=null}={}) { this.dir=dir; this.config=config; this.path=join(dir,"capabilities.json"); this.encrypt=encrypt; this.decrypt=decrypt; this.state={skills:[],vaultPath:null,webEnabled:false,browserEnabled:true}; this.cache=new Map(); this.key=""; }
+  async load() { try { Object.assign(this.state,this.config?await this.config.get("capabilities",this.path,this.state):JSON.parse(await readFile(this.path,"utf8"))); } catch(e) { if(e.code!=="ENOENT") throw e; } try { this.key=await this.decrypt(await this.encryptedKey()); } catch(e) { if(e.code!=="ENOENT") this.keyError="搜索凭据无法读取，请重新保存"; } }
+  async encryptedKey(){const data=this.config?await this.config.read():{};if(data.credentials?.tavily)return data.credentials.tavily;const old=await readFile(join(this.dir,"tavily-key.dpapi"),"utf8");if(this.config)await this.config.update(d=>{d.credentials||={};d.credentials.tavily=old;});return old;}
   snapshot() { return {...this.state,hasSearchKey:!!this.key,keyError:this.keyError}; }
-  async persist() { await writeFile(this.path+".tmp",JSON.stringify(this.state,null,2)); await rename(this.path+".tmp",this.path); }
+  async persist() { if(this.config){await this.config.set("capabilities",this.state);return;} await writeFile(this.path+".tmp",JSON.stringify(this.state,null,2)); await rename(this.path+".tmp",this.path); }
   async configure({vaultPath,webEnabled,browserEnabled,key}) {
     let selectedVault=this.state.vaultPath;
     if(vaultPath!==undefined) { selectedVault=vaultPath ? await realpath(vaultPath) : null; if(selectedVault && !(await lstat(selectedVault)).isDirectory()) throw new Error("请选择笔记目录"); }
-    if(key!==undefined && key.trim()) { if(key.length>4096) throw new Error("Key 过长"); const encrypted=await this.encrypt(key.trim()); await writeFile(join(this.dir,"tavily-key.dpapi"),encrypted); this.key=key.trim(); this.keyError=null; }
+    if(key!==undefined && key.trim()) { if(key.length>4096) throw new Error("Key 过长"); const encrypted=await this.encrypt(key.trim()); if(this.config)await this.config.update(d=>{d.credentials||={};d.credentials.tavily=encrypted;});else await writeFile(join(this.dir,"tavily-key.dpapi"),encrypted); this.key=key.trim(); this.keyError=null; }
     if(webEnabled!==undefined) this.state.webEnabled=!!webEnabled;
     if(browserEnabled!==undefined) this.state.browserEnabled=!!browserEnabled;
     if(vaultPath!==undefined) { this.state.vaultPath=selectedVault; this.cache.clear(); }

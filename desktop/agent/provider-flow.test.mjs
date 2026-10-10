@@ -59,7 +59,7 @@ test("real PI bridge: discover, stream, remember, background memory, projects an
     if(JSON.stringify(lastUser?.content).includes("QUEUE_START")) await new Promise(r=>setTimeout(r,500));
     let delta, finish;
     if (consolidating) { delta = { content: '{"facts":[{"key":"学习目标","content":"学习线性代数"}],"notes":[{"title":"矩阵","body":"矩阵用于表示线性变换。"}],"learningEvents":[{"kind":"goal","subject":"线性代数","detail":"学习线性代数","evidence":"我在学习线性代数","status":"active"}]}' }; finish = "stop"; }
-    else if (!usedTool && body.messages.some(m => m.role === "user" && JSON.stringify(m.content).includes("记住"))) {
+    else if (body.tools?.length && !usedTool && body.messages.some(m => m.role === "user" && JSON.stringify(m.content).includes("记住"))) {
       delta = { tool_calls: [{ index: 0, id: "remember-test", type: "function", function: { name: "remember", arguments: JSON.stringify({ layer: "profile", key: "学习目标", content: "学习线性代数" }) } }] }; finish = "tool_calls";
     } else { delta = { content: "已记住你的学习目标。" }; finish = "stop"; }
     response.setHeader("content-type", "text/event-stream");
@@ -90,6 +90,7 @@ test("real PI bridge: discover, stream, remember, background memory, projects an
   }
   async function stop() { if (!child || child.exitCode !== null) return; const closed = once(child, "close"); child.stdin.end(); await closed; }
   try {
+    await mkdir(join(root,"data","agent"),{recursive:true});await writeFile(join(root,"data","agent","settings.json"),JSON.stringify({compaction:{reserveTokens:1024,keepRecentTokens:64}}));
     start(); await until(m => m.type === "ready"); await command("init");
     const provider = await command("save_provider", { template: "custom", name: "隔离测试", baseUrl: `http://127.0.0.1:${server.address().port}/v1`, protocol: "openai-completions" });
     await command("discover_models", { providerId: provider.providerId });
@@ -155,6 +156,15 @@ test("real PI bridge: discover, stream, remember, background memory, projects an
     await command("set_file_access",{mode:"workspace"});
     await command("prompt", { text: "模拟鉴权失败" });
     assert.ok(messages.some(m => m.type === "error" && /authentication|401/.test(m.message)), "SDK 请求失败必须显示错误，不能静默回到就绪");
+    assert.equal(messages.filter(m=>m.type==="session").at(-1).autoCompaction,true);
+    await command("compact");assert.ok(messages.some(m=>m.type==="compaction" && m.status==="done"));
+    await command("archive_session",{sessionId:first});assert.equal((await command("list_sessions")).sessions.find(s=>s.id===first).archived,true);
+    await command("archive_session",{sessionId:first,archived:false});assert.equal((await command("list_sessions")).sessions.find(s=>s.id===first).archived,false);
+    await command("select_role",{roleId:"planner"});await command("prompt",{text:"Planner 规划测试"});
+    const plannerTools=requests.at(-1).tools.map(t=>t.function?.name);assert.ok(!plannerTools.includes("write")&&!plannerTools.includes("mcp_call"));assert.ok(plannerTools.includes("read"));
+    assert.match(JSON.stringify(requests.at(-1).messages[0]),/Planner/);
+    const plannerId=messages.filter(m=>m.type==="session").at(-1).sessionId;await command("delete_session",{sessionId:plannerId,confirm:true});assert.ok(!(await command("list_sessions")).sessions.some(s=>s.id===plannerId));
+    await command("select_role",{roleId});await command("open_session",{sessionId:first});
     await command("delete_provider",{providerId:provider.providerId});
     assert.ok(!messages.filter(m=>m.type==="models").at(-1).models.some(m=>m.provider===provider.providerId));
     assert.ok(messages.filter(m=>m.type==="history").at(-1).messages.length>1,"删除供应商不能删除会话历史");

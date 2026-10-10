@@ -27,7 +27,7 @@ export function createApprovalGate(send, timeoutMs = 5 * 60 * 1000, policy = () 
 
   function extension(pi) {
     pi.on("tool_call", async (event) => {
-      const extraMutation = (event.toolName === "file_manage" && event.input.action !== "list") || (event.toolName === "browser" && ["click", "fill"].includes(event.input.action));
+      const extraMutation = event.toolName==="mcp_call" || (event.toolName==="mcp_discover" && !!event.input.serverId) || (event.toolName === "file_manage" && event.input.action !== "list") || (event.toolName === "browser" && ["click", "fill"].includes(event.input.action));
       if (!MUTATING_TOOLS.has(event.toolName) && !extraMutation) return undefined;
       const requestId = randomUUID();
       if (policy() === "auto" && !(event.toolName === "browser" && ["click", "fill"].includes(event.input.action))) {
