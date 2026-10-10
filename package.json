@@ -8,6 +8,10 @@
     "agent:install": "npm ci --prefix desktop/agent",
     "build": "powershell -NoProfile -ExecutionPolicy Bypass -File desktop/tools/package-portable.ps1",
     "test:desktop": "node desktop/tools/desktop-acceptance.cjs",
-    "test:window": "node desktop/tools/window-state-acceptance.cjs"
+    "test:window": "node desktop/tools/window-state-acceptance.cjs",
+    "build:setup": "powershell -NoProfile -ExecutionPolicy Bypass -File desktop/tools/package-installer.ps1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.1"
   }
 }

@@ -1,5 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod profile;
+
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
@@ -112,10 +114,8 @@ fn preferences_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(data_directory(app)?.join("user-config.json"))
 }
 
-fn data_directory(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    // Isolated desktop acceptance runs never read or modify the user's agent data.
-    if let Some(path) = std::env::var_os("SUMMON_TEST_DATA_DIR") { return Ok(PathBuf::from(path)); }
-    app.path().app_data_dir().map_err(|error| error.to_string())
+fn data_directory(_app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    profile::directory().map_err(|error| error.to_string())
 }
 
 fn read_preferences(app: &tauri::AppHandle) -> serde_json::Value {
@@ -193,22 +193,24 @@ fn set_shortcut(app: tauri::AppHandle, state: tauri::State<'_, ShortcutStateStor
 
 #[cfg(windows)]
 fn apply_autostart(enabled: bool) -> Result<(), String> {
+    if std::env::var_os("SUMMON_TEST_DATA_DIR").is_some() { return Ok(()); }
     let key = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
     let mut command = Command::new("reg.exe");
     if enabled {
         let exe = std::env::current_exe().map_err(|error| error.to_string())?;
-        command.args(["add", key, "/v", "Summon", "/t", "REG_SZ", "/d"])
+        command.args(["add", key, "/v", "Reed", "/t", "REG_SZ", "/d"])
             .arg(format!("\"{}\" --autostart", exe.display())).arg("/f");
     } else {
-        let existing = Command::new("reg.exe").args(["query", key, "/v", "Summon"])
+        let existing = Command::new("reg.exe").args(["query", key, "/v", "Reed"])
             .output().map_err(|error| error.to_string())?;
         if !existing.status.success() { return Ok(()); }
-        command.args(["delete", key, "/v", "Summon", "/f"]);
+        command.args(["delete", key, "/v", "Reed", "/f"]);
     }
     let output = command.output().map_err(|error| error.to_string())?;
     if !output.status.success() {
         return Err(format!("设置开机自启失败：{}", String::from_utf8_lossy(&output.stderr).trim()));
     }
+    let _ = Command::new("reg.exe").args(["delete", key, "/v", "Summon", "/f"]).output();
     Ok(())
 }
 
@@ -313,7 +315,7 @@ async fn open_settings(app: tauri::AppHandle, section: Option<String>) -> Result
     } else {
         let initial = serde_json::to_string(&section.unwrap_or_else(|| "general".into())).map_err(|error| error.to_string())?;
         let mut builder = WebviewWindowBuilder::new(&app, "settings", WebviewUrl::App("settings.html".into()))
-            .data_directory(std::env::current_exe().map_err(|error| error.to_string())?.parent().ok_or("Executable directory unavailable")?.join("data/webview"))
+            .data_directory(data_directory(&app)?.join("webview"))
             .initialization_script(format!("window.SUMMON_SETTINGS_SECTION={initial};"))
             .title("Reed 一苇 · 设置").visible(false).decorations(false).shadow(false).inner_size(980.0, 700.0).min_inner_size(740.0, 480.0);
         #[cfg(windows)]
@@ -412,7 +414,7 @@ async fn open_local_file(path: String) -> Result<(), String> {
 fn startup_log(message: &str) {
     let paths = [
         std::env::current_exe().ok().and_then(|exe| exe.parent().map(|dir| dir.join("startup.log"))),
-        Some(std::env::temp_dir().join("Summon-startup.log")),
+        Some(std::env::temp_dir().join("Reed-startup.log")),
     ];
     for path in paths.into_iter().flatten() {
         if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
@@ -534,10 +536,9 @@ fn run_desktop() -> tauri::Result<()> {
         })
         .build();
 
-    let mut window_state = tauri_plugin_window_state::Builder::new().with_state_flags(BOUNDS);
-    if let Some(directory) = std::env::var_os("SUMMON_TEST_DATA_DIR") {
-        window_state = window_state.with_filename(PathBuf::from(directory).join("window-state.json").to_string_lossy().into_owned());
-    }
+    let profile_dir = profile::prepare()?;
+    let window_state = tauri_plugin_window_state::Builder::new().with_state_flags(BOUNDS)
+        .with_filename(profile_dir.join("window-state.json").to_string_lossy().into_owned());
     tauri::Builder::default()
         .manage(AgentState::default())
         .manage(ShortcutStateStore::default())
@@ -548,15 +549,8 @@ fn run_desktop() -> tauri::Result<()> {
         .invoke_handler(tauri::generate_handler![dismiss, agent_command, choose_workspace, open_local_file, desktop_preferences, set_shortcut, set_autostart, open_settings, capture_shortcut, drag_window, resize_window, update_brand_icon, set_appearance, ui_ready])
         .setup(|app| {
             startup_log("Creating Tauri window");
-            let exe_dir = std::env::current_exe()?.parent().ok_or("Executable directory unavailable")?.to_path_buf();
-            let portable_webview_dir = exe_dir.join("data").join("webview");
-            let webview_dir = if std::fs::create_dir_all(&portable_webview_dir).is_ok() {
-                portable_webview_dir
-            } else {
-                let fallback = std::env::temp_dir().join("Summon").join("webview");
-                std::fs::create_dir_all(&fallback)?;
-                fallback
-            };
+            let webview_dir = profile::directory()?.join("webview");
+            std::fs::create_dir_all(&webview_dir)?;
             startup_log(&format!("WebView2 data directory: {}", webview_dir.display()));
             let config = &app.config().app.windows[0];
             let mut builder = WebviewWindowBuilder::from_config(app.handle(), config)?.decorations(false).shadow(false).data_directory(webview_dir);
@@ -629,7 +623,7 @@ fn main() {
             .or_else(|| panic.downcast_ref::<&str>().map(|value| (*value).to_string()))
             .unwrap_or_else(|| "Unknown startup panic".to_string()),
     };
-    let message = format!("Reed 一苇无法启动：{error}\n\n请将便携包文件夹中的 startup.log 发给开发者；若文件不存在，请查看系统临时目录中的 Summon-startup.log。");
+    let message = format!("Reed 一苇无法启动：{error}\n\n请将便携包文件夹中的 startup.log 发给开发者；若文件不存在，请查看系统临时目录中的 Reed-startup.log。");
     startup_log(&format!("Startup failed: {error}"));
     show_startup_error(&message);
 }

@@ -59,7 +59,7 @@ Reed 基于 PI Agent 构建，使用 Tauri 与 WebView2 提供桌面界面。当
 
 ## 数据与权限
 
-- 配置存储在 `%APPDATA%\dev.rynorca.summon\user-config.json`。沿用旧标识是为了兼容升级；提供商、加密凭据、角色、技能、笔记库、MCP 与桌面偏好集中保存。
+- 配置存储在 `%APPDATA%\Reed\user-config.json`。首次启动会自动迁移旧目录并保留旧目录作为备份，不覆盖已有 Reed 数据；提供商、加密凭据、角色、技能、笔记库、MCP 与桌面偏好集中保存。
 - API Key 在 Windows 上使用当前用户的 DPAPI 加密。加密配置不能直接作为跨账户迁移凭据使用。
 - 会话、记忆、学习事件、附件和窗口状态保存在独立数据文件中。笔记库索引读取 Vault 原文件，不修改原笔记。
 - 默认允许读取其他位置的文件，写入限制在当前工作区；自定义只读目录禁止修改。只有完全文件权限可解除这些写入限制。
@@ -92,6 +92,19 @@ python desktop/tools/extract-icons.py
 ```
 
 透明蒙版仅改变边缘 alpha，保留圆角块内原画；PNG 和多尺寸 ICO 供窗口、托盘与 Windows 程序使用。系统文件管理器显示默认写实浅色图标，运行中的窗口和托盘随应用外观切换。
+
+## Windows 安装包
+
+从 [最新版本](https://github.com/RynOrca/Reed/releases/latest) 下载 `Reed-0.1.0-setup.exe`。安装包包含 Node 运行时与 Agent，支持当前用户安装、开始菜单与卸载入口。升级和卸载默认保留 `%APPDATA%\Reed` 中的配置与会话；更新前从托盘退出旧版。也可以下载便携 ZIP，解压后运行 `Reed.exe`。
+
+从源码生成安装包与便携 ZIP：
+
+```powershell
+npm ci
+./desktop/tools/package-installer.ps1
+```
+
+产物包含 SHA256 校验文件。安装包目前没有数字签名。
 
 ## 测试
 
@@ -135,7 +148,7 @@ NOTICE.md      第三方来源与许可证说明
 - MCP 支持 stdio 与 Streamable HTTP，尚未提供 OAuth 登录。
 - 生成中的队列目前只支持文本消息。
 - 已有模拟接口和隔离桌面验收；真实 Tavily、用户 MCP、Windows 重登自启仍需按实际环境验收。
-- 正式安装包、自动更新及更多平台支持尚未完成。
+- 尚未提供自动更新及更多平台支持。
 
 ## 许可证与致谢
 
