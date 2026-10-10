@@ -1,14 +1,12 @@
 # Reed 一苇
 
-<p align="center">
-  <img src="desktop/web/assets/branding/glass-light.png" width="128" alt="Reed 一苇图标" />
-</p>
+![Reed 一苇](https://raw.githubusercontent.com/RynOrca/Reed/main/.github/assets/logo.png)
 
-<p align="center"><strong>一苇以航，轻渡学海。</strong></p>
+**一苇以航，轻渡学海。**
 
 Reed 是一款面向学习与日常工作的独立 Windows 桌面 Agent。它以快捷键唤出的轻量窗口承载对话，把角色、学习流程、长期记忆和 Obsidian 笔记连接起来，让提问、练习与复习能够接续进行。
 
-应用使用 Tauri、WebView2 和 PI Agent SDK 构建。运行无需安装 PI-Desktop，也无需安装其插件。当前版本为源码与 Windows 便携构建阶段。
+Reed 基于 PI Agent 构建，使用 Tauri 与 WebView2 提供桌面界面。当前版本为源码与 Windows 便携构建阶段。
 
 ## 主要能力
 
@@ -29,14 +27,11 @@ Reed 是一款面向学习与日常工作的独立 Windows 桌面 Agent。它以
 
 两套原画图标分别提供浅色与深色版本，默认使用写实套。圆角外部为透明区域。
 
-![两套浅深色透明图标](.github/assets/icon-variants.png)
+![两套浅深色透明图标](https://raw.githubusercontent.com/RynOrca/Reed/main/.github/assets/icon-variants.png)
 
-<details>
-<summary>通用设置预览</summary>
+### 通用设置
 
-![Reed 通用设置浅色模式](.github/assets/general-light.png)
-
-</details>
+![Reed 通用设置浅色模式](https://raw.githubusercontent.com/RynOrca/Reed/main/.github/assets/general-light.png)
 
 ## 开始使用
 
@@ -132,7 +127,7 @@ CHANGELOG.md   变更记录与 Git 版本标签
 NOTICE.md      第三方来源与许可证说明
 ```
 
-仓库当前主分支只维护独立应用。早期插件保留在 Git 历史中，便于回溯。依赖、用户配置、API Key、会话、附件、日志和构建产物不应上传，已在 `.gitignore` 中排除。
+仓库维护 Reed 独立桌面应用。依赖、用户配置、API Key、会话、附件、日志和构建产物不应上传，已在 `.gitignore` 中排除。
 
 ## 当前限制与后续计划
 
@@ -144,6 +139,6 @@ NOTICE.md      第三方来源与许可证说明
 
 ## 许可证与致谢
 
-本项目原创部分采用 [MIT License](LICENSE)。界面中有改编自 PI-Desktop 的部分，保留其 LGPL-3.0 声明及许可证；分发时请同时保留这些文件和相关源码要求，详见 [NOTICE.md](NOTICE.md)。Marked 与其他依赖遵循各自许可证。
+本项目原创部分采用 [MIT License](LICENSE)。第三方代码与改编部分遵循各自许可证，来源和分发要求见 [NOTICE.md](NOTICE.md)。
 
-感谢 PI Agent SDK、PI-Desktop、Tauri、WebView2 与 Marked。Reed 使用独立宿主和数据目录，不包含 PI-Desktop 插件。
+感谢 PI Agent、Tauri、WebView2 与 Marked。
