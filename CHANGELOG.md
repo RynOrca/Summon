@@ -49,3 +49,11 @@ Git 提交：`43f7e3ded46b23a151fbb4ec9c6edd0b6bdcfe02`。
 - 修复并发配置保存锁消失时的竞态，隔离验收独立复制运行时。
 - 新增官方 Tauri/NSIS 安装包脚本，输出 setup.exe、便携 ZIP 和 SHA256。
 - 迁移及加密凭据验证通过；21 项 Agent 测试、桌面与窗口验收通过。安装/卸载和发布待完成。
+
+### Windows 安装包验收完成
+
+- Git 版本：`reed-installer-verified-2026-10-10`，应用代码提交 `16c2f1a1972a0e9e129c5cff081b9540534c119f`。
+- 生成 Reed-0.1.0-setup.exe、Reed-0.1.0-portable.zip 和 SHA256SUMS.txt。
+- 新增隔离安装验收脚本：保护已有安装和快捷方式，测试新装、重装、安装后桌面与 Agent、卸载及数据保留。
+- 安装、重装、安装后桌面与后台 Agent、卸载和测试数据保留全部通过。便携 ZIP 的 CRC 核验通过。
+- GitHub 发布与旧 Release 历史标记仍待执行。
