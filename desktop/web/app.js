@@ -238,6 +238,7 @@ function openHistory() {
   void command("list_sessions");
 }
 let showArchived=false;
+const historyFoldState=new Map();
 $("history-archives").onclick=()=>{showArchived=!showArchived;$("history-archives").textContent=showArchived?"返回会话":"查看已归档";void command("list_sessions");};
 function renderSessions(sessions) {
   sessions=sessions.filter(item=>!!item.archived===showArchived);
@@ -251,36 +252,34 @@ function renderSessions(sessions) {
       catch (error) { $("history-error").textContent = String(error); $("history-error").hidden = false; }
     };
     const row=document.createElement("div");row.className="history-conversation";
-    const archive=document.createElement("button");archive.className="history-action";archive.textContent=item.archived?"恢复":"归档";
-    const remove=document.createElement("button");remove.className="history-action";remove.textContent="删除";let timer;
+    const archive=document.createElement("button");archive.type="button";archive.className="history-action";archive.title=item.archived?"恢复":"归档";archive.setAttribute("aria-label",archive.title);archive.append(icon("archive"));
+    const remove=document.createElement("button");remove.type="button";remove.className="history-action";remove.title="删除";remove.setAttribute("aria-label","删除");remove.append(icon("close"));let timer;
     async function change(type,args){try{await command(type,{sessionId:item.id,...args},true);void command("list_sessions");}catch(e){$("history-error").textContent=String(e);$("history-error").hidden=false;}}
     archive.onclick=()=>change("archive_session",{archived:!item.archived});
-    remove.onclick=()=>{if(remove.classList.contains("danger")){clearTimeout(timer);void change("delete_session",{confirm:true});}else{remove.textContent="确认删除";remove.classList.add("danger");timer=setTimeout(()=>{remove.textContent="删除";remove.classList.remove("danger");},3000);}};
+    remove.onclick=()=>{if(remove.classList.contains("danger")){clearTimeout(timer);void change("delete_session",{confirm:true});}else{remove.title="确认删除";remove.setAttribute("aria-label","确认删除");remove.classList.add("danger");timer=setTimeout(()=>{remove.title="删除";remove.setAttribute("aria-label","删除");remove.classList.remove("danger");},3000);}};
     row.append(button,archive,remove);parent.append(row);
   }
-  const heading = (text) => { const h = document.createElement("h3"); h.className = "history-section"; h.textContent = text; list.append(h); };
-  heading("会话");
+  function section(key,text,parent=list,project=false){const group=document.createElement("details");group.className=project?"history-project history-group":"history-section-group history-group";group.open=historyFoldState.get(key)??true;group.dataset.group=key;group.ontoggle=()=>historyFoldState.set(key,group.open);const title=document.createElement("summary");title.append(icon("chevron"));if(project)title.append(icon("folder"));title.append(document.createTextNode(text));group.append(title);parent.append(group);return group;}
+  const looseGroup=section("sessions","会话");
   const loose = sessions.filter(item => !item.projectPath);
-  loose.forEach(item => addConversation(list, item));
-  if (!loose.length) { const e = document.createElement("p"); e.className = "history-empty"; e.textContent = "暂无无项目对话"; list.append(e); }
-  heading("项目");
+  loose.forEach(item => addConversation(looseGroup, item));
+  if (!loose.length) { const e = document.createElement("p"); e.className = "history-empty"; e.textContent = "暂无无项目对话"; looseGroup.append(e); }
+  const projectGroup=section("projects","项目");
   const projects = new Map();
   for (const item of sessions.filter(item => item.projectPath)) {
     if (!projects.has(item.projectPath)) projects.set(item.projectPath, []);
     projects.get(item.projectPath).push(item);
   }
   for (const [path, items] of projects) {
-    const group = document.createElement("details"); group.open = true; group.className = "history-project";
-    const title = document.createElement("summary"); title.textContent = path.split(/[\\/]/).filter(Boolean).pop(); title.title = path; title.prepend(icon("folder"));
-    group.append(title); items.forEach(item => addConversation(group, item)); list.append(group);
+    const group=section(path,path.split(/[\\/]/).filter(Boolean).pop(),projectGroup,true);group.querySelector("summary").title=path;items.forEach(item => addConversation(group, item));
   }
 }
 let chosenModel=null,activeModelKey="",activeThinking="off";
 const thinkingNames={off:"思考关闭",minimal:"最少",low:"低",medium:"中等",high:"高",xhigh:"很高",max:"最高"};
 function thinkingName(level,format){return level!=="off" && ["qwen","qwen-chat-template"].includes(format)?"思考开启":thinkingNames[level]||level;}
-function updateModelChip(response){activeModelKey=response.model||"";activeThinking=response.thinkingLevel||"off";$("model-label").textContent=response.model?response.modelName||response.model:"选择模型";const name=response.reasoningKnown===false?"思考未配置":thinkingName(activeThinking,response.thinkingFormat);$("model-thinking").textContent=/思考/.test(name)?name:`思考·${name}`;$("model-thinking").hidden=!response.model;$("model-button").title=response.model?`${$("model-label").textContent} · ${$("model-thinking").textContent}`:"选择模型";}
+function updateModelChip(response){activeModelKey=response.model||"";activeThinking=response.thinkingLevel||"off";$("model-label").textContent=response.model?response.modelName||response.model:"选择模型";const name=thinkingName(activeThinking,response.thinkingFormat);$("model-thinking").textContent=/思考/.test(name)?name:`思考·${name}`;$("model-thinking").hidden=!response.model;$("model-button").title=response.model?`${$("model-label").textContent} · ${$("model-thinking").textContent}`:"选择模型";}
 function resetModelStep(){chosenModel=null;$("model-step").hidden=false;$("thinking-step").hidden=true;$("model-step-title").textContent="选择模型";$("model-error").hidden=true;}
-function chooseModel(model){chosenModel=model;$("model-step").hidden=true;$("thinking-step").hidden=false;$("model-step-title").textContent="选择思考档位";$("chosen-model-name").textContent=model.name||model.id;$("chosen-model-info").textContent=`${model.providerName||model.provider} · ${model.contextWindow?model.contextWindow.toLocaleString()+" 上下文":"上下文未知"}`;const format=model.compat?.thinkingFormat;renderThinkingLevels(model.thinkingLevels||["off"],activeModelKey===`${model.provider}/${model.id}`?activeThinking:"off",{thinkingFormat:format,reasoningKnown:model.reasoning!=null});$("thinking-hint").textContent=model.reasoning==null?"服务未提供思考能力；可在模型设置中获取配置或手动补充。":model.reasoning===false?"此模型不支持思考。":"仅展示当前模型支持的选项。";$("thinking-level").focus();}
+function chooseModel(model){chosenModel=model;$("model-step").hidden=true;$("thinking-step").hidden=false;$("model-step-title").textContent="选择思考档位";$("chosen-model-name").textContent=model.name||model.id;$("chosen-model-info").textContent=`${model.providerName||model.provider} · ${model.contextWindow?model.contextWindow.toLocaleString()+" 上下文":"上下文未知"}`;const format=model.compat?.thinkingFormat;renderThinkingLevels(model.thinkingLevels||["off"],activeModelKey===`${model.provider}/${model.id}`?activeThinking:"off",{thinkingFormat:format,reasoningKnown:model.reasoning!=null});$("thinking-hint").textContent=model.thinkingDefaults?"服务未返回档位，使用默认五档；实际思考效果由模型服务决定，可在设置中调整协议。":model.reasoning===false?"此模型不支持思考。":"仅展示当前模型支持的选项。";$("thinking-level").focus();}
 function renderModels() {
   const list = $("model-list"); list.replaceChildren();
   const search = $("model-search").value.toLowerCase();
@@ -298,7 +297,7 @@ function renderThinkingLevels(levels, selected, info = {}) {
   const names = { off: "思考关闭", minimal: "最少", low: "低", medium: "中等", high: "高", xhigh: "很高", max: "最高" };
   const picker = $("thinking-level");
   if (["qwen","qwen-chat-template"].includes(info.thinkingFormat)) names.medium="思考开启";
-  picker.title=info.reasoningKnown === false ? "服务未提供思考能力信息，可在模型设置中补充。" : "仅显示该模型支持的思考选项";
+  picker.title=info.reasoningKnown === false ? "默认思考档位，实际效果由模型服务决定。" : "当前模型的思考选项";
   picker.replaceChildren();
   for (const level of levels || []) picker.add(new Option(names[level] || level, level));
   picker.value = levels?.includes(selected) ? selected : levels?.[0] || "off";
@@ -574,18 +573,6 @@ $("history-rename").addEventListener("click", () => {
   $("rename-error").hidden = true;
   $("rename-dialog").showModal();
   $("rename-name").focus();
-});
-$("history-copy").addEventListener("click", async () => {
-  try {
-    const reply = await command("copy_session", {}, true);
-    if (!reply.text) throw new Error("当前对话没有可复制的文字");
-    await navigator.clipboard.writeText(reply.text);
-    $("history-error").textContent = "已复制当前对话";
-    $("history-error").hidden = false;
-  } catch (error) {
-    $("history-error").textContent = String(error);
-    $("history-error").hidden = false;
-  }
 });
 $("rename-close").addEventListener("click", () => $("rename-dialog").close());
 $("rename-save").addEventListener("click", async () => {

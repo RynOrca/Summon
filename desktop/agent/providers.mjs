@@ -16,6 +16,11 @@ const presets = [
   { id: "custom", name: "自定义", sdk: null, protocol: "openai-completions", baseUrl: "" },
 ];
 const positive = (...values) => values.find((value) => Number.isFinite(Number(value)) && Number(value) > 0) ? Number(values.find((value) => Number.isFinite(Number(value)) && Number(value) > 0)) : null;
+const defaultThinkingLevels = ["off", "low", "medium", "high", "xhigh"];
+function configuredThinkingLevels(model) {
+  if (model.reasoning === false) return ["off"];
+  return model.thinkingLevels?.length ? model.thinkingLevels : defaultThinkingLevels;
+}
 
 export function normalizeDiscoveredModel(raw, known) {
   const id = String(raw.id || raw.name || "").trim();
@@ -158,7 +163,11 @@ export class ProviderStore {
     current.providers ||= {};
     for (const provider of this.providers) {
       if (!provider.models.length) { delete current.providers[provider.id]; continue; }
-      current.providers[provider.id] = { baseUrl: provider.baseUrl, api: provider.protocol, models: provider.models.map((model) => ({ id: model.id, name: model.name, ...(model.contextWindow ? { contextWindow: model.contextWindow } : {}), ...(model.maxTokens ? { maxTokens: model.maxTokens } : {}), reasoning: model.reasoning === true, input: model.input || ["text"], ...(model.compat ? { compat: model.compat } : {}), ...(model.thinkingLevels ? { thinkingLevelMap: Object.fromEntries(["minimal","low","medium","high","xhigh","max"].map(level => [level,model.thinkingLevels.includes(level) ? level : null])) } : {}) })) };
+      current.providers[provider.id] = { baseUrl: provider.baseUrl, api: provider.protocol, models: provider.models.map((model) => {
+        const levels=configuredThinkingLevels(model);
+        const compat=model.reasoning==null && provider.protocol==="openai-completions" && !model.compat?.thinkingFormat ? {...model.compat,thinkingFormat:"openai",supportsReasoningEffort:true} : model.compat;
+        return { id:model.id,name:model.name,...(model.contextWindow?{contextWindow:model.contextWindow}:{}),...(model.maxTokens?{maxTokens:model.maxTokens}:{}),reasoning:model.reasoning!==false,input:model.input||["text"],...(compat?{compat}:{}),thinkingLevelMap:Object.fromEntries(["minimal","low","medium","high","xhigh","max"].map(level=>[level,levels.includes(level)?level:null])) };
+      }) };
     }
     const temporary = `${this.modelsPath}.tmp`; await writeFile(temporary, JSON.stringify(current, null, 2)); await rename(temporary, this.modelsPath);
     await runtime.refresh();
@@ -168,6 +177,6 @@ export class ProviderStore {
     const stored = this.providers.find((item) => item.id === providerId)?.models.find((item) => item.id === id);
     const model = runtime.getModel(providerId, id);
     const levels = model ? getSupportedThinkingLevels(model) : ["off"];
-    return { contextWindow: model?.contextWindow, reasoning: model?.reasoning, ...stored, provider: providerId, providerName: this.providers.find(item => item.id === providerId)?.name || providerId, thinkingLevels: stored?.thinkingLevels ? levels.filter((level) => stored.thinkingLevels.includes(level)) : levels };
+    return { contextWindow: model?.contextWindow, reasoning: model?.reasoning, ...stored, compat:model?.compat || stored?.compat, provider: providerId, providerName: this.providers.find(item => item.id === providerId)?.name || providerId, thinkingDefaults:!!stored && stored.reasoning!==false && !stored.thinkingLevels?.length, thinkingLevels: stored ? configuredThinkingLevels(stored).filter(level=>levels.includes(level)) : levels };
   }
 }

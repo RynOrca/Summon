@@ -47,7 +47,7 @@ test("real PI bridge: discover, stream, remember, background memory, projects an
   const root = await mkdtemp(join(tmpdir(), "summon-full-flow-"));
   const requests = [];
   const server = createServer(async (request, response) => {
-    if (request.url === "/v1/models") { response.setHeader("content-type", "application/json"); response.end(JSON.stringify({ data: [{ id: "test-model", context_length: 65536, supports_reasoning: true, reasoning_efforts: ["off", "low", "high"] }] })); return; }
+    if (request.url === "/v1/models") { response.setHeader("content-type", "application/json"); response.end(JSON.stringify({ data: [{ id: "test-model", context_length: 65536, supports_reasoning: true, reasoning_efforts: ["off", "low", "high"] },{id:"unknown-model",context_length:65536}] })); return; }
     const chunks = []; for await (const chunk of request) chunks.push(chunk);
     const body = JSON.parse(Buffer.concat(chunks).toString()); requests.push(body);
     if (body.messages.some(m => m.role === "user" && JSON.stringify(m.content).includes("模拟鉴权失败"))) {
@@ -165,6 +165,10 @@ test("real PI bridge: discover, stream, remember, background memory, projects an
     assert.match(JSON.stringify(requests.at(-1).messages[0]),/Planner/);
     const plannerId=messages.filter(m=>m.type==="session").at(-1).sessionId;await command("delete_session",{sessionId:plannerId,confirm:true});assert.ok(!(await command("list_sessions")).sessions.some(s=>s.id===plannerId));
     await command("select_role",{roleId});await command("open_session",{sessionId:first});
+    const unknown=messages.filter(m=>m.type==="models").at(-1).models.find(m=>m.id==="unknown-model");assert.equal(unknown.reasoning,null);assert.deepEqual(unknown.thinkingLevels,["off","low","medium","high","xhigh"]);
+    await command("select_model",{provider:provider.providerId,model:"unknown-model",thinkingLevel:"xhigh"});assert.equal(messages.filter(m=>m.type==="session").at(-1).thinkingLevel,"xhigh");
+    await command("prompt",{text:"默认档位验证"});assert.equal(requests.at(-1).reasoning_effort,"xhigh");
+    await command("set_thinking_level",{level:"off"});await command("prompt",{text:"关闭默认思考"});assert.ok(!requests.at(-1).reasoning_effort);
     await command("delete_provider",{providerId:provider.providerId});
     assert.ok(!messages.filter(m=>m.type==="models").at(-1).models.some(m=>m.provider===provider.providerId));
     assert.ok(messages.filter(m=>m.type==="history").at(-1).messages.length>1,"删除供应商不能删除会话历史");
