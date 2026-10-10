@@ -1,10 +1,13 @@
-// Opt-in integration verification against the endpoint explicitly supplied by the user.
+// Opt-in integration verification; supply a dedicated test endpoint through environment variables.
 import {spawn} from "node:child_process";
 import {createInterface} from "node:readline";
 import {mkdtemp,mkdir,writeFile,readFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join,resolve} from "node:path";
 import assert from "node:assert/strict";
+const liveUrl=process.env.SUMMON_LIVE_URL;
+const liveModel=process.env.SUMMON_LIVE_MODEL;
+if(!liveUrl||!liveModel)throw new Error("Set SUMMON_LIVE_URL and SUMMON_LIVE_MODEL to a dedicated test service before running live verification.");
 const root=process.env.SUMMON_LIVE_RESUME||await mkdtemp(join(tmpdir(),"summon-live-learning-"));const data=join(root,"data");
 let child,sequence=0,events=[],waiters=[],stderr="";let results=[];if(process.env.SUMMON_LIVE_RESUME){const old=JSON.parse(await readFile(resolve("dist/acceptance/live-learning-report.json"),"utf8"));if(old.root===root)results=old.results.filter(r=>!r.failed);}
 function start(){events=[];child=spawn(process.execPath,[resolve("desktop/agent/bridge.mjs")],{cwd:root,windowsHide:true,env:{...process.env,SUMMON_DATA_DIR:data,SUMMON_WORKSPACE:root},stdio:["pipe","pipe","pipe"]});child.stderr.on("data",b=>stderr+=b);createInterface({input:child.stdout}).on("line",line=>{const e=JSON.parse(line);events.push(e);for(const w of [...waiters])if(w.p(e)){clearTimeout(w.t);waiters=waiters.filter(x=>x!==w);w.r(e);}});}
@@ -15,8 +18,8 @@ async function stop(){if(child?.exitCode===null){const done=new Promise(r=>child
 function check(name,evidence){results.push({name,evidence});console.log("PASS "+name);}
 try{
  await mkdir(join(data,"agent"),{recursive:true});await writeFile(join(data,"agent","settings.json"),JSON.stringify({compaction:{reserveTokens:1024,keepRecentTokens:64}}));
- start();await until(e=>e.type==="ready");await command("init");if(!process.env.SUMMON_LIVE_RESUME){const provider=await command("save_provider",{template:"custom",name:"真实隔离验收",baseUrl:process.env.SUMMON_LIVE_URL||"http://orca.tail9b1639.ts.net:18200/v1",protocol:"openai-completions",key:"summon-isolated-test"});await command("discover_models",{providerId:provider.providerId});await command("select_model",{provider:provider.providerId,model:process.env.SUMMON_LIVE_MODEL||"qwen3.8-27b-long"});
- check("模型连接与容量",events.filter(e=>e.type==="models").at(-1).models.find(m=>m.id==="qwen3.8-27b-long"));
+ start();await until(e=>e.type==="ready");await command("init");if(!process.env.SUMMON_LIVE_RESUME){const provider=await command("save_provider",{template:"custom",name:"真实隔离验收",baseUrl:liveUrl,protocol:"openai-completions",key:"summon-isolated-test"});await command("discover_models",{providerId:provider.providerId});await command("select_model",{provider:provider.providerId,model:liveModel});
+ check("模型连接与容量",events.filter(e=>e.type==="models").at(-1).models.find(m=>m.id===liveModel));
  let answer=await prompt("请记住：我的学习目标是线性代数，学习偏好是先例子后理论，我给这个学习计划的代号是松鹤417。请使用记忆工具保存，简短确认即可。");
  await command("memory_consolidate");await until(e=>e.type==="memory_status" && e.status==="saved",120000);const memory=JSON.parse(await readFile(join(data,"memory.json"),"utf8"));assert.ok(JSON.stringify(memory).includes("松鹤417"));check("Agent 整理长期记忆",{answer,facts:memory.facts});
  await stop();start();await until(e=>e.type==="ready");await command("init");await command("new_session",{noProject:true});answer=await prompt("我给线性代数学习计划起的代号是什么？只回答代号，不要猜。");assert.ok(answer.includes("松鹤417"));check("重启后新会话记忆召回",answer);

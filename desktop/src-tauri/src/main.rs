@@ -136,8 +136,41 @@ fn save_preferences(app: &tauri::AppHandle, value: &serde_json::Value) -> Result
 #[tauri::command]
 fn desktop_preferences(app: tauri::AppHandle, state: tauri::State<'_, ShortcutStateStore>) -> serde_json::Value {
     let mut prefs = read_preferences(&app);
+    prefs["trayAvailable"] = app.tray_by_id("reed-tray").is_some().into();
     prefs["activeShortcut"] = state.0.lock().map(|value| value.clone()).unwrap_or_default().into();
     prefs
+}
+
+fn brand_icon(style: &str, dark: bool) -> tauri::Result<tauri::image::Image<'static>> {
+    let bytes: &[u8] = match (style, dark) {
+        ("illustrated", false) => include_bytes!("../icons/illustrated-light.png"),
+        ("illustrated", true) => include_bytes!("../icons/illustrated-dark.png"),
+        (_, true) => include_bytes!("../icons/glass-dark.png"),
+        _ => include_bytes!("../icons/glass-light.png"),
+    };
+    tauri::image::Image::from_bytes(bytes)
+}
+
+#[tauri::command]
+fn update_brand_icon(app: tauri::AppHandle, style: String, dark: bool) -> Result<(), String> {
+    if !["glass", "illustrated"].contains(&style.as_str()) { return Err("图标风格无效".into()); }
+    let icon=brand_icon(&style,dark).map_err(|e|e.to_string())?;
+    if let Some(tray)=app.tray_by_id("reed-tray") { tray.set_icon(Some(icon.clone())).map_err(|e|e.to_string())?; }
+    for window in app.webview_windows().values() { window.set_icon(icon.clone()).map_err(|e|e.to_string())?; }
+    Ok(())
+}
+
+#[tauri::command]
+fn set_appearance(app: tauri::AppHandle, style: String, theme: String) -> Result<(), String> {
+    if !["glass", "illustrated"].contains(&style.as_str()) || !["system", "light", "dark"].contains(&theme.as_str()) {return Err("外观选项无效".into());}
+    let mut prefs=read_preferences(&app);prefs["iconStyle"]=style.into();prefs["theme"]=theme.into();save_preferences(&app,&prefs)?;
+    app.emit("desktop-appearance",prefs).map_err(|e|e.to_string())
+}
+
+#[tauri::command]
+fn ui_ready(window: tauri::WebviewWindow) -> Result<(), String> {
+    if window.label()=="main" && std::env::args().any(|a|a=="--autostart") {return Ok(());}
+    window.show().map_err(|e|e.to_string())
 }
 
 #[tauri::command]
@@ -282,7 +315,7 @@ async fn open_settings(app: tauri::AppHandle, section: Option<String>) -> Result
         let mut builder = WebviewWindowBuilder::new(&app, "settings", WebviewUrl::App("settings.html".into()))
             .data_directory(std::env::current_exe().map_err(|error| error.to_string())?.parent().ok_or("Executable directory unavailable")?.join("data/webview"))
             .initialization_script(format!("window.SUMMON_SETTINGS_SECTION={initial};"))
-            .title("Summon 设置").decorations(false).shadow(false).inner_size(980.0, 700.0).min_inner_size(740.0, 480.0);
+            .title("Reed 一苇 · 设置").visible(false).decorations(false).shadow(false).inner_size(980.0, 700.0).min_inner_size(740.0, 480.0);
         #[cfg(windows)]
         if std::env::var_os("SUMMON_TEST_DATA_DIR").is_some() {
             if let Ok(port) = std::env::var("SUMMON_TEST_WEBVIEW_PORT") {
@@ -397,7 +430,7 @@ fn show_startup_error(message: &str) {
         fn MessageBoxW(hwnd: isize, text: *const u16, caption: *const u16, flags: u32) -> i32;
     }
     let text: Vec<u16> = std::ffi::OsStr::new(message).encode_wide().chain(Some(0)).collect();
-    let caption: Vec<u16> = std::ffi::OsStr::new("Summon 启动失败").encode_wide().chain(Some(0)).collect();
+    let caption: Vec<u16> = std::ffi::OsStr::new("Reed 一苇启动失败").encode_wide().chain(Some(0)).collect();
     unsafe { MessageBoxW(0, text.as_ptr(), caption.as_ptr(), 0x10); }
 }
 
@@ -449,9 +482,13 @@ fn claim_instance() -> Result<Option<InstanceGuard>, String> {
     if unsafe { GetLastError() } != 183 {
         return Ok(Some(InstanceGuard(handle)));
     }
-    let title: Vec<u16> = std::ffi::OsStr::new("Summon").encode_wide().chain(Some(0)).collect();
+    let title: Vec<u16> = std::ffi::OsStr::new("Reed 一苇").encode_wide().chain(Some(0)).collect();
     for _ in 0..20 {
-        let window = unsafe { FindWindowW(std::ptr::null(), title.as_ptr()) };
+        let mut window = unsafe { FindWindowW(std::ptr::null(), title.as_ptr()) };
+        if window==0 {
+            let legacy: Vec<u16> = std::ffi::OsStr::new("Summon").encode_wide().chain(Some(0)).collect();
+            window=unsafe {FindWindowW(std::ptr::null(),legacy.as_ptr())};
+        }
         if window != 0 {
             unsafe {
                 ShowWindow(window, 9);
@@ -463,14 +500,18 @@ fn claim_instance() -> Result<Option<InstanceGuard>, String> {
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
     unsafe { CloseHandle(handle); }
-    Err("Summon is already running, but its window was not found".into())
+    Err("Reed is already running, but its window was not found".into())
 }
 
 fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
-    let open = MenuItem::with_id(app, "open", "显示 Summon", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "退出 Summon", true, None::<&str>)?;
+    let open = MenuItem::with_id(app, "open", "显示 Reed 一苇", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "退出 Reed 一苇", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &quit])?;
-    TrayIconBuilder::new()
+    let prefs=read_preferences(app.handle());
+    let dark=prefs["theme"].as_str()==Some("dark") || (prefs["theme"].as_str()!=Some("light") && app.get_webview_window("main").and_then(|w|w.theme().ok())==Some(tauri::Theme::Dark));
+    TrayIconBuilder::with_id("reed-tray")
+        .icon(brand_icon(prefs["iconStyle"].as_str().unwrap_or("glass"),dark)?)
+        .tooltip("Reed 一苇 · 一苇以航，轻渡学海。")
         .menu(&menu)
         .on_menu_event(|app, event| match event.id.as_ref() {
             "open" => show_main(app),
@@ -504,7 +545,7 @@ fn run_desktop() -> tauri::Result<()> {
         .manage(RoundedBounds::default())
         .plugin(window_state.build())
         .plugin(shortcuts)
-        .invoke_handler(tauri::generate_handler![dismiss, agent_command, choose_workspace, open_local_file, desktop_preferences, set_shortcut, set_autostart, open_settings, capture_shortcut, drag_window, resize_window])
+        .invoke_handler(tauri::generate_handler![dismiss, agent_command, choose_workspace, open_local_file, desktop_preferences, set_shortcut, set_autostart, open_settings, capture_shortcut, drag_window, resize_window, update_brand_icon, set_appearance, ui_ready])
         .setup(|app| {
             startup_log("Creating Tauri window");
             let exe_dir = std::env::current_exe()?.parent().ok_or("Executable directory unavailable")?.to_path_buf();
@@ -569,7 +610,7 @@ fn run_desktop() -> tauri::Result<()> {
 }
 
 fn main() {
-    startup_log("Starting Summon");
+    startup_log("Starting Reed");
     #[cfg(windows)]
     let _instance_guard = match claim_instance() {
         Ok(Some(guard)) => guard,
@@ -588,7 +629,7 @@ fn main() {
             .or_else(|| panic.downcast_ref::<&str>().map(|value| (*value).to_string()))
             .unwrap_or_else(|| "Unknown startup panic".to_string()),
     };
-    let message = format!("Summon 无法启动：{error}\n\n请将便携包文件夹中的 startup.log 发给开发者；若文件不存在，请查看系统临时目录中的 Summon-startup.log。");
+    let message = format!("Reed 一苇无法启动：{error}\n\n请将便携包文件夹中的 startup.log 发给开发者；若文件不存在，请查看系统临时目录中的 Summon-startup.log。");
     startup_log(&format!("Startup failed: {error}"));
     show_startup_error(&message);
 }

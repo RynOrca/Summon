@@ -21,7 +21,7 @@ $targetDir = if ($env:CARGO_TARGET_DIR) { [IO.Path]::GetFullPath($env:CARGO_TARG
 Push-Location $projectDir
 try { & cargo build --release; if ($LASTEXITCODE -ne 0) { throw 'Cargo release build failed' } }
 finally { Pop-Location }
-Copy-Item -LiteralPath (Join-Path $targetDir 'release\summon-desktop.exe') -Destination (Join-Path $Output 'Summon.exe') -Force
+Copy-Item -LiteralPath (Join-Path $targetDir 'release\summon-desktop.exe') -Destination (Join-Path $Output 'Reed.exe') -Force
 New-Item -ItemType Directory -Force -Path (Join-Path $Output 'runtime'), (Join-Path $Output 'agent') | Out-Null
 Copy-Item -LiteralPath $nodeExe -Destination (Join-Path $Output 'runtime\node.exe') -Force
 Copy-Item -LiteralPath (Join-Path $agentDir 'bridge.mjs') -Destination (Join-Path $Output 'agent\bridge.mjs') -Force
@@ -42,4 +42,8 @@ Copy-Item -LiteralPath (Join-Path $agentDir 'package.json') -Destination (Join-P
 if ($LASTEXITCODE -gt 7) { throw "Agent dependency copy failed (robocopy $LASTEXITCODE)" }
 Copy-Item -LiteralPath (Join-Path $desktopDir 'PI-DESKTOP-LICENSE') -Destination (Join-Path $Output 'PI-DESKTOP-LICENSE') -Force
 Copy-Item -LiteralPath (Join-Path $desktopDir 'README.md') -Destination (Join-Path $Output 'README.md') -Force
+foreach ($notice in @('LICENSE','NOTICE.md')) {
+    Copy-Item -LiteralPath (Join-Path $desktopDir "../$notice") -Destination (Join-Path $Output $notice) -Force
+}
+Copy-Item -LiteralPath (Join-Path $desktopDir 'web/vendor/MARKED-LICENSE') -Destination (Join-Path $Output 'MARKED-LICENSE') -Force
 Write-Host "Portable build: $Output"

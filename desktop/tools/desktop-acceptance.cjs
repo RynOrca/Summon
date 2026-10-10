@@ -33,7 +33,7 @@ const { chromium } = require(process.env.SUMMON_PLAYWRIGHT_PATH);
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const port = 9312;
-  const child = spawn(path.join(packageDir, 'Summon.exe'), [], { windowsHide:true, cwd:packageDir, env:{ ...process.env, SUMMON_TEST_DATA_DIR:data, SUMMON_TEST_WEBVIEW_PORT:String(port) }, stdio:'ignore' });
+  const child = spawn(path.join(packageDir, 'Reed.exe'), [], { windowsHide:true, cwd:packageDir, env:{ ...process.env, SUMMON_TEST_DATA_DIR:data, SUMMON_TEST_WEBVIEW_PORT:String(port) }, stdio:'ignore' });
   let browser; const errors = []; const checks = [];
   try {
     for (let n=0;n<50;n++) {
@@ -62,6 +62,32 @@ const { chromium } = require(process.env.SUMMON_PLAYWRIGHT_PATH);
     await settings.locator('#shortcut').click(); await settings.keyboard.press('Control+Alt+Shift+F11');
     await settings.locator('#shortcut').filter({hasText:'Ctrl+Alt+Shift+F11'}).waitFor();
     const prefs = JSON.parse(await fs.readFile(path.join(data,'user-config.json'),'utf8')).desktop; assert.equal(prefs.shortcut,'Ctrl+Alt+Shift+F11'); checks.push('按键录入和真实全局快捷键注册');
+    await main.locator('#startup').waitFor({state:'hidden'});
+    assert.equal(await main.title(),'Reed 一苇');
+    const brandPrefs=await main.evaluate(()=>window.__TAURI__.core.invoke('desktop_preferences'));
+    assert.equal(brandPrefs.trayAvailable,true);
+    const transparentIcons=await main.evaluate(async()=>Promise.all(['glass-light','glass-dark','illustrated-light','illustrated-dark'].map(async name=>{
+      const image=new Image();image.src=`./assets/branding/${name}.png`;await image.decode();
+      const canvas=document.createElement('canvas');canvas.width=image.width;canvas.height=image.height;
+      const context=canvas.getContext('2d');context.drawImage(image,0,0);
+      return {name,corner:context.getImageData(0,0,1,1).data[3],center:context.getImageData(Math.floor(image.width/2),Math.floor(image.height/2),1,1).data[3]};
+    })));
+    for(const image of transparentIcons){assert.equal(image.corner,0,image.name);assert.equal(image.center,255,image.name);}
+    checks.push('四张原图圆角外透明，中心画面完整');
+    assert.ok((await main.locator('.header-brand').getAttribute('src')).includes('glass-'));
+    await settings.locator('#appearance-theme').selectOption('dark');
+    await main.waitForFunction(()=>document.documentElement.dataset.theme==='dark');
+    await settings.locator('#appearance-icon').selectOption('illustrated');
+    await main.waitForFunction(()=>document.querySelector('.header-brand').src.includes('illustrated-dark'));
+    await settings.locator('#appearance-theme').selectOption('light');
+    await main.waitForFunction(()=>document.querySelector('.header-brand').src.includes('illustrated-light'));
+    assert.equal(await settings.locator('aside h1').getAttribute('data-drag-region'),'');
+    assert.ok(await settings.locator('aside h1').evaluate(e=>e.getBoundingClientRect().height>=58));
+    await settings.screenshot({path:path.join(artifacts,'reed-general-light.png')});
+    await main.screenshot({path:path.join(artifacts,'reed-main-light.png')});
+    await settings.locator('#appearance-icon').selectOption('glass');await settings.locator('#appearance-theme').selectOption('dark');
+    await main.waitForFunction(()=>document.querySelector('.header-brand').src.includes('glass-dark'));
+    checks.push('Reed 品牌首屏、原生托盘图标、两套图标浅深切换与扩大设置拖动区');
     await settings.locator('button[data-section="models"]').click();
     await settings.locator('.template-card').filter({hasText:'自定义'}).click();
     const providerGap=await settings.locator('#provider-form').evaluate(e=>e.getBoundingClientRect().top-document.getElementById('templates').getBoundingClientRect().bottom);assert.ok(providerGap>=20);

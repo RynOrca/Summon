@@ -25,6 +25,7 @@ public class SummonBoundsTest {
   [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
   [DllImport("user32.dll")] public static extern IntPtr GetTopWindow(IntPtr h);
   [DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr h,uint cmd);
+  [DllImport("user32.dll",CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr h,System.Text.StringBuilder text,int count);
   [DllImport("user32.dll")] public static extern int GetWindowLong(IntPtr h, int n);
   [DllImport("user32.dll")] public static extern int GetWindowRgn(IntPtr h, IntPtr r);
   [DllImport("gdi32.dll")] public static extern IntPtr CreateRectRgn(int a,int b,int c,int d);
@@ -35,7 +36,7 @@ public class SummonBoundsTest {
 [SummonBoundsTest]::SetProcessDPIAware() | Out-Null
 $targetHandle = [IntPtr]${hwnd === "settings" ? `[IntPtr]::Zero` : hwnd || `(Get-Process -Id ${pid}).MainWindowHandle`}
 [uint32]$owner = 0
-${hwnd === "settings" ? `$candidate=[SummonBoundsTest]::GetTopWindow([IntPtr]::Zero); while($candidate -ne [IntPtr]::Zero){ [SummonBoundsTest]::GetWindowThreadProcessId($candidate,[ref]$owner) | Out-Null; if($owner -eq ${pid} -and [SummonBoundsTest]::IsWindowVisible($candidate)){ $r=New-Object SummonBoundsTest+Rect; [SummonBoundsTest]::GetWindowRect($candidate,[ref]$r) | Out-Null; if($r.Right-$r.Left -gt 700){$targetHandle=$candidate;break;} }; $candidate=[SummonBoundsTest]::GetWindow($candidate,2) }; if($targetHandle -eq [IntPtr]::Zero){throw 'Owned settings window unavailable'}` : ''}
+${hwnd === "settings" ? `$candidate=[SummonBoundsTest]::GetTopWindow([IntPtr]::Zero); while($candidate -ne [IntPtr]::Zero){ [SummonBoundsTest]::GetWindowThreadProcessId($candidate,[ref]$owner) | Out-Null; if($owner -eq ${pid} -and [SummonBoundsTest]::IsWindowVisible($candidate)){ $title=New-Object System.Text.StringBuilder 256; [SummonBoundsTest]::GetWindowText($candidate,$title,256) | Out-Null; if($title.ToString() -eq 'Reed 一苇 · 设置'){$targetHandle=$candidate;break;} }; $candidate=[SummonBoundsTest]::GetWindow($candidate,2) }; if($targetHandle -eq [IntPtr]::Zero){throw 'Owned settings window unavailable'}` : ''}
 [SummonBoundsTest]::GetWindowThreadProcessId($targetHandle,[ref]$owner) | Out-Null
 if($owner -ne ${pid}) { throw 'Window does not belong to this test instance' }
 ${update ? `[SummonBoundsTest]::SetWindowPos($targetHandle,[IntPtr]::Zero,${update.x},${update.y},${update.width},${update.height},0x0014) | Out-Null` : ''}
@@ -86,7 +87,7 @@ function geometry(value) { return {x:value.x,y:value.y,width:value.width,height:
   const packageDir = await require('./isolated-package.cjs')(process.env.SUMMON_TEST_PACKAGE, data);
   const checks = []; let child, browser, page;
   async function start() {
-    child = spawn(path.join(packageDir,'Summon.exe'), [], {cwd:packageDir,windowsHide:true,stdio:'ignore',env:{...process.env,SUMMON_TEST_DATA_DIR:data,SUMMON_TEST_WEBVIEW_PORT:'9313'}});
+    child = spawn(path.join(packageDir,'Reed.exe'), [], {cwd:packageDir,windowsHide:true,stdio:'ignore',env:{...process.env,SUMMON_TEST_DATA_DIR:data,SUMMON_TEST_WEBVIEW_PORT:'9313'}});
     for(let i=0;i<50;i++) { assert.equal(child.exitCode,null,'test app exited early'); try {browser=await chromium.connectOverCDP('http://127.0.0.1:9313',{timeout:1000});break;}catch{await delay(300);} }
     assert.ok(browser); page=browser.contexts()[0].pages().find(p=>!p.url().includes('settings.html'));
     await page.locator('#status').filter({hasText:'就绪'}).waitFor({timeout:25000});
@@ -98,15 +99,30 @@ function geometry(value) { return {x:value.x,y:value.y,width:value.width,height:
     assert.equal(initial.outerWidth,initial.width);assert.equal(initial.outerHeight,initial.height);assert.ok(initial.regionKind>0 && !initial.cornerInside && initial.centerInside);checks.push('主窗口无系统标题栏，原生区域裁剪圆角');
     await page.locator('#settings-button').click();let settings;
     for(let i=0;i<30;i++){settings=browser.contexts()[0].pages().find(p=>p.url().includes('settings.html'));if(settings)break;await delay(200);}
-    assert.ok(settings);await settings.locator('#shortcut').waitFor();
+    assert.ok(settings);await settings.locator('#shortcut').filter({hasText:/\+/}).waitFor();
     const settingsHandle='settings';
     const settingsBounds=await bounds(child.pid,settingsHandle,undefined,undefined,path.join(nativeArtifacts,"native-settings.png"));assert.equal(settingsBounds.outerWidth,settingsBounds.width);assert.equal(settingsBounds.outerHeight,settingsBounds.height);assert.ok(settingsBounds.regionKind>0 && !settingsBounds.cornerInside && settingsBounds.centerInside);checks.push('设置窗口无系统标题栏，原生区域裁剪圆角');
+    const settingsScale=await settings.evaluate(()=>window.devicePixelRatio);
+    for(const selector of ['aside h1','main > header > div']){
+      const before=await bounds(child.pid,settingsBounds.handle);
+      const rect=await settings.locator(selector).boundingBox();
+      await settings.evaluate(()=>{window.testPointer=null;document.addEventListener('pointerdown',e=>{window.testPointer={target:e.target.outerHTML.slice(0,180),drag:!!e.target.closest('[data-drag-region]')};},{once:true});});
+      const from={x:Math.round(before.x+(rect.x+rect.width/2)*settingsScale),y:Math.round(before.y+(rect.y+rect.height/2)*settingsScale)};
+      await gesture(child.pid,settingsBounds.handle,from,{x:from.x+20,y:from.y+15});
+      const moved=await bounds(child.pid,settingsBounds.handle);
+      assert.equal(moved.x,before.x+20,JSON.stringify({selector,before,rect,from,moved,pointer:await settings.evaluate(()=>window.testPointer)}));assert.equal(moved.y,before.y+15);
+    }
+    checks.push('设置与页面标题附近均可真实鼠标拖动');
+    await settings.locator('#appearance-icon').selectOption('illustrated');await settings.locator('#appearance-theme').selectOption('light');
+    await page.waitForFunction(()=>document.querySelector('.header-brand').src.includes('illustrated-light'));
     await settings.locator('#close').click();
+    await delay(300);
     const scale=await page.evaluate(()=>window.devicePixelRatio);
     const beforeDrag=await bounds(child.pid,initial.handle); const dragRect=await page.locator('.drag-space').boundingBox();
+    await page.evaluate(()=>{window.testPointer=null;document.addEventListener('pointerdown',e=>{window.testPointer={target:e.target.outerHTML.slice(0,180),drag:!!e.target.closest('[data-drag-region]')};},{once:true});});
     const dragFrom={x:Math.round(beforeDrag.x+(dragRect.x+dragRect.width/2)*scale),y:Math.round(beforeDrag.y+(dragRect.y+dragRect.height/2)*scale)};
     await gesture(child.pid,initial.handle,dragFrom,{x:dragFrom.x+40,y:dragFrom.y+30});const dragged=await bounds(child.pid,initial.handle);
-    assert.equal(dragged.x,beforeDrag.x+40);assert.equal(dragged.y,beforeDrag.y+30);checks.push('无标题栏顶部空白区真实鼠标拖动');
+    assert.equal(dragged.x,beforeDrag.x+40,JSON.stringify({beforeDrag,dragRect,dragFrom,dragged,pointer:await page.evaluate(()=>window.testPointer)}));assert.equal(dragged.y,beforeDrag.y+30);checks.push('无标题栏顶部空白区真实鼠标拖动');
     const resizeFrom={x:dragged.x+dragged.outerWidth-3,y:dragged.y+Math.round(dragged.outerHeight/2)};
     await gesture(child.pid,initial.handle,resizeFrom,{x:resizeFrom.x+60,y:resizeFrom.y});const resized=await bounds(child.pid,initial.handle);
     assert.equal(resized.outerWidth,dragged.outerWidth+60);checks.push('窗口边缘真实鼠标缩放');
@@ -124,6 +140,7 @@ function geometry(value) { return {x:value.x,y:value.y,width:value.width,height:
     const last=await bounds(child.pid,initial.handle,{x:220,y:150,width:1080,height:860});await delay(1300);
     saved=JSON.parse(await fs.readFile(path.join(data,'window-state.json'),'utf8')).main;assert.deepEqual(geometry(saved),geometry(last));
     await stop();await start();const restored=await bounds(child.pid);
+    await page.waitForFunction(()=>document.querySelector('.header-brand').src.includes('illustrated-light') && document.documentElement.dataset.theme==='light');checks.push('图标风格和主题退出后重启恢复');
     assert.deepEqual(geometry(restored),geometry(last));checks.push('测试实例异常退出后，下次启动恢复最后调整的大小和位置');
     const artifacts=path.resolve(__dirname,'../../dist/acceptance');await fs.mkdir(artifacts,{recursive:true});await fs.writeFile(path.join(artifacts,'window-state-report.json'),JSON.stringify({checks,data,initial:geometry(initial),last:geometry(last),restored:geometry(restored)},null,2));
     console.log(JSON.stringify({checks,last:geometry(last),restored:geometry(restored),data},null,2));

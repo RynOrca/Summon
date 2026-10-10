@@ -1,27 +1,60 @@
-# ---- 构建产物（用 npm run pack 重新生成）----
-dist/
-*.piplug
-
-# ---- 依赖 ----
+# Dependencies and generated builds
 node_modules/
+target/
+dist/
+desktop/src-tauri/gen/
+desktop/.test-data/
+desktop/dist-portable*/
+*.exe
+*.dll
+*.msi
+*.piplug
+*.zip
 
-# ---- 临时目录 ----
-ref/
+# Legacy plugin and prototype: local copies only
+/plugins/
+/tools/
+/docs/
+/ref/
+/鲸唤 Summon 原型源码包 v1.4/
 
-# ---- 插件落地的附件（粘贴/拖入的文件副本）----
-.summon/
+# User configuration, credentials and signing material
+.env
+.env.*
+!.env.example
+.npmrc
+user-config.json
+auth.json
+credentials.json
+*.dpapi
+*.pem
+*.key
+*.pfx
+*.p12
+*.keystore
 
-# ---- 系统 / 编辑器噪音 ----
+# Personal data and runtime state
+/.summon/
+/data/
+/user-data/
+/attachments/
+/sessions/
+/vault/
+/runtime/
+.window-state.json
+memory.json
+learner.json
+app-state.json
+session-metadata.json
+
+# OS/editor files and logs
 .DS_Store
 Thumbs.db
 desktop.ini
 *.log
 *.tmp
+*.bak
 .vscode/
 .idea/
-
-# Standalone Tauri build/cache data
-desktop/src-tauri/target/
-desktop/src-tauri/gen/
-desktop/.test-data/
-desktop/dist-portable*/
+__pycache__/
+*.pyc

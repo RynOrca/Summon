@@ -2,7 +2,9 @@ const $ = id => document.getElementById(id);
 import { icon, windowHandles } from "./icons.js";
 import { createSkillBindings } from "./role-skills.js";
 const roleSkills = createSkillBindings($("role-skills"));
+import { initBrand, saveAppearance } from "./brand.js";
 const tauri = window.__TAURI__;
+await initBrand(tauri);
 let sequence = 0, templates = [], providers = [], editing = null, providerId = null, recording = false, savedShortcut = "", memory = {}, roleId = null;
 const pending = new Map();
 function notice(text, error = false) { $("notice").hidden = !text; $("notice").textContent = text; $("notice").classList.toggle("error", error); }
@@ -195,6 +197,7 @@ function renderRoles(roles) {
 }
 $("role-new").onclick = () => { roleId = null; $("role-form").reset(); roleSkills.set(); $("role-name").focus(); };
 $("role-form").onsubmit = event => { event.preventDefault(); void action(async () => { await command("save_role", { roleId, name: $("role-name").value, system: $("role-system").value, skills: roleSkills.get() }); roleId = null; $("role-form").reset(); roleSkills.set(); notice("角色已保存，可在对话窗口选择。"); }); };
+for(const id of ['appearance-theme','appearance-icon']) $(id).onchange=()=>action(()=>saveAppearance($("appearance-icon").value,$("appearance-theme").value));
 $("autostart").onchange = () => action(async () => { try { await tauri.core.invoke("set_autostart", { enabled: $("autostart").checked }); } catch(error) { $("autostart").checked = !$("autostart").checked; throw error; } });
 async function finishRecording() { recording = false; $("shortcut").textContent = savedShortcut || "录入快捷键"; await tauri.core.invoke("capture_shortcut", { active: false }); }
 $("shortcut").onclick = () => action(async () => { if (recording) return; await tauri.core.invoke("capture_shortcut", { active: true }); recording = true; $("shortcut").textContent = "请按下组合键…"; $("shortcut").focus(); });
@@ -232,7 +235,7 @@ if (tauri) {
     const prefs = await tauri.core.invoke("desktop_preferences"); savedShortcut = prefs.activeShortcut || prefs.shortcut || ""; $("shortcut").textContent = savedShortcut || "录入快捷键"; $("autostart").checked = prefs.autostart === true;
     await command("get_state");
   });
-} else notice("请在 Summon 桌面应用中打开设置。", true);
+} else notice("请在 Reed 一苇桌面应用中打开设置。", true);
 for (const button of document.querySelectorAll("nav button")) button.prepend(icon(({general:"settings",models:"model",memory:"memory",vault:"book",skills:"skill",tools:"tools",security:"shield",agent:"activity",mcp:"tools",roles:"role",about:"info"})[button.dataset.section]));
 $("close").replaceChildren(icon("close")); windowHandles(tauri);
 

@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Summon",
+  "productName": "Reed",
   "version": "0.1.0",
   "identifier": "dev.rynorca.summon",
   "build": {
@@ -11,13 +11,13 @@
     "windows": [
       {
         "label": "main",
-        "title": "Summon",
+        "title": "Reed 一苇",
         "width": 420,
         "height": 660,
         "minWidth": 360,
         "minHeight": 280,
         "create": false,
-        "visible": true,
+        "visible": false,
         "resizable": true
       }
     ]

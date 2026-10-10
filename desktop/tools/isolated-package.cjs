@@ -7,7 +7,7 @@ module.exports = async function isolatedPackage(source, data) {
   if (!source) throw new Error('SUMMON_TEST_PACKAGE is required');
   const target = path.join(data, 'package');
   await fs.mkdir(target);
-  await fs.copyFile(path.join(source, 'Summon.exe'), path.join(target, 'Summon.exe'));
+  await fs.copyFile(path.join(source, 'Reed.exe'), path.join(target, 'Reed.exe'));
   for (const directory of ['agent', 'runtime']) {
     await fs.symlink(path.resolve(source, directory), path.join(target, directory), 'junction');
   }

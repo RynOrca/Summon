@@ -4,7 +4,9 @@ import { icon, windowHandles } from "./icons.js";
 const $ = (id) => document.getElementById(id);
 import { createSkillBindings } from "./role-skills.js";
 const roleSkills = createSkillBindings($("role-skills"));
+import { initBrand, finishStartup } from "./brand.js";
 const tauri = window.__TAURI__;
+await initBrand(tauri);
 const messages = $("messages");
 const transcript = $("transcript");
 const prompt = $("prompt");
@@ -629,7 +631,7 @@ document.addEventListener("keydown", (event) => {
 });
 updateSendAvailability();
 if (tauri) {
-  tauri.event.listen("agent-event", onEvent).then(() => command("init")).catch((error) => errorRow(String(error)));
+  tauri.event.listen("agent-event", onEvent).then(() => command("init", {}, true)).then(finishStartup).catch((error) => {finishStartup(); errorRow(String(error));});
 } else {
   status("请在 Tauri 桌面窗口中运行");
 }
