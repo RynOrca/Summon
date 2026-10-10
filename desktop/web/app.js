@@ -7,6 +7,7 @@ const messages = $("messages");
 const transcript = $("transcript");
 const prompt = $("prompt");
 const modelsDialog = $("models-dialog");
+$("image-close").onclick=()=>$("image-dialog").close();
 let modelCatalog = [];
 let reconnectAttempts = 0;
 let reconnectTimer;
@@ -39,7 +40,6 @@ function setRunning(value) {
   running = value;
   updateSendAvailability();
   $("stop-button").hidden = !value;
-  $("message-mode").hidden = !value;
   status(value ? "PI 正在回复…" : "就绪");
 }
 function errorRow(message) {
@@ -72,7 +72,7 @@ function attachmentPreview(content, items) {
       const img = document.createElement("img");
       img.src = `data:${item.mimeType};base64,${item.data}`;
       img.alt = item.name || "图片附件";
-      strip.append(img);
+      const preview=document.createElement("button");preview.type="button";preview.className="image-preview-button";preview.title="查看图片";preview.setAttribute("aria-label","查看图片");preview.append(img);preview.onclick=()=>{$("image-preview").src=img.src;$("image-preview").alt=img.alt;$("image-dialog").showModal();};strip.append(preview);
     } else {
       const file = document.createElement("span"); file.className = "message-file";
       file.textContent = item.name || "文件附件";
@@ -277,7 +277,7 @@ function renderSessions(sessions) {
 let chosenModel=null,activeModelKey="",activeThinking="off";
 const thinkingNames={off:"思考关闭",minimal:"最少",low:"低",medium:"中等",high:"高",xhigh:"很高",max:"最高"};
 function thinkingName(level,format){return level!=="off" && ["qwen","qwen-chat-template"].includes(format)?"思考开启":thinkingNames[level]||level;}
-function updateModelChip(response){activeModelKey=response.model||"";activeThinking=response.thinkingLevel||"off";$("model-label").textContent=response.model?response.modelName||response.model:"选择模型";const name=thinkingName(activeThinking,response.thinkingFormat);$("model-thinking").textContent=/思考/.test(name)?name:`思考·${name}`;$("model-thinking").hidden=!response.model;$("model-button").title=response.model?`${$("model-label").textContent} · ${$("model-thinking").textContent}`:"选择模型";}
+function updateModelChip(response){activeModelKey=response.model||"";activeThinking=response.thinkingLevel||"off";$("model-label").textContent=response.model?response.modelName||response.model:"选择模型";const name=thinkingName(activeThinking,response.thinkingFormat);$("model-thinking").textContent=/思考/.test(name)?name:`思考·${name}`;$("model-thinking").hidden=!response.model;$("model-button").title=response.model?`${$("model-label").textContent} · ${$("model-thinking").textContent}`:"选择模型";$("status-model").textContent=response.model?`${$("model-label").textContent} · ${activeThinking}`:"";$("status-model").title=$("status-model").textContent;$("status-model").hidden=!response.model;}
 function resetModelStep(){chosenModel=null;$("model-step").hidden=false;$("thinking-step").hidden=true;$("model-step-title").textContent="选择模型";$("model-error").hidden=true;}
 function chooseModel(model){chosenModel=model;$("model-step").hidden=true;$("thinking-step").hidden=false;$("model-step-title").textContent="选择思考档位";$("chosen-model-name").textContent=model.name||model.id;$("chosen-model-info").textContent=`${model.providerName||model.provider} · ${model.contextWindow?model.contextWindow.toLocaleString()+" 上下文":"上下文未知"}`;const format=model.compat?.thinkingFormat;renderThinkingLevels(model.thinkingLevels||["off"],activeModelKey===`${model.provider}/${model.id}`?activeThinking:"off",{thinkingFormat:format,reasoningKnown:model.reasoning!=null});$("thinking-hint").textContent=model.thinkingDefaults?"服务未返回档位，使用默认五档；实际思考效果由模型服务决定，可在设置中调整协议。":model.reasoning===false?"此模型不支持思考。":"仅展示当前模型支持的选项。";$("thinking-level").focus();}
 function renderModels() {
@@ -382,7 +382,7 @@ function onEvent(event) {
   switch (response.type) {
     case "queue": {
       $("queue-items").replaceChildren();
-      for (const [label, list] of [["引导", response.steering], ["排队", response.followUp]]) for (const text of list || []) { const row = document.createElement("p"); row.textContent = `${label} · ${text}`; $("queue-items").append(row); }
+      for (const [label, list] of [["引导", response.steering], ["排队", response.followUp]]) (list||[]).forEach((text,index)=>{const row=document.createElement("div");row.className="queue-item";const summary=document.createElement("span");summary.textContent=`${label} · ${text}`;row.append(summary);if(label==="排队"){const steer=document.createElement("button");steer.type="button";steer.textContent="发送（引导）";steer.onclick=async()=>{steer.disabled=true;try{await command("promote_queue",{text,index},true);}catch(e){errorRow(e.message||String(e));steer.disabled=false;}};row.append(steer);}$("queue-items").append(row);});
       $("queue-preview").hidden = !$("queue-items").childElementCount; break;
     }
     case "user_delivered":
@@ -457,6 +457,7 @@ function onEvent(event) {
       setRunning(false); if (thinkingRow) updateDisclosure(thinkingRow, "done");
       assistantRow = null; thinkingRow = null; break;
     case "error":
+      if(handledReply)break;
       if (submitted) {
         submitted.row.remove();
         prompt.value = submitted.text;
@@ -509,7 +510,7 @@ $("composer").addEventListener("submit", async (event) => {
   if (running) {
     if (attachments.length) { errorRow("引导和排队目前支持文本；附件请在当前任务完成后发送。"); return; }
     queuedTexts.set(text,(queuedTexts.get(text)||0)+1);
-    try { await command("queue_message", { text, mode: $("message-mode").value }, true); prompt.value = ""; updateSendAvailability(); } catch(e) { queuedTexts.delete(text); errorRow(String(e.message || e)); } return;
+    try { await command("queue_message", { text, mode: "followUp" }, true); prompt.value = ""; updateSendAvailability(); } catch(e) { queuedTexts.delete(text); errorRow(String(e.message || e)); } return;
   }
   const items = attachments;
   running = true; updateSendAvailability();

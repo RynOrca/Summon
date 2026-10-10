@@ -17,6 +17,7 @@ test("discovery leaves missing metadata unknown and clears obsolete endpoint mod
   try {
     assert.equal(normalizeDiscoveredModel({ id: "unlisted" }).contextWindow, null);
     assert.equal(normalizeDiscoveredModel({ id: "unlisted" }).reasoning, null);
+    assert.deepEqual(normalizeDiscoveredModel({id:"vision",supports_vision:true}).input,["text","image"]);
     assert.equal(normalizeDiscoveredModel({id:"levels-only",reasoning_efforts:["low","max"]}).reasoning,true);
     assert.deepEqual(normalizeDiscoveredModel({id:"qwen-local",thinking_format:"qwen-chat-template"}).thinkingLevels,["off","medium"]);
     const runtime = { getModels: () => [], refresh: async () => {}, setRuntimeApiKey: async () => {} };
@@ -145,9 +146,11 @@ test("real PI bridge: discover, stream, remember, background memory, projects an
     await until(m=>messages.indexOf(m)>=queueStart && m.type==="started");
     await command("queue_message",{text:"STEER_TEST",mode:"steer"});
     await command("queue_message",{text:"FOLLOW_TEST",mode:"followUp"});
+    await command("queue_message",{text:"PROMOTE_TEST",mode:"followUp"});await command("promote_queue",{text:"PROMOTE_TEST",index:1});
     await runningPrompt;
     assert.ok(messages.slice(queueStart).some(m=>m.type==="user_delivered" && m.text==="STEER_TEST"));
     assert.ok(messages.slice(queueStart).some(m=>m.type==="user_delivered" && m.text==="FOLLOW_TEST"));
+    assert.ok(messages.slice(queueStart).some(m=>m.type==="user_delivered" && m.text==="PROMOTE_TEST"));
     assert.ok(requests.some(r=>JSON.stringify(r.messages).includes("STEER_TEST")));
     assert.ok(requests.some(r=>JSON.stringify(r.messages).includes("FOLLOW_TEST")));
     assert.ok(!requests[0].tools.some(t=>["bash","powershell"].includes(t.function?.name)));
@@ -169,6 +172,13 @@ test("real PI bridge: discover, stream, remember, background memory, projects an
     await command("select_model",{provider:provider.providerId,model:"unknown-model",thinkingLevel:"xhigh"});assert.equal(messages.filter(m=>m.type==="session").at(-1).thinkingLevel,"xhigh");
     await command("prompt",{text:"默认档位验证"});assert.equal(requests.at(-1).reasoning_effort,"xhigh");
     await command("set_thinking_level",{level:"off"});await command("prompt",{text:"关闭默认思考"});assert.ok(!requests.at(-1).reasoning_effort);
+    const image={type:"image",mimeType:"image/png",data:(await readFile(join(dirname(fileURLToPath(import.meta.url)),"../src-tauri/icons/icon.png"))).toString("base64")};
+    const requestCount=requests.length,blockedId=`full-${++seq}`;child.stdin.write(JSON.stringify({type:"prompt",id:blockedId,text:"未启用视觉",images:[image]})+"\n");const blocked=await until(m=>m.id===blockedId&&m.type==="error");assert.match(blocked.message,/未启用视觉/);assert.equal(requests.length,requestCount);
+    await command("update_model",{providerId:provider.providerId,model:{id:"unknown-model",vision:true,reasoning:false}});
+    await command("refresh_model",{providerId:provider.providerId,modelId:"unknown-model"});
+    await command("prompt",{text:"识别图片",images:[image]});assert.ok(requests.at(-1).messages.some(m=>Array.isArray(m.content)&&m.content.some(b=>b.type==="image_url"&&b.image_url?.url?.startsWith('data:image/'))),JSON.stringify(requests.at(-1).messages));
+    await stop();start();await until(m=>m.type==="ready");await command("init");await command("select_model",{provider:provider.providerId,model:"unknown-model"});
+    await command("prompt",{text:"重启视觉验证",images:[image]});assert.ok(requests.at(-1).messages.some(m=>Array.isArray(m.content)&&m.content.some(b=>b.type==="image_url")));
     await command("delete_provider",{providerId:provider.providerId});
     assert.ok(!messages.filter(m=>m.type==="models").at(-1).models.some(m=>m.provider===provider.providerId));
     assert.ok(messages.filter(m=>m.type==="history").at(-1).messages.length>1,"删除供应商不能删除会话历史");

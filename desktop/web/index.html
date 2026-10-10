@@ -44,7 +44,7 @@
         <div id="messages" class="transcript-list"></div>
       </div>
     </main>
-    <div class="status-line"><span class="status-pulse" aria-hidden="true"></span><span id="status" class="composer-status">正在连接…</span></div>
+    <div class="status-line"><span class="status-pulse" aria-hidden="true"></span><span id="status" class="composer-status">正在连接…</span><span id="status-model" class="status-model" hidden></span></div>
     <div class="composer-dock">
       <div id="queue-preview" class="queue-preview" hidden><div id="queue-items"></div><button id="clear-queue" type="button">取消待处理消息</button></div>
       <form id="composer" class="composer-stack">
@@ -53,7 +53,6 @@
           <div id="attachment-strip" class="attachment-strip" hidden></div>
           <div class="composer-input-wrap"><textarea id="prompt" class="composer-input" rows="2" placeholder="问点什么…" aria-label="消息"></textarea></div>
           <div class="composer-toolbar">
-            <select id="message-mode" class="message-mode" aria-label="生成中新消息处理方式" hidden><option value="steer">引导</option><option value="followUp">队列</option></select>
             <button id="add-image" class="attachment-button" type="button" title="添加文件或图片" aria-label="添加文件或图片"><svg><use href="#icon-new"/></svg></button>
             <button id="workspace-button" class="workspace-chip" type="button" title="切换工作目录"><svg><use href="#icon-folder"/></svg><span id="workspace-label">工作目录</span></button>
       <div class="composer-configuration">
@@ -61,10 +60,12 @@
         <button id="role-button" class="model-chip role-chip" type="button" title="角色预设"><svg><use href="#icon-role"/></svg><span class="compact-button-label">Role</span><span id="role-label">Agent</span><svg class="chip-chevron"><use href="#icon-chevron"/></svg></button>
       </div>
             <span class="composer-spacer"></span>
+            <div class="composer-metrics">
             <span id="token-speed" class="token-speed" title="服务端输出 token / 模型生成时段（含思考和首 token 等待，不含工具等待）">— tok/s</span>
             <button id="context-usage" class="context-usage" type="button" aria-label="查看上下文占用" title="上下文占用未知"><svg viewBox="0 0 32 32"><circle class="context-track" cx="16" cy="16" r="12"/><circle id="context-arc" class="context-arc" cx="16" cy="16" r="12" stroke-dasharray="0 75.4"/></svg><span id="context-percent">?</span></button>
             <button id="stop-button" type="button" class="stop-button" title="停止生成" aria-label="停止生成" hidden><svg><use href="#icon-stop"/></svg></button>
             <button id="send-button" class="send-btn" type="submit" title="发送" aria-label="发送" disabled><svg><use href="#icon-send"/></svg></button>
+            </div>
           </div>
         </div>
       </form>
@@ -107,5 +108,5 @@
   <button id="configure-models" class="settings-action">配置提供商</button></div>
   <div id="thinking-step" hidden><h3 id="chosen-model-name"></h3><p id="chosen-model-info"></p><label>思考档位<select id="thinking-level" aria-label="思考档位"></select></label><p id="thinking-hint"></p><div class="model-step-actions"><button id="model-back" type="button">返回模型列表</button><button id="model-apply" type="button" class="settings-action">确认应用</button></div></div>
   <p id="model-error" role="alert" hidden></p>
-</dialog></body>
+</dialog><dialog id="image-dialog" class="image-dialog"><button id="image-close" class="icon-button" aria-label="关闭图片预览" type="button"><svg><use href="#icon-close"/></svg></button><img id="image-preview" alt="图片预览"></dialog></body>
 </html>

@@ -117,6 +117,7 @@ function renderProviders() {
   }
   if (providerId) renderProviderModels(providers.find(p => p.id === providerId)?.models || []);
 }
+function modelEditor(config){$("manual-model").value=config.id;$("manual-context").value=config.contextWindow||"";$("manual-reasoning").value=config.reasoning==null?"unknown":config.reasoning?"yes":"no";$("manual-vision").checked=config.input?.includes("image")||false;$("thinking-format").value=config.compat?.thinkingFormat||"";$("manual-levels").value=config.reasoning?config.thinkingLevels?.filter(l=>l!=="off").join(", ")||"":"";document.querySelector(".advanced").open=true;$("manual-model").scrollIntoView({block:"nearest"});}
 function renderProviderModels(models) {
   $("discovered-models").replaceChildren();
   for (const model of models) {
@@ -130,11 +131,10 @@ function renderProviderModels(models) {
     use.onclick = () => action(async () => {
       use.disabled=true;use.textContent="获取中…";
       try { const selectedProvider=providerId;const reply=await command("refresh_model",{providerId:selectedProvider,modelId:model.id});const config=reply.modelInfo;notice(`已获取 ${model.name||model.id} 的配置。${config.reasoning==null?"服务未提供思考能力，请在下方补充。":""}`);
-        $("manual-model").value=model.id;$("manual-context").value=config.contextWindow||"";$("manual-reasoning").value=config.reasoning==null?"unknown":config.reasoning?"yes":"no";$("thinking-format").value=config.compat?.thinkingFormat||"";$("manual-levels").value=config.reasoning?config.thinkingLevels?.filter(l=>l!=="off").join(", ")||"":"";
-        document.querySelector(".advanced").open=true;$("manual-model").scrollIntoView({block:"nearest"});
+        modelEditor(config);
       } finally {use.disabled=false;use.textContent="获取配置";}
     });
-    row.append(info, use); $("discovered-models").append(row);
+    const edit=document.createElement("button");edit.type="button";edit.className="secondary";edit.textContent="编辑";edit.onclick=()=>modelEditor(model);const actions=document.createElement("div");actions.className="model-actions";actions.append(edit,use);row.append(info, actions); $("discovered-models").append(row);
   }
 }
 async function saveProvider() {
@@ -150,7 +150,7 @@ $("discover").onclick = () => action(async () => {
 });
 $("manual-save").onclick = () => action(async () => {
   await saveProvider(); const value = $("manual-reasoning").value;
-  const model = { id: $("manual-model").value.trim(), ...($("manual-context").value ? { contextWindow: Number($("manual-context").value) } : {}), ...(value !== "unknown" ? { reasoning: value === "yes" } : {}), thinkingFormat: $("thinking-format").value };
+  const model = { id: $("manual-model").value.trim(), vision:$("manual-vision").checked, ...($("manual-context").value ? { contextWindow: Number($("manual-context").value) } : {}), ...(value !== "unknown" ? { reasoning: value === "yes" } : {}), thinkingFormat: $("thinking-format").value };
   if ($("manual-levels").value.trim()) model.thinkingLevels = $("manual-levels").value.split(/[,，\s]+/).filter(Boolean);
   await command("update_model", { providerId, model }); notice("模型信息已保存。");
 });

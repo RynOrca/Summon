@@ -33,7 +33,10 @@ export function normalizeDiscoveredModel(raw, known) {
   if (["qwen","qwen-chat-template"].includes(format)) thinkingLevels=["off","medium"];
   const reasoning = typeof explicitReasoning === "boolean" ? explicitReasoning : thinkingLevels?.some(level => level !== "off") ? true : known?.reasoning ?? null;
   const compat = ["openai", "qwen", "qwen-chat-template", "deepseek"].includes(format) ? { ...known?.compat, thinkingFormat: format, supportsReasoningEffort: format === "openai" } : known?.compat;
-  return { id, name: raw.name || known?.name || id, contextWindow, maxTokens: positive(raw.max_output_tokens, known?.maxTokens), reasoning, thinkingLevels, input: known?.input || ["text"], compat, infoSource: contextWindow || reasoning !== null ? (known ? "catalog+service" : "service") : "unknown" };
+  const modalities=raw.input || raw.input_modalities || raw.capabilities?.input;
+  const vision=raw.supports_vision ?? raw.capabilities?.vision;
+  const input=Array.isArray(modalities)?["text",...(modalities.includes("image")?["image"]:[])]:typeof vision==="boolean"?["text",...(vision?["image"]:[])]:known?.input||["text"];
+  return { id, name: raw.name || known?.name || id, contextWindow, maxTokens: positive(raw.max_output_tokens, known?.maxTokens), reasoning, thinkingLevels, input, compat, infoSource: contextWindow || reasoning !== null ? (known ? "catalog+service" : "service") : "unknown" };
 }
 
 export class ProviderStore {
@@ -108,7 +111,8 @@ export class ProviderStore {
     const list = Array.isArray(data.data) ? data.data : Array.isArray(data.models) ? data.models : Array.isArray(data) ? data : [];
     const preset = presets.find((item) => item.id === provider.template);
     const catalog = runtime.getModels().filter((model) => model.provider === preset?.sdk);
-    provider.models = list.map((raw) => normalizeDiscoveredModel(raw, catalog.find((model) => model.id === raw.id))).filter(Boolean).slice(0, 300);
+    const previous=provider.models;
+    provider.models = list.map((raw) => {const model=normalizeDiscoveredModel(raw,catalog.find(m=>m.id===raw.id));const overrides=previous.find(m=>m.id===model?.id)?.overrides;return model && {...model,...overrides,...(overrides?{overrides,infoSource:"user"}:{})};}).filter(Boolean).slice(0, 300);
     if (!provider.models.length) throw new Error("接口未返回模型，请检查 Base URL 是否包含正确的 API 路径");
     await this.persist(); await this.install(runtime); return provider.models;
   }
@@ -124,6 +128,7 @@ export class ProviderStore {
     const preset=presets.find(p=>p.id===provider.template);
     const model=normalizeDiscoveredModel(raw,runtime.getModels().find(m=>m.provider===preset?.sdk && m.id===id));
     const index=provider.models.findIndex(m=>m.id===id);
+    const overrides=provider.models[index]?.overrides;if(overrides)Object.assign(model,overrides,{overrides,infoSource:"user"});
     if(index<0)provider.models.push(model);else provider.models[index]=model;
     await this.persist();await this.install(runtime);return this.modelInfo(providerId,id,runtime);
   }
@@ -143,6 +148,7 @@ export class ProviderStore {
     let model = provider.models.find((item) => item.id === input.id);
     if (!model) { model = normalizeDiscoveredModel({ id: input.id }); if (!model) throw new Error("Model ID 无效"); provider.models.push(model); }
     if (input.contextWindow !== undefined) model.contextWindow = positive(input.contextWindow);
+    if (typeof input.vision === "boolean") model.input=["text",...(input.vision?["image"]:[])];
     if (typeof input.reasoning === "boolean") model.reasoning = input.reasoning;
     if (input.thinkingFormat) {
       model.reasoning = true;
@@ -154,6 +160,10 @@ export class ProviderStore {
       if (input.thinkingLevels.some(level => !["off", "minimal", "low", "medium", "high", "xhigh", "max"].includes(level))) throw new Error("思考档位无效");
       model.thinkingLevels = [...new Set(["off", ...input.thinkingLevels])]; model.reasoning = true;
     }
+    if(typeof input.reasoning==="boolean")model.reasoning=input.reasoning;
+    model.overrides={...model.overrides};
+    for(const key of ["contextWindow","reasoning","thinkingLevels","compat"])if(input[key]!==undefined || (key==="compat"&&input.thinkingFormat))model.overrides[key]=model[key];
+    if(typeof input.vision==="boolean")model.overrides.input=model.input;
     model.infoSource = "user";
     await this.persist(); await this.install(runtime);
   }

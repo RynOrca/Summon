@@ -262,6 +262,16 @@ async function handle(command) {
       }
       case "clear_queue":
         session?.clearQueue(); send({ type: "queue", steering: [], followUp: [] }); send({ type: "ack", id }); break;
+      case "promote_queue": {
+        if(!session || !busy)throw new Error("当前任务已结束，消息可能已开始执行");
+        const followUp=session.getFollowUpMessages();
+        if(!Number.isInteger(command.index) || followUp[command.index]!==command.text)throw new Error("队列已更新，请重试");
+        const previous=session.clearQueue();const [target]=previous.followUp.splice(command.index,1);
+        for(const text of previous.steering)await session.steer(text);
+        await session.steer(target);
+        for(const text of previous.followUp)await session.followUp(text);
+        send({type:"queue",steering:session.getSteeringMessages(),followUp:session.getFollowUpMessages()});send({type:"ack",id});break;
+      }
       case "configure_capabilities":
       case "import_skill":
       case "toggle_skill": {
@@ -308,6 +318,7 @@ async function handle(command) {
       case "update_model": {
         if (busy) throw new Error("请等待当前回复结束");
         await providers.updateModel(command.providerId, command.model, await getRuntime());
+        if(session?.model?.provider===command.providerId && session.model.id===command.model.id)await session.setModel((await getRuntime()).getModel(command.providerId,command.model.id));
         await emitState(); send({ type: "ack", id });
         break;
       }
@@ -524,6 +535,7 @@ async function handle(command) {
         if (!session.model || session.model.provider === "unknown") throw new Error("Configure an API key and select a model first");
         if (typeof command.text !== "string") throw new Error("消息文字无效");
         const images = normalizeImages(command.images);
+        if(images.length && !session.model.input?.includes("image"))throw new Error("当前模型未启用视觉能力。请在设置 → 模型中启用支持图片，再重新发送。");
         if (!command.text.trim() && !images.length) throw new Error("请输入消息或添加图片");
         busy = true;
         outputTokens = 0; generationMs = 0; missingUsage = false;
@@ -565,7 +577,7 @@ for await (const line of createInterface({ input: process.stdin })) {
     send({ type: "error", message: "Invalid JSON command" });
     continue;
   }
-  if (["abort", "tool_decision", "queue_message", "clear_queue", "set_approval"].includes(command.type)) {
+  if (["abort", "tool_decision", "queue_message", "promote_queue", "clear_queue", "set_approval"].includes(command.type)) {
     void handle(command);
   } else {
     queue = queue.then(() => handle(command));
