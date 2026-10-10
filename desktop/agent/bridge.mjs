@@ -5,6 +5,7 @@ import { mkdir, stat, readFile, writeFile, rename, realpath, unlink } from "node
 import { join, resolve } from "node:path";
 import { createApprovalGate } from "./approval.mjs";
 import { RoleStore } from "./roles.mjs";
+import { installLearningSkills, prepareRoleSkills } from "./role-skills.mjs";
 import { normalizeImages } from "./images.mjs";
 import { stageFile } from "./files.mjs";
 import { EndpointStore, REMOTE_PROVIDER, validateEndpoint } from "./endpoint.mjs";
@@ -54,6 +55,7 @@ const providers = new ProviderStore(agentDir,{config:userConfig});
 await providers.load();
 const capabilities = new CapabilityStore(dataDir,{config:userConfig});
 await capabilities.load();
+await installLearningSkills(capabilities);
 const learner = new LearnerStore(dataDir);
 await learner.load();
 
@@ -68,7 +70,13 @@ const scope = new FileScope({ workspace: () => cwd, readOnly: () => [capabilitie
 const mcp=new LazyMcp({config:userConfig,scope,send});await mcp.load();
 const approvalGate = createApprovalGate(send, undefined, () => security.approval);
 const memoryAgent = createMemoryAgent({ memory, learner, send, currentSession: () => session, runtime: getRuntime });
-const learningTools = createLearningTools({ capabilities, currentWorkspace: () => cwd, roles, send, scope });
+const preparedSkills=new Map();
+async function prepareSkills(text) {
+  const key=roles.activeId+'\n'+text;
+  preparedSkills.set(key,await prepareRoleSkills(roles.current(),capabilities,text));
+  if(preparedSkills.size>100) preparedSkills.delete(preparedSkills.keys().next().value);
+}
+const learningTools = createLearningTools({ capabilities, currentWorkspace: () => cwd, roles, send, scope, roleSkillInstructions: prompt=>preparedSkills.get(roles.activeId+'\n'+prompt)||'' });
 const learnerTools = learnerExtension({ learner, memory, currentSession: () => session, send });
 let generationStart = null, firstDelta = null, outputTokens = 0, generationMs = 0, missingUsage = false;
 function emitTelemetry() {
@@ -258,6 +266,7 @@ async function handle(command) {
         if (!session || !busy) throw new Error("当前没有正在运行的任务，请直接发送消息");
         if (typeof command.text !== "string" || !command.text.trim()) throw new Error("消息不能为空");
         if (!["steer", "followUp"].includes(command.mode)) throw new Error("请选择引导或排队");
+        await prepareSkills(command.text);
         await session[command.mode](command.text); send({ type: "queue", steering: session.getSteeringMessages(), followUp: session.getFollowUpMessages() }); send({ type: "ack", id }); break;
       }
       case "clear_queue":
@@ -371,6 +380,7 @@ async function handle(command) {
         memoryAgent.cancel(); void memoryAgent.consolidate(); send({ type: "ack", id }); break;
       case "save_role": {
         if (busy) throw new Error("请先等待当前回复结束");
+        if(command.skills?.some(b=>!capabilities.state.skills.some(s=>s.id===b.skillId))) throw new Error("找不到绑定的技能，请刷新技能仓库");
         const roleId = await roles.save(command);
         if (roleId === roles.activeId) {
           const model = session?.model;
@@ -537,6 +547,7 @@ async function handle(command) {
         const images = normalizeImages(command.images);
         if(images.length && !session.model.input?.includes("image"))throw new Error("当前模型未启用视觉能力。请在设置 → 模型中启用支持图片，再重新发送。");
         if (!command.text.trim() && !images.length) throw new Error("请输入消息或添加图片");
+        await prepareSkills(command.text);
         busy = true;
         outputTokens = 0; generationMs = 0; missingUsage = false;
         memoryAgent.cancel();

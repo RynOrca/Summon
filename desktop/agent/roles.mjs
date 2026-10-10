@@ -8,11 +8,20 @@ const builtins = [
   { id: "quick", name: "快捷对话", system: "你是一个简洁、直接的中文助手。", builtin: true },
 ];
 
+export function normalizeBindings(value) {
+  if (!Array.isArray(value) || value.length > 30) throw new Error("每个角色最多绑定 30 个技能");
+  const ids = new Set();
+  return value.map(item => {
+    if (!item || typeof item.skillId !== "string" || !/^[a-zA-Z0-9-]{1,80}$/.test(item.skillId) || typeof item.required !== "boolean" || ids.has(item.skillId)) throw new Error("技能绑定无效或重复");
+    ids.add(item.skillId); return {skillId:item.skillId, required:item.required};
+  });
+}
+
 export class RoleStore {
   constructor(directory,config=null) {
     this.config=config;
     this.path = join(directory, "roles.json");
-    this.roles = builtins.map((role) => ({ ...role }));
+    this.roles = builtins.map((role) => ({ ...role, skills: [] }));
     this.activeId = "agent";
   }
 
@@ -30,14 +39,15 @@ export class RoleStore {
         const builtin = this.roles.find((item) => item.id === role.id);
         builtin.name = role.name.slice(0, 60) || builtin.name;
         builtin.system = role.system.slice(0, 20000);
+        builtin.skills = normalizeBindings(role.skills || []);
       } else if (/^role-[a-z0-9-]{1,64}$/.test(role.id) && this.roles.length < 50) {
-        this.roles.push({ id: role.id, name: role.name.slice(0, 60), system: role.system.slice(0, 20000), builtin: false });
+        this.roles.push({ id: role.id, name: role.name.slice(0, 60), system: role.system.slice(0, 20000), builtin: false, skills: normalizeBindings(role.skills || []) });
       }
     }
     if (this.roles.some((role) => role.id === saved.activeId)) this.activeId = saved.activeId;
   }
 
-  list() { return { roles: this.roles.map((role) => ({ ...role })), activeId: this.activeId }; }
+  list() { return { roles: this.roles.map((role) => ({ ...role, skills: role.skills.map(s=>({...s})) })), activeId: this.activeId }; }
   current() { return this.roles.find((role) => role.id === this.activeId); }
 
   async persist() {
@@ -51,17 +61,19 @@ export class RoleStore {
     const name = typeof input.name === "string" ? input.name.trim() : "";
     const system = typeof input.system === "string" ? input.system.trim() : "";
     if (!name || name.length > 60 || system.length > 20000) throw new Error("角色名称或说明长度不合适");
+    const skills = input.skills === undefined ? undefined : normalizeBindings(input.skills);
     if (input.roleId) {
       const role = this.roles.find((item) => item.id === input.roleId);
       if (!role) throw new Error("找不到该角色");
       role.name = name;
       role.system = system;
+      if (skills !== undefined) role.skills = skills;
       await this.persist();
       return role.id;
     }
     if (this.roles.length >= 50) throw new Error("角色数量已达到上限");
     const id = `role-${randomUUID()}`;
-    this.roles.push({ id, name, system, builtin: false });
+    this.roles.push({ id, name, system, builtin: false, skills: skills || [] });
     await this.persist();
     return id;
   }

@@ -1,0 +1,17 @@
+.role-skill-bindings { margin:20px 0; padding-top:16px; border-top:1px solid #ffffff12; }
+.role-skill-bindings h3 { margin:0 0 8px; font-size:13px; font-weight:600; color:#dadce2; }
+.role-skill-bindings .binding-hint { margin:7px 0 12px; color:#9298a3; font-size:11px; line-height:1.6; }
+.binding-list { display:grid; gap:8px; margin:12px 0; max-height:260px; overflow:auto; }
+.binding-row { display:flex; align-items:center; gap:14px; padding:12px; background:#ffffff04; border:1px solid #ffffff14; border-radius:10px; }
+.binding-info { min-width:0; flex:1; }.binding-info strong { font-size:12px; color:#d7dbe4; overflow-wrap:anywhere; }
+.role-skill-bindings .binding-description { font-size:11px; color:#969ca7; line-height:1.5; margin:5px 0 0; }
+.binding-info small { color:#dab789; font-size:11px; }
+.binding-controls { display:flex; align-items:center; gap:12px; flex:none; }
+.role-skill-bindings .binding-required { display:flex; align-items:center; gap:8px; margin:0; font-size:11px; white-space:nowrap; }
+.role-skill-bindings input.switch { appearance:none; width:32px; height:19px; padding:0; margin:0; border:0; border-radius:12px; background:#4b4e55; cursor:pointer; position:relative; flex:none; }
+.role-skill-bindings input.switch:before { content:""; position:absolute; width:13px; height:13px; top:3px; left:3px; border-radius:50%; background:#dadce1; }
+.role-skill-bindings input.switch:checked { background:#aac2f2; }.role-skill-bindings input.switch:checked:before { transform:translateX(13px); background:#202123; }
+.role-skill-bindings .binding-remove { display:grid; place-items:center; width:26px; height:26px; min-width:26px; padding:0; background:transparent; border:0; border-radius:6px; color:#9298a3; }
+.binding-remove svg { width:16px; height:16px; }.binding-remove:hover { background:#ffffff0c; color:#ddd; }
+.role-skill-bindings select { width:100%; min-height:34px; padding:7px 10px; border:1px solid #42454c; border-radius:8px; background:#191a1d; color:#c7ceda; font:inherit; font-size:12px; }
+@media(max-width:480px) { .binding-row { flex-wrap:wrap; }.binding-info { flex-basis:100%; }.binding-controls { margin-left:auto; } }

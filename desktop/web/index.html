@@ -7,7 +7,7 @@
   <title>Summon</title>
   <link rel="stylesheet" href="./style.css">
   <script type="module" src="./app.js"></script>
-</head>
+<link rel="stylesheet" href="./role-skills.css"></head>
 <body>
   <svg class="icon-sprite" aria-hidden="true" focusable="false">
     <symbol id="icon-new" viewBox="0 0 16 16"><path fill="currentColor" d="M8 2.5a.75.75 0 0 1 .75.75v4h4a.75.75 0 0 1 0 1.5h-4v4a.75.75 0 0 1-1.5 0v-4h-4a.75.75 0 0 1 0-1.5h4v-4A.75.75 0 0 1 8 2.5Z"/></symbol>
@@ -94,7 +94,7 @@
     <div id="role-editor" hidden>
       <label>角色名称<input id="role-name" maxlength="60" placeholder="例如：翻译官"></label>
       <label>角色说明<textarea id="role-system" maxlength="20000" rows="6" placeholder="描述角色的语气、任务和回复规则"></textarea></label>
-      <div class="role-editor-actions"><button id="role-cancel" type="button">取消</button><button id="role-save" class="settings-action" type="button">保存角色</button></div>
+      <div id="role-skills" class="role-skill-bindings"></div><div class="role-editor-actions"><button id="role-cancel" type="button">取消</button><button id="role-save" class="settings-action" type="button">保存角色</button></div>
     </div>
     <p id="role-error" class="history-error" role="alert" hidden></p>
   </dialog>

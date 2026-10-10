@@ -1,5 +1,7 @@
 const $ = id => document.getElementById(id);
 import { icon, windowHandles } from "./icons.js";
+import { createSkillBindings } from "./role-skills.js";
+const roleSkills = createSkillBindings($("role-skills"));
 const tauri = window.__TAURI__;
 let sequence = 0, templates = [], providers = [], editing = null, providerId = null, recording = false, savedShortcut = "", memory = {}, roleId = null;
 const pending = new Map();
@@ -35,6 +37,7 @@ let capabilities = {};
 function element(tag, text, className) { const e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (className) e.className = className; return e; }
 function renderCapabilities(state) {
   capabilities = state;
+  roleSkills.update(state.skills || []);
   $("vault-path").textContent = state.vaultPath || "未选择笔记库";
   $("web-enabled").checked = state.webEnabled; $("browser-enabled").checked = state.browserEnabled;
   $("tavily-state").textContent = state.keyError || (state.hasSearchKey ? "Key 已加密保存" : "尚未配置 Key");
@@ -184,14 +187,14 @@ function renderRoles(roles) {
     const row = document.createElement("div"); row.className = "memory-item";
     const name = document.createElement("strong"); name.textContent = role.name;
     const edit = document.createElement("button"); edit.className = "secondary"; edit.textContent = "编辑";
-    edit.onclick = () => { roleId = role.id; $("role-name").value = role.name; $("role-system").value = role.system || ""; $("role-form").scrollIntoView(); };
+    edit.onclick = () => { roleId = role.id; $("role-name").value = role.name; $("role-system").value = role.system || ""; roleSkills.set(role.skills); $("role-form").scrollIntoView(); };
     row.append(name, edit);
     if (!role.builtin) row.append(deletionButton("删除", () => command("delete_role", { roleId: role.id })));
     $("role-list").append(row);
   }
 }
-$("role-new").onclick = () => { roleId = null; $("role-form").reset(); $("role-name").focus(); };
-$("role-form").onsubmit = event => { event.preventDefault(); void action(async () => { await command("save_role", { roleId, name: $("role-name").value, system: $("role-system").value }); roleId = null; $("role-form").reset(); notice("角色已保存，可在对话窗口选择。"); }); };
+$("role-new").onclick = () => { roleId = null; $("role-form").reset(); roleSkills.set(); $("role-name").focus(); };
+$("role-form").onsubmit = event => { event.preventDefault(); void action(async () => { await command("save_role", { roleId, name: $("role-name").value, system: $("role-system").value, skills: roleSkills.get() }); roleId = null; $("role-form").reset(); roleSkills.set(); notice("角色已保存，可在对话窗口选择。"); }); };
 $("autostart").onchange = () => action(async () => { try { await tauri.core.invoke("set_autostart", { enabled: $("autostart").checked }); } catch(error) { $("autostart").checked = !$("autostart").checked; throw error; } });
 async function finishRecording() { recording = false; $("shortcut").textContent = savedShortcut || "录入快捷键"; await tauri.core.invoke("capture_shortcut", { active: false }); }
 $("shortcut").onclick = () => action(async () => { if (recording) return; await tauri.core.invoke("capture_shortcut", { active: true }); recording = true; $("shortcut").textContent = "请按下组合键…"; $("shortcut").focus(); });

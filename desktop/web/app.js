@@ -2,6 +2,8 @@
 import { renderMarkdown } from "./markdown.js";
 import { icon, windowHandles } from "./icons.js";
 const $ = (id) => document.getElementById(id);
+import { createSkillBindings } from "./role-skills.js";
+const roleSkills = createSkillBindings($("role-skills"));
 const tauri = window.__TAURI__;
 const messages = $("messages");
 const transcript = $("transcript");
@@ -14,6 +16,7 @@ let reconnectTimer;
 const historyDrawer = $("history-drawer");
 const rolesDialog = $("roles-dialog");
 let activeRoleId = "agent";
+let roles = [];
 let editingRoleId = null;
 let activeSessionId = "";
 let activeSessionName = "";
@@ -329,6 +332,7 @@ function renderRoles() {
       editingRoleId = role.id;
       $("role-name").value = role.name;
       $("role-system").value = role.system || "";
+      roleSkills.set(role.skills);
       $("role-editor").hidden = false;
       $("role-name").focus();
     });
@@ -414,6 +418,7 @@ function onEvent(event) {
       if (response.sessionId === activeSessionId) activeSessionName = response.name || "";
       void command("list_sessions");
       break;
+    case "capabilities": roleSkills.update(response.state?.skills || []); break;
     case "roles":
       roles = response.roles || [];
       activeRoleId = response.activeId || "agent";
@@ -600,12 +605,13 @@ for (const dialog of document.querySelectorAll("dialog")) {
     if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) dialog.close();
   });
 }
-$("role-button").addEventListener("click", () => { $("role-error").hidden = true; renderRoles(); rolesDialog.showModal(); });
+$("role-button").addEventListener("click", () => { $("role-error").hidden = true; renderRoles(); rolesDialog.showModal(); void command("get_state").catch(roleError); });
 $("roles-close").addEventListener("click", () => rolesDialog.close());
 $("roles-new").addEventListener("click", () => {
   editingRoleId = null;
   $("role-name").value = "";
   $("role-system").value = "";
+  roleSkills.set();
   $("role-editor").hidden = false;
   $("role-name").focus();
 });
@@ -613,7 +619,7 @@ $("role-cancel").addEventListener("click", () => { $("role-editor").hidden = tru
 $("role-save").addEventListener("click", async () => {
   $("role-error").hidden = true;
   try {
-    await command("save_role", { roleId: editingRoleId, name: $("role-name").value, system: $("role-system").value }, true);
+    await command("save_role", { roleId: editingRoleId, name: $("role-name").value, system: $("role-system").value, skills: roleSkills.get() }, true);
     $("role-editor").hidden = true;
     editingRoleId = null;
   } catch (error) { roleError(error); }
