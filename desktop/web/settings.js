@@ -235,8 +235,11 @@ $("close").replaceChildren(icon("close")); windowHandles(tauri);
 
 let editingMcp=null;
 function renderMcp(servers){$("mcp-list").replaceChildren();for(const server of servers){const row=element("div",undefined,"card");row.append(element("h3",server.name),element("p",`${server.transport} · ${server.enabled?"启用":"停用"} · ${server.connected?"已连接":"按需连接"}`));
-const edit=element("button","编辑","secondary");edit.onclick=()=>{editingMcp=server.id;$("mcp-name").value=server.name;$("mcp-transport").value=server.transport;$("mcp-url").value=server.url||"";$("mcp-command").value=server.command||"";$("mcp-args").value=JSON.stringify(server.args||[]);$("mcp-enabled").checked=server.enabled;$("mcp-key").value="";};
+const edit=element("button","编辑","secondary");edit.onclick=()=>{editingMcp=server.id;$("mcp-name").value=server.name;$("mcp-transport").value=server.transport;$("mcp-url").value=server.url||"";$("mcp-command").value=server.command||"";$("mcp-args").value=JSON.stringify(server.args||[]);$("mcp-enabled").checked=server.enabled;$("mcp-key").value="";syncMcpTransport();};
 const discover=element("button","发现工具","secondary");discover.onclick=()=>action(async()=>{discover.disabled=true;try{await command("discover_mcp",{serverId:server.id});notice("工具发现完成；空闲后自动断开。");}finally{discover.disabled=false;}});
 const remove=deletionButton("删除",()=>command("delete_mcp",{serverId:server.id}));row.append(edit,discover,remove);if(server.tools?.length)row.append(element("pre",JSON.stringify(server.tools,null,2),"mcp-tools"));$("mcp-list").append(row);}}
-$("mcp-new").onclick=()=>{editingMcp=null;$("mcp-form").reset();};
+$("mcp-new").onclick=()=>{editingMcp=null;$("mcp-form").reset();syncMcpTransport();};
 $("mcp-form").onsubmit=e=>{e.preventDefault();void action(async()=>{await command("save_mcp",{serverId:editingMcp,name:$("mcp-name").value,transport:$("mcp-transport").value,url:$("mcp-url").value,command:$("mcp-command").value,args:JSON.parse($("mcp-args").value),key:$("mcp-key").value,enabled:$("mcp-enabled").checked});$("mcp-key").value="";notice("MCP 配置已保存，尚未启动服务器。");});};
+
+function syncMcpTransport(){const http=$("mcp-transport").value==="http";$("mcp-http-fields").hidden=!http;$("mcp-key-field").hidden=!http;$("mcp-stdio-fields").hidden=http;}
+$("mcp-transport").onchange=syncMcpTransport;syncMcpTransport();

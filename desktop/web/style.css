@@ -243,17 +243,19 @@ body { border:0; border-radius:14px; }
 #model-thinking { flex:none; font-size:10px; color:#b3c3df; background:#a5bce715; border-radius:5px; padding:2px 5px; white-space:nowrap; }
 
 /* Composer controls stay beside the workspace; small windows use two short buttons. */
-.status-line { position:relative; isolation:isolate; background:transparent; }
-.status-line::before { content:""; position:absolute; inset:0; z-index:-1; backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); background:linear-gradient(to bottom,transparent,#181818e8); mask-image:linear-gradient(to bottom,transparent,#000); }
+.status-line { position:relative; isolation:isolate; background:transparent; min-height:36px; padding-top:12px; }
+.status-line::before { content:""; position:absolute; inset:0; z-index:-1; backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); background:var(--ds-bg-primary); mask-image:linear-gradient(to bottom,transparent 0%,#0003 25%,#000a 55%,#000 80%); }
 .fade-band { display:none; }
 .composer-configuration { flex:1; min-width:0; padding:0; gap:5px; }
 .composer-toolbar .composer-spacer { display:none; }
 .composer-configuration #model-button { height:29px; overflow:hidden; }
 .composer-configuration .role-chip { max-width:90px; height:29px; }
+.composer-configuration .model-chip { border:0; background:transparent; margin-left:0; padding-inline:5px; justify-content:center; }
+.composer-configuration .model-chip:hover { background:transparent; color:#fff; }
 .compact-button-label { display:none; }
 .workspace-chip { max-width:115px; flex-shrink:1; }.workspace-chip span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .history-conversation { display:flex; align-items:center; gap:3px; }.history-conversation .history-item { flex:1; min-width:0; }.history-action { font-size:10px; color:#979fab; padding:5px 3px; }.history-action.danger { color:#ec9292; }
 .history-project summary { display:flex; align-items:center; gap:6px; }.history-project summary svg { width:17px; height:17px; }
 @media(max-width:650px) { .composer-configuration #model-label,.composer-configuration #model-thinking,.composer-configuration #role-label,.composer-configuration .chip-chevron { display:none; }.compact-button-label { display:inline; }.composer-configuration #model-button,.composer-configuration .role-chip { flex:none; width:auto; padding:4px 8px; }.composer-configuration { flex:1; }.token-speed { font-size:10px; }.workspace-chip { max-width:70px; } }
 
-.chat-body { margin-bottom:-24px; }.thread-scroll { padding-bottom:42px; }.mcp-tools { font-size:11px; max-height:240px; overflow:auto; white-space:pre-wrap; }
+.chat-body { margin-bottom:-36px; }.thread-scroll { padding-bottom:54px; }.mcp-tools { font-size:11px; max-height:240px; overflow:auto; white-space:pre-wrap; }

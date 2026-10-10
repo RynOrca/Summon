@@ -44,7 +44,7 @@ $outer = New-Object SummonBoundsTest+Rect
 $client = New-Object SummonBoundsTest+Rect
 [SummonBoundsTest]::GetWindowRect($targetHandle,[ref]$outer) | Out-Null
 [SummonBoundsTest]::GetClientRect($targetHandle,[ref]$client) | Out-Null
-${capture ? `Add-Type -AssemblyName System.Drawing; $bitmap=New-Object System.Drawing.Bitmap(($outer.Right-$outer.Left),($outer.Bottom-$outer.Top)); $graphics=[System.Drawing.Graphics]::FromImage($bitmap); $graphics.CopyFromScreen($outer.Left,$outer.Top,0,0,$bitmap.Size); $bitmap.Save('${capture.replace(/'/g,"''")}',[System.Drawing.Imaging.ImageFormat]::Png); $graphics.Dispose(); $bitmap.Dispose()` : ''}
+${capture ? `[SummonBoundsTest]::SetWindowPos($targetHandle,[IntPtr](-1),0,0,0,0,3) | Out-Null; Start-Sleep -Milliseconds 200; Add-Type -AssemblyName System.Drawing; $bitmap=New-Object System.Drawing.Bitmap(($outer.Right-$outer.Left),($outer.Bottom-$outer.Top)); $graphics=[System.Drawing.Graphics]::FromImage($bitmap); $graphics.CopyFromScreen($outer.Left,$outer.Top,0,0,$bitmap.Size); $bitmap.Save('${capture.replace(/'/g,"''")}',[System.Drawing.Imaging.ImageFormat]::Png); $graphics.Dispose(); $bitmap.Dispose()` : ''}
 $region = [SummonBoundsTest]::CreateRectRgn(0,0,0,0)
 $regionKind = [SummonBoundsTest]::GetWindowRgn($targetHandle,$region)
 $cornerInside = [SummonBoundsTest]::PtInRegion($region,0,0)
@@ -61,6 +61,7 @@ using System; using System.Runtime.InteropServices;
 public class SummonPointerTest {
  [StructLayout(LayoutKind.Sequential)] public struct Point { public int X,Y; }
  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h,out uint p);
+ [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h,IntPtr a,int x,int y,int w,int h2,uint flags);
  [DllImport("user32.dll")] public static extern bool GetCursorPos(out Point p);
  [DllImport("user32.dll")] public static extern bool SetCursorPos(int x,int y);
  [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
@@ -70,6 +71,7 @@ public class SummonPointerTest {
 }
 '@
 [uint32]$owner=0; [SummonPointerTest]::GetWindowThreadProcessId([IntPtr]${hwnd},[ref]$owner) | Out-Null; if($owner -ne ${pid}){throw 'Unowned test window'}
+[SummonPointerTest]::SetWindowPos([IntPtr]${hwnd},[IntPtr](-1),0,0,0,0,3) | Out-Null
 [SummonPointerTest]::SetProcessDPIAware() | Out-Null
 $original=New-Object SummonPointerTest+Point; [SummonPointerTest]::GetCursorPos([ref]$original) | Out-Null
 try { [SummonPointerTest]::SetCursorPos(${from.x},${from.y}) | Out-Null; $hit=New-Object SummonPointerTest+Point; [SummonPointerTest]::GetCursorPos([ref]$hit) | Out-Null; [SummonPointerTest]::GetWindowThreadProcessId([SummonPointerTest]::GetAncestor([SummonPointerTest]::WindowFromPoint($hit),2),[ref]$owner) | Out-Null; if($owner -ne ${pid}){throw 'Pointer is outside owned test window'}; [SummonPointerTest]::mouse_event(2,0,0,0,[UIntPtr]::Zero); Start-Sleep -Milliseconds 300; [SummonPointerTest]::SetCursorPos(${to.x},${to.y}) | Out-Null; Start-Sleep -Milliseconds 300; }
@@ -81,7 +83,7 @@ function geometry(value) { return {x:value.x,y:value.y,width:value.width,height:
 
 (async () => {
   const data = await fs.mkdtemp(path.join(os.tmpdir(),'summon-window-state-test-'));
-  const packageDir = process.env.SUMMON_TEST_PACKAGE;
+  const packageDir = await require('./isolated-package.cjs')(process.env.SUMMON_TEST_PACKAGE, data);
   const checks = []; let child, browser, page;
   async function start() {
     child = spawn(path.join(packageDir,'Summon.exe'), [], {cwd:packageDir,windowsHide:true,stdio:'ignore',env:{...process.env,SUMMON_TEST_DATA_DIR:data,SUMMON_TEST_WEBVIEW_PORT:'9313'}});
@@ -109,6 +111,9 @@ function geometry(value) { return {x:value.x,y:value.y,width:value.width,height:
     await gesture(child.pid,initial.handle,resizeFrom,{x:resizeFrom.x+60,y:resizeFrom.y});const resized=await bounds(child.pid,initial.handle);
     assert.equal(resized.outerWidth,dragged.outerWidth+60);checks.push('窗口边缘真实鼠标缩放');
 
+    await bounds(child.pid,initial.handle,{x:120,y:80,width:Math.round(760*scale),height:840});await delay(300);
+    assert.equal(await page.locator('#model-label').isVisible(),true);assert.equal(await page.locator('#role-label').isVisible(),true);assert.equal(await page.locator('.compact-button-label').first().isVisible(),false);
+    await bounds(child.pid,initial.handle,undefined,undefined,path.join(nativeArtifacts,'native-wide.png'));checks.push('真实宽窗口显示模型与角色名，窄窗按钮自动切换');
     const adjusted=await bounds(child.pid,initial.handle,{x:160,y:120,width:1040,height:840});
     assert.notDeepEqual(geometry(adjusted),geometry(initial));
     await delay(1300);let saved=JSON.parse(await fs.readFile(path.join(data,'window-state.json'),'utf8')).main;
